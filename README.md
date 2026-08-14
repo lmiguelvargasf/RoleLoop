@@ -11,14 +11,14 @@ Search, filter, and triage every job case from one responsive workspace. Each ro
 eligibility, decision, résumé, application, and outcome state visible without making the UI the
 source of truth.
 
-[![RoleLoop inbox with workflow filters, job ledger, and selected-case preview](docs/screenshots/roleloop-inbox.png)](docs/screenshots/roleloop-inbox.png)
+[![RoleLoop inbox with workflow filters, job ledger, and selected-case preview](https://lmiguelvargasf.github.io/RoleLoop/screenshots/roleloop-inbox.png)](https://lmiguelvargasf.github.io/RoleLoop/screenshots/roleloop-inbox.png)
 
 ### Evidence-led review
 
 RoleLoop gives supporting evidence and skeptic findings equal visual weight, with source anchors
 and explicit workflow facets instead of an opaque match score.
 
-[![RoleLoop job review showing the case for and skeptic's case side by side](docs/screenshots/roleloop-review-evidence.png)](docs/screenshots/roleloop-review-evidence.png)
+[![RoleLoop job review showing the case for and skeptic's case side by side](https://lmiguelvargasf.github.io/RoleLoop/screenshots/roleloop-review-evidence.png)](https://lmiguelvargasf.github.io/RoleLoop/screenshots/roleloop-review-evidence.png)
 
 ### Résumé validation and application tracking
 
@@ -27,18 +27,18 @@ then move into a separate ledger with the artifact snapshot and current outcome.
 
 #### Résumé validation
 
-[![RoleLoop résumé validation results](docs/screenshots/roleloop-review-resume.png)](docs/screenshots/roleloop-review-resume.png)
+[![RoleLoop résumé validation results](https://lmiguelvargasf.github.io/RoleLoop/screenshots/roleloop-review-resume.png)](https://lmiguelvargasf.github.io/RoleLoop/screenshots/roleloop-review-resume.png)
 
 #### Application ledger
 
-[![RoleLoop application and outcome ledger](docs/screenshots/roleloop-applications.png)](docs/screenshots/roleloop-applications.png)
+[![RoleLoop application and outcome ledger](https://lmiguelvargasf.github.io/RoleLoop/screenshots/roleloop-applications.png)](https://lmiguelvargasf.github.io/RoleLoop/screenshots/roleloop-applications.png)
 
 ### Search profiles and provider readiness
 
 Settings shows the active search criteria, immutable résumé-evidence version, managed artifact,
 and which external provider capabilities are configured.
 
-[![RoleLoop settings with search profiles, résumé evidence, and provider readiness](docs/screenshots/roleloop-settings.png)](docs/screenshots/roleloop-settings.png)
+[![RoleLoop settings with search profiles, résumé evidence, and provider readiness](https://lmiguelvargasf.github.io/RoleLoop/screenshots/roleloop-settings.png)](https://lmiguelvargasf.github.io/RoleLoop/screenshots/roleloop-settings.png)
 
 ## Install and run
 
