@@ -4,18 +4,44 @@ import sqlite3
 from typing import Self
 
 from roleloop.application.ports import (
+    AgentRunsRepository,
+    AnswerEventsRepository,
     ApplicationsRepository,
+    ArtifactsRepository,
+    CommandReceiptsRepository,
+    DecisionEventsRepository,
     EventsRepository,
     EvidenceRepository,
+    FollowUpsRepository,
     JobCasesRepository,
     JobsRepository,
+    JobVersionsRepository,
+    LegacyImportsRepository,
     ProfilesRepository,
+    ProfileVersionsRepository,
+    ResumeReviewsRepository,
     ResumeRunsRepository,
     ResumeSourcesRepository,
     ReviewsRepository,
+    ScreenEvaluationsRepository,
+    TrackedApplicationsRepository,
     UnitOfWork,
 )
 
+from .authoritative_repositories import (
+    SQLiteAgentRunsRepository,
+    SQLiteAnswerEventsRepository,
+    SQLiteArtifactsRepository,
+    SQLiteCommandReceiptsRepository,
+    SQLiteDecisionEventsRepository,
+    SQLiteFollowUpsRepository,
+    SQLiteJobVersionsRepository,
+    SQLiteLegacyImportsRepository,
+    SQLiteProfileVersionsRepository,
+    SQLiteResumeReviewsRepository,
+    SQLiteScreenEvaluationsRepository,
+    SQLiteTrackedApplicationsRepository,
+)
 from .database import SQLiteDatabase
 from .repositories import (
     SQLiteApplicationsRepository,
@@ -40,6 +66,18 @@ class SQLiteUnitOfWork:
     resume_runs: ResumeRunsRepository
     applications: ApplicationsRepository
     events: EventsRepository
+    artifacts: ArtifactsRepository
+    commands: CommandReceiptsRepository
+    profile_versions: ProfileVersionsRepository
+    job_versions: JobVersionsRepository
+    agent_runs: AgentRunsRepository
+    screens: ScreenEvaluationsRepository
+    answer_events: AnswerEventsRepository
+    decision_events: DecisionEventsRepository
+    resume_reviews: ResumeReviewsRepository
+    tracked_applications: TrackedApplicationsRepository
+    follow_ups: FollowUpsRepository
+    legacy_imports: LegacyImportsRepository
 
     def __init__(self, database: SQLiteDatabase) -> None:
         self._database = database
@@ -62,6 +100,18 @@ class SQLiteUnitOfWork:
         self.resume_runs = SQLiteResumeRunsRepository(connection)
         self.applications = SQLiteApplicationsRepository(connection)
         self.events = SQLiteEventsRepository(connection)
+        self.artifacts = SQLiteArtifactsRepository(connection)
+        self.commands = SQLiteCommandReceiptsRepository(connection)
+        self.profile_versions = SQLiteProfileVersionsRepository(connection)
+        self.job_versions = SQLiteJobVersionsRepository(connection)
+        self.agent_runs = SQLiteAgentRunsRepository(connection)
+        self.screens = SQLiteScreenEvaluationsRepository(connection)
+        self.answer_events = SQLiteAnswerEventsRepository(connection)
+        self.decision_events = SQLiteDecisionEventsRepository(connection)
+        self.resume_reviews = SQLiteResumeReviewsRepository(connection)
+        self.tracked_applications = SQLiteTrackedApplicationsRepository(connection)
+        self.follow_ups = SQLiteFollowUpsRepository(connection)
+        self.legacy_imports = SQLiteLegacyImportsRepository(connection)
         return self
 
     def __exit__(

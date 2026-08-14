@@ -28,6 +28,12 @@ class InvalidTransitionError(ApplicationError):
     code = "invalid_transition"
 
 
+class ConcurrentInstanceError(ApplicationError):
+    """The authoritative local state is already owned by another process."""
+
+    code = "concurrent_instance"
+
+
 class ProviderUnavailableError(ApplicationError):
     code = "provider_unavailable"
 

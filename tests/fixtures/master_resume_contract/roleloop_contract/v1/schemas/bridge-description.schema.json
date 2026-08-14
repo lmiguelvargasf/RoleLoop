@@ -1,0 +1,27 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://roleloop.local/schemas/master-resume/bridge-description-v1.json",
+  "title": "BridgeDescriptionV1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema", "contract_name", "contract_version", "bridge_version", "renderer_version", "commands", "schemas", "supported_paper_sizes"],
+  "properties": {
+    "schema": {"const": "roleloop.bridge-description.v1"},
+    "contract_name": {"const": "roleloop.master-resume"},
+    "contract_version": {"const": 1},
+    "bridge_version": {"type": "string", "minLength": 1},
+    "renderer_version": {"type": "string", "minLength": 1},
+    "commands": {"const": ["describe", "export", "render"]},
+    "schemas": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["evidence_catalog", "tailoring_selection", "render_result"],
+      "properties": {
+        "evidence_catalog": {"const": 1},
+        "tailoring_selection": {"const": 1},
+        "render_result": {"const": 1}
+      }
+    },
+    "supported_paper_sizes": {"const": ["a4paper", "letterpaper"]}
+  }
+}

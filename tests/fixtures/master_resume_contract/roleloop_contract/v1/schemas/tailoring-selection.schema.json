@@ -1,0 +1,46 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://roleloop.local/schemas/master-resume/tailoring-selection-v1.json",
+  "title": "TailoringSelectionV1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema",
+    "contract_version",
+    "source_revision",
+    "evidence_catalog_sha256",
+    "job_version_id",
+    "headline",
+    "summary_id",
+    "skill_ids",
+    "experiences",
+    "paper_size",
+    "maximum_pages"
+  ],
+  "properties": {
+    "schema": {"const": "roleloop.tailoring-selection.v1"},
+    "contract_version": {"const": 1},
+    "source_revision": {"type": "string", "pattern": "^(?:[0-9a-f]{40}|[0-9a-f]{64})$"},
+    "evidence_catalog_sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "job_version_id": {"type": "string", "minLength": 1, "maxLength": 200},
+    "headline": {"type": "string", "minLength": 1, "maxLength": 200, "pattern": "^[^0-9]*$"},
+    "summary_id": {"type": "string", "minLength": 1},
+    "skill_ids": {"type": "array", "maxItems": 18, "uniqueItems": true, "items": {"type": "string", "minLength": 1}},
+    "experiences": {
+      "type": "array",
+      "minItems": 1,
+      "maxItems": 6,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["experience_id", "bullet_ids"],
+        "properties": {
+          "experience_id": {"type": "string", "minLength": 1},
+          "bullet_ids": {"type": "array", "minItems": 1, "maxItems": 12, "uniqueItems": true, "items": {"type": "string", "minLength": 1}}
+        }
+      }
+    },
+    "paper_size": {"enum": ["a4paper", "letterpaper"]},
+    "maximum_pages": {"type": "integer", "minimum": 1, "maximum": 5}
+  }
+}

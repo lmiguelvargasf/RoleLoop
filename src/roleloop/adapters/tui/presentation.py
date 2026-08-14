@@ -7,6 +7,8 @@ from datetime import date, datetime
 from pathlib import Path
 from typing import Any
 
+from roleloop.application.errors import ApplicationError
+
 _MISSING = object()
 
 
@@ -96,7 +98,9 @@ def evidence_name(value: Any) -> str:
 def operation_error(error: BaseException) -> str:
     """Produce concise, actionable error copy without exposing tracebacks."""
 
-    message = str(error).strip()
+    if not isinstance(error, ApplicationError):
+        return "RoleLoop encountered an unexpected failure. Run Doctor and retry."
+    message = error.message.strip()
     class_name = type(error).__name__
     if "provider" in class_name.lower() or "config" in class_name.lower():
         return message or "The required provider is not configured. Check Settings."

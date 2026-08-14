@@ -6,7 +6,7 @@ import pytest
 
 from roleloop.application import EvidenceImport, ProfileDraft, ProviderUnavailableError
 from roleloop.application.services import RoleLoopService
-from roleloop.domain import EvidenceSourceKind
+from roleloop.domain import AgentProvider, EvidenceSourceKind
 from roleloop.infrastructure import (
     FileSystemArtifactStore,
     LocalEvidenceExtractor,
@@ -38,7 +38,13 @@ async def test_service_uses_sqlite_and_local_adapters_end_to_end(tmp_path: Path)
         artifact_store=artifacts,
     )
 
-    profile = service.create_profile(ProfileDraft(name="Main", target_roles=("Platform Engineer",)))
+    profile = service.create_profile(
+        ProfileDraft(
+            name="Main",
+            target_roles=("Platform Engineer",),
+            agent_provider=AgentProvider.DEMO,
+        )
+    )
     case = service.add_job_url(profile.id, "https://example.com/jobs/1?utm_source=test")
     evidence = await service.import_evidence(
         profile.id,

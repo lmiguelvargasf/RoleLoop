@@ -25,6 +25,13 @@ class RoleLoopPaths:
 
         return self.data_dir / "resume-sources"
 
+    @property
+    def process_lock_path(self) -> Path:
+        """Advisory lock keyed to the canonical authoritative database."""
+
+        database = self.database_path.resolve(strict=False)
+        return database.with_name(f".{database.name}.roleloop.lock")
+
     @classmethod
     def from_environment(cls, environment: Mapping[str, str] | None = None) -> RoleLoopPaths:
         values = os.environ if environment is None else environment

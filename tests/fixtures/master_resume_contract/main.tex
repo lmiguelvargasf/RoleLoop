@@ -1,0 +1,28 @@
+\documentclass{res}
+\usepackage[utf8]{inputenc}
+\usepackage[T1]{fontenc}
+\usepackage{enumitem}
+\usepackage{multicol}
+\usepackage{hyperref}
+\usepackage{subfiles}
+\usepackage[a4paper,left=18mm,top=12mm,right=18mm,bottom=12mm]{geometry}
+
+\hypersetup{
+  colorlinks=true,
+  urlcolor=blue,
+  pdftitle={Sanitized RoleLoop Fixture},
+}
+
+\newcommand{\drawline}{
+  \vspace{-0.2cm}
+  \noindent\makebox[\linewidth]{\rule{\textwidth}{0.6pt}}
+}
+
+\begin{document}
+  \subfile{sections/info}
+  \subfile{sections/summary}
+  \subfile{sections/skills}
+  \subfile{sections/professional_experience/experience}
+  \subfile{sections/education}
+  \subfile{sections/honors_awards}
+\end{document}

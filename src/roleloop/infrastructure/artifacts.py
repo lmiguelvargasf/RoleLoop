@@ -151,3 +151,71 @@ class FileSystemArtifactStore:
         if not path.is_relative_to(self.root):
             raise ValueError(f"Artifact key escapes storage root: {key!r}")
         return path
+
+
+class FileSystemArtifactAccess:
+    """Verified asynchronous reads and collision-safe user exports."""
+
+    def __init__(self, root: Path) -> None:
+        self._store = FileSystemArtifactStore(root)
+
+    async def read_bytes(self, artifact: ArtifactRef) -> bytes:
+        return await asyncio.to_thread(self._read_verified, artifact)
+
+    async def export(self, artifact: ArtifactRef, destination: Path) -> Path:
+        return await asyncio.to_thread(self._export_sync, artifact, destination)
+
+    def _read_verified(self, artifact: ArtifactRef) -> bytes:
+        data = self._store.read_bytes(artifact.uri)
+        digest = hashlib.sha256(data).hexdigest()
+        if digest != artifact.checksum or len(data) != artifact.size_bytes:
+            raise ArtifactCollisionError(
+                "Stored artifact no longer matches its immutable reference",
+                details={"artifact_id": artifact.id},
+            )
+        return data
+
+    def _export_sync(self, artifact: ArtifactRef, destination: Path) -> Path:
+        data = self._read_verified(artifact)
+        target = destination.expanduser().resolve(strict=False)
+        if target.exists():
+            if target.is_symlink() or not target.is_file():
+                raise ArtifactCollisionError("Artifact export destination is not a regular file")
+            if target.read_bytes() == data:
+                return target
+            raise ArtifactCollisionError("Artifact export destination already exists")
+        try:
+            target.parent.mkdir(parents=True, exist_ok=True)
+        except OSError as error:
+            raise ArtifactStoreError("Artifact export directory could not be created") from error
+        if target.parent.is_symlink():
+            raise ArtifactStoreError("Artifact export directory must not be a symbolic link")
+
+        temporary_path: Path | None = None
+        try:
+            with tempfile.NamedTemporaryFile(
+                dir=target.parent,
+                prefix=f".{target.name}-",
+                suffix=".tmp",
+                delete=False,
+            ) as stream:
+                stream.write(data)
+                stream.flush()
+                os.fsync(stream.fileno())
+                temporary_path = Path(stream.name)
+            try:
+                os.link(temporary_path, target)
+            except FileExistsError as error:
+                if target.is_file() and not target.is_symlink() and target.read_bytes() == data:
+                    return target
+                raise ArtifactCollisionError(
+                    "Artifact export destination was created concurrently"
+                ) from error
+            return target
+        except ArtifactStoreError:
+            raise
+        except OSError as error:
+            raise ArtifactStoreError("Artifact could not be exported") from error
+        finally:
+            if temporary_path is not None and temporary_path.exists():
+                temporary_path.unlink()

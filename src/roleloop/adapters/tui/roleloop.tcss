@@ -94,7 +94,8 @@ Screen > #startup-state {
 }
 
 #inbox-state,
-#applications-state {
+#applications-state,
+#followups-state {
     height: 2;
     padding: 0 1;
     color: #9ba7b4;
@@ -102,6 +103,7 @@ Screen > #startup-state {
 
 #job-table,
 #applications-table,
+#followups-table,
 #profiles-table,
 #questions-table {
     height: 1fr;
@@ -165,17 +167,12 @@ DataTable:focus {
 
 .view-toolbar {
     height: 4;
-    padding: 1;
+    padding: 0 1;
     border-bottom: solid #354150;
 }
 
 .view-toolbar .section-kicker {
     width: 1fr;
-}
-
-#applications-outcome-filter {
-    width: 24;
-    margin-right: 1;
 }
 
 #applications-view {
@@ -327,13 +324,17 @@ JobReviewScreen.compact-review #evidence-support {
     margin: 0 1;
 }
 
-#review-actions {
+#review-actions,
+#resume-review-actions,
+#application-stage-actions {
     height: 4;
     padding: 0 1;
     border-top: solid #354150;
 }
 
-#review-actions Button {
+#review-actions Button,
+#resume-review-actions Button,
+#application-stage-actions Button {
     width: 1fr;
     min-width: 12;
     margin: 0 1 0 0;
@@ -346,7 +347,13 @@ AddJobModal,
 QuestionAnswerModal,
 OutcomeModal,
 EvidencePathModal,
-ProfileModal {
+ProfileModal,
+ResumeSourceModal,
+ResumeFeedbackModal,
+SubmissionModal,
+FollowUpRescheduleModal,
+ApplicationStageModal,
+ExportPathModal {
     align: center middle;
     background: #10151c 82%;
 }
@@ -424,7 +431,9 @@ ProfileModal {
 
 #job-details,
 #profile-constraints,
-#evidence-text {
+#evidence-text,
+#resume-feedback,
+#application-stage-note {
     height: 7;
 }
 

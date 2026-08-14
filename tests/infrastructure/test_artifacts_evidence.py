@@ -13,7 +13,7 @@ from roleloop.application.dto import EvidenceImport
 from roleloop.application.errors import ArtifactError, ValidationError
 from roleloop.domain import EvidenceSourceKind
 from roleloop.infrastructure import FileSystemArtifactStore, LocalEvidenceExtractor
-from roleloop.infrastructure.artifacts import ArtifactCollisionError
+from roleloop.infrastructure.artifacts import ArtifactCollisionError, FileSystemArtifactAccess
 
 
 class FixedIds:
@@ -94,6 +94,37 @@ async def test_artifact_store_rejects_unsafe_extensions_and_keys(tmp_path: Path)
         await store.put_bytes(b"data", media_type="text/plain", extension="../escape")
     with pytest.raises(ValueError, match="Unsafe artifact key"):
         store.read_bytes("../escape")
+
+
+@pytest.mark.asyncio
+async def test_artifact_access_verifies_reads_and_exports_without_overwriting(
+    tmp_path: Path,
+) -> None:
+    root = tmp_path / "artifacts"
+    store = FileSystemArtifactStore(root, id_generator=FixedIds())
+    artifact = await store.put_bytes(b"pdf-data", media_type="application/pdf", extension=".pdf")
+    access = FileSystemArtifactAccess(root)
+
+    assert await access.read_bytes(artifact) == b"pdf-data"
+    destination = tmp_path / "exports" / "resume.pdf"
+    assert await access.export(artifact, destination) == destination
+    assert destination.read_bytes() == b"pdf-data"
+    assert await access.export(artifact, destination) == destination
+
+    destination.write_bytes(b"other")
+    with pytest.raises(ArtifactError, match="already exists"):
+        await access.export(artifact, destination)
+
+
+@pytest.mark.asyncio
+async def test_artifact_access_rejects_tampered_managed_content(tmp_path: Path) -> None:
+    root = tmp_path / "artifacts"
+    store = FileSystemArtifactStore(root, id_generator=FixedIds())
+    artifact = await store.put_bytes(b"original", media_type="text/plain", extension=".txt")
+    store.path_for(artifact.uri).write_bytes(b"tampered")
+
+    with pytest.raises(ArtifactError, match="immutable reference"):
+        await FileSystemArtifactAccess(root).read_bytes(artifact)
 
 
 @pytest.mark.asyncio

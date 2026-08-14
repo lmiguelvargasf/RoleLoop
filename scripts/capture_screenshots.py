@@ -33,7 +33,6 @@ from roleloop.domain import (
     ApplicationStatus,
     Decision,
     EligibilityStatus,
-    Outcome,
     ResumeStatus,
     ReviewStatus,
 )
@@ -93,7 +92,6 @@ class ScreenshotFacade(FakeFacade):
                 decision=Decision.WATCH,
                 resume_status=ResumeStatus.READY,
                 application_status=ApplicationStatus.SUBMITTED,
-                outcome=Outcome.INTERVIEWING,
                 submitted_at=base.updated_at,
                 submitted_artifact_id="artifact-resume",
             ),
@@ -153,9 +151,18 @@ async def capture_review() -> None:
 
 async def capture_applications() -> None:
     facade = FakeFacade(decision=Decision.TAILOR)
-    await facade.generate_resume("job-1")
-    facade.mark_applied("job-1")
-    facade.record_outcome("job-1", Outcome.INTERVIEWING.value)
+    run = await facade.generate_resume("job-1")
+    facade.approve_resume("job-1", run.id)
+    facade.submit_application("job-1", "2026-08-21", "Check for acknowledgement")
+    facade.record_application_stage(
+        "job-1",
+        {
+            "stage": "technical_interview",
+            "follow_up": "2026-08-28",
+            "no_follow_up": False,
+            "note": "Technical interview follow-up",
+        },
+    )
     app = RoleLoopApp(facade)
     async with app.run_test(size=SCREEN_SIZE) as pilot:
         await settle(app, pilot)

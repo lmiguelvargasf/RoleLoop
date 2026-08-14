@@ -3,14 +3,17 @@
 from __future__ import annotations
 
 import asyncio
+import errno
 import hashlib
 import json
 import os
+import signal
 import sqlite3
 import subprocess
 import tempfile
-from collections.abc import Iterator, Sequence
-from contextlib import contextmanager
+import time
+from collections.abc import Iterator, Mapping, Sequence
+from contextlib import contextmanager, suppress
 from dataclasses import dataclass
 from pathlib import Path, PurePosixPath
 
@@ -30,7 +33,43 @@ from roleloop.domain.git import (
 )
 
 _DEFAULT_COMMAND_TIMEOUT_SECONDS = 60.0
+_MAX_REPOSITORY_ARCHIVE_BYTES = 100 * 1024 * 1024
+_MAX_GIT_STDOUT_BYTES = 4 * 1024 * 1024
+_MAX_GIT_STDERR_BYTES = 512 * 1024
 _SYNC_OPERATION = "resume_source_sync"
+_GIT_SSH_COMMAND = "ssh -oBatchMode=yes"
+_GIT_SAFE_CONFIG_OVERRIDES = (
+    ("core.fsmonitor", "false"),
+    ("core.hooksPath", os.devnull),
+    ("core.pager", "cat"),
+    ("core.sshCommand", _GIT_SSH_COMMAND),
+    ("credential.helper", ""),
+    ("credential.interactive", "never"),
+    ("protocol.ext.allow", "never"),
+)
+_GIT_INHERITED_ENVIRONMENT_ALLOWLIST = (
+    # HOME preserves noninteractive SSH identities/known-hosts and HTTPS netrc
+    # credentials while the separately pinned GIT_CONFIG_GLOBAL prevents Git from
+    # loading ~/.gitconfig.
+    "HOME",
+    "PATH",
+    "SSH_AUTH_SOCK",
+    "SSL_CERT_DIR",
+    "SSL_CERT_FILE",
+    "ALL_PROXY",
+    "HTTPS_PROXY",
+    "HTTP_PROXY",
+    "NO_PROXY",
+    "all_proxy",
+    "https_proxy",
+    "http_proxy",
+    "no_proxy",
+    # Required by Git/SSH subprocess discovery on Windows packaging smoke tests.
+    "COMSPEC",
+    "PATHEXT",
+    "SYSTEMROOT",
+    "WINDIR",
+)
 _SUPPORTED_DOCUMENTS = {
     ".json": "application/json",
     ".md": "text/markdown",
@@ -58,6 +97,15 @@ class _GitRepository:
         if self.bare:
             return ["--git-dir", str(self.path)]
         return ["-C", str(self.path)]
+
+
+@dataclass(frozen=True, slots=True)
+class GitRepositoryArchive:
+    """Tracked files from one exact Git commit, encoded as a tar archive."""
+
+    source_revision: str
+    data: bytes
+    checksum: str
 
 
 class GitResumeSourceSynchronizer:
@@ -107,6 +155,35 @@ class GitResumeSourceSynchronizer:
         )
         return snapshot
 
+    async def snapshot_archive(
+        self,
+        source: ResumeSource,
+        *,
+        progress: ProgressReporter,
+    ) -> GitRepositoryArchive:
+        """Archive every tracked file at the exact resolved commit.
+
+        This is used only for an explicitly trusted résumé contract. It deliberately
+        ignores ``document_path`` because contract v1 has a fixed CLI entrypoint.
+        """
+
+        progress.report(
+            ProgressUpdate(
+                operation=_SYNC_OPERATION,
+                stage="archiving",
+                message="Archiving the trusted master résumé revision",
+            )
+        )
+        archive = await asyncio.to_thread(self._snapshot_archive, source)
+        progress.report(
+            ProgressUpdate(
+                operation=_SYNC_OPERATION,
+                stage="archived",
+                message="Trusted master résumé revision is archived",
+            )
+        )
+        return archive
+
     def _sync(self, source: ResumeSource) -> ResumeSourceSnapshot:
         document_path, extension, media_type = _validated_document_path(source.document_path)
         ref = _validated_ref(source.ref)
@@ -135,6 +212,50 @@ class GitResumeSourceSynchronizer:
                 )
         else:  # pragma: no cover - enum exhaustiveness guard
             raise ValidationError(f"Unsupported résumé source kind: {source.kind}")
+
+    def _snapshot_archive(self, source: ResumeSource) -> GitRepositoryArchive:
+        ref = _validated_ref(source.ref)
+        if source.kind is ResumeSourceKind.LOCAL_GIT:
+            repository = self._open_local_repository(source.repository)
+            return self._archive_repository(repository, ref=ref)
+        if source.kind is ResumeSourceKind.REMOTE_GIT:
+            _validate_remote_repository(source.repository)
+            self._ensure_cache_root()
+            cache_key = hashlib.sha256(source.repository.encode("utf-8")).hexdigest()
+            with self._remote_cache_lock(cache_key):
+                repository = self._sync_remote_repository(source.repository)
+                return self._archive_repository(repository, ref=ref)
+        raise ValidationError(f"Unsupported résumé source kind: {source.kind}")
+
+    def _archive_repository(
+        self,
+        repository: _GitRepository,
+        *,
+        ref: str,
+    ) -> GitRepositoryArchive:
+        revision = self._resolve_revision(repository, ref)
+        archive = self._run_git_archive(
+            [
+                *repository.command_prefix(),
+                "archive",
+                "--format=tar",
+                revision,
+                "--",
+            ],
+            error_message="Trusted master résumé revision could not be archived",
+        )
+        if not archive:
+            raise ResumeSourceSyncError("Trusted master résumé archive is empty")
+        if len(archive) > _MAX_REPOSITORY_ARCHIVE_BYTES:
+            raise ResumeSourceSyncError(
+                "Trusted master résumé archive exceeds the size limit",
+                details={"maximum_bytes": _MAX_REPOSITORY_ARCHIVE_BYTES},
+            )
+        return GitRepositoryArchive(
+            source_revision=revision,
+            data=archive,
+            checksum=hashlib.sha256(archive).hexdigest(),
+        )
 
     def _snapshot_repository(
         self,
@@ -390,32 +511,132 @@ class GitResumeSourceSynchronizer:
         *,
         error_message: str,
     ) -> subprocess.CompletedProcess[bytes]:
-        environment = os.environ.copy()
-        environment.update(
-            {
-                "GIT_LITERAL_PATHSPECS": "1",
-                "GIT_OPTIONAL_LOCKS": "0",
-                "GIT_TERMINAL_PROMPT": "0",
-                "LC_ALL": "C",
-            }
+        return self._run_git_bounded(
+            arguments,
+            error_message=error_message,
+            stdout_limit=_MAX_GIT_STDOUT_BYTES,
+            stdout_limit_name="stdout_bytes",
+            output_limit_message="Git command output exceeds the size limit",
         )
-        environment.setdefault("GIT_SSH_COMMAND", "ssh -oBatchMode=yes")
+
+    def _run_git_archive(
+        self,
+        arguments: Sequence[str],
+        *,
+        error_message: str,
+    ) -> bytes:
+        """Stream a potentially large Git archive to bounded temporary storage."""
+
+        return self._run_git_bounded(
+            arguments,
+            error_message=error_message,
+            stdout_limit=_MAX_REPOSITORY_ARCHIVE_BYTES,
+            stdout_limit_name="archive_bytes",
+            output_limit_message="Trusted master résumé archive exceeds the size limit",
+        ).stdout
+
+    def _run_git_bounded(
+        self,
+        arguments: Sequence[str],
+        *,
+        error_message: str,
+        stdout_limit: int,
+        stdout_limit_name: str,
+        output_limit_message: str,
+    ) -> subprocess.CompletedProcess[bytes]:
+        """Run Git with fixed config and environment boundaries and bounded output."""
+
+        command = _git_command(self._git_executable, arguments)
+        process: subprocess.Popen[bytes] | None = None
         try:
-            return subprocess.run(
-                [self._git_executable, *arguments],
-                check=True,
-                capture_output=True,
-                env=environment,
-                shell=False,
-                stdin=subprocess.DEVNULL,
-                timeout=self._command_timeout_seconds,
-            )
+            with tempfile.TemporaryDirectory(prefix="roleloop-git-command-") as directory:
+                root = Path(directory).resolve(strict=True)
+                empty_global_config = root / "global.gitconfig"
+                empty_global_config.write_bytes(b"")
+                scratch = root / "tmp"
+                scratch.mkdir()
+                stdout_path = root / "git.stdout"
+                stderr_path = root / "git.stderr"
+                with (
+                    stdout_path.open("wb") as stdout_stream,
+                    stderr_path.open("wb") as stderr_stream,
+                ):
+                    process = subprocess.Popen(
+                        command,
+                        env=_git_environment(
+                            empty_global_config=empty_global_config,
+                            scratch=scratch,
+                        ),
+                        shell=False,
+                        stdin=subprocess.DEVNULL,
+                        stdout=stdout_stream,
+                        stderr=stderr_stream,
+                        start_new_session=os.name == "posix",
+                    )
+                    deadline = time.monotonic() + self._command_timeout_seconds
+                    while True:
+                        violation = _git_output_limit_violation(
+                            stdout_path,
+                            stderr_path,
+                            stdout_limit=stdout_limit,
+                            stdout_limit_name=stdout_limit_name,
+                        )
+                        if violation is not None:
+                            _terminate_git_process_group(process)
+                            limit_name, maximum_bytes = violation
+                            raise ResumeSourceSyncError(
+                                output_limit_message,
+                                details={
+                                    "operation": _SYNC_OPERATION,
+                                    "limit": limit_name,
+                                    "maximum_bytes": maximum_bytes,
+                                },
+                            )
+                        remaining = deadline - time.monotonic()
+                        if remaining <= 0:
+                            _terminate_git_process_group(process)
+                            raise subprocess.TimeoutExpired(
+                                command,
+                                self._command_timeout_seconds,
+                            )
+                        try:
+                            return_code = process.wait(timeout=min(0.05, remaining))
+                            break
+                        except subprocess.TimeoutExpired:
+                            continue
+                    _terminate_git_process_group(process)
+                    violation = _git_output_limit_violation(
+                        stdout_path,
+                        stderr_path,
+                        stdout_limit=stdout_limit,
+                        stdout_limit_name=stdout_limit_name,
+                    )
+                    if violation is not None:
+                        limit_name, maximum_bytes = violation
+                        raise ResumeSourceSyncError(
+                            output_limit_message,
+                            details={
+                                "operation": _SYNC_OPERATION,
+                                "limit": limit_name,
+                                "maximum_bytes": maximum_bytes,
+                            },
+                        )
+                    if return_code != 0:
+                        raise subprocess.CalledProcessError(return_code, command)
+                return subprocess.CompletedProcess(
+                    args=command,
+                    returncode=return_code,
+                    stdout=stdout_path.read_bytes(),
+                    stderr=stderr_path.read_bytes(),
+                )
         except FileNotFoundError as error:
             raise ProviderUnavailableError(
                 "Git is required to synchronize a master résumé repository",
                 details={"capability": _SYNC_OPERATION},
             ) from error
         except subprocess.TimeoutExpired as error:
+            if process is not None:
+                _terminate_git_process_group(process)
             raise ResumeSourceSyncError(
                 f"{error_message} before the Git command timed out",
                 details={
@@ -428,8 +649,112 @@ class GitResumeSourceSynchronizer:
                 error_message,
                 details={"operation": _SYNC_OPERATION, "exit_code": error.returncode},
             ) from error
+        except ResumeSourceSyncError:
+            raise
         except OSError as error:
+            if process is not None:
+                _terminate_git_process_group(process)
             raise ResumeSourceSyncError(error_message) from error
+
+
+def _git_command(executable: str, arguments: Sequence[str]) -> list[str]:
+    command = [executable, "--no-pager"]
+    for key, value in _GIT_SAFE_CONFIG_OVERRIDES:
+        command.extend(("-c", f"{key}={value}"))
+    command.extend(arguments)
+    return command
+
+
+def _git_environment(
+    *,
+    empty_global_config: Path,
+    scratch: Path,
+    inherited: Mapping[str, str] | None = None,
+) -> dict[str, str]:
+    source = os.environ if inherited is None else inherited
+    environment = {
+        key: value
+        for key in _GIT_INHERITED_ENVIRONMENT_ALLOWLIST
+        if (value := source.get(key)) is not None and "\x00" not in value
+    }
+    environment.setdefault("PATH", os.defpath)
+    environment.update(
+        {
+            "GIT_ATTR_NOSYSTEM": "1",
+            "GIT_CONFIG_GLOBAL": str(empty_global_config),
+            "GIT_CONFIG_NOSYSTEM": "1",
+            "GIT_CONFIG_SYSTEM": os.devnull,
+            "GIT_LITERAL_PATHSPECS": "1",
+            "GIT_OPTIONAL_LOCKS": "0",
+            "GIT_PAGER": "cat",
+            "GIT_SSH_COMMAND": _GIT_SSH_COMMAND,
+            "GIT_SSH_VARIANT": "ssh",
+            "GIT_TERMINAL_PROMPT": "0",
+            "LANG": "C",
+            "LC_ALL": "C",
+            "PAGER": "cat",
+            "TMPDIR": str(scratch),
+        }
+    )
+    return environment
+
+
+def _git_output_limit_violation(
+    stdout_path: Path,
+    stderr_path: Path,
+    *,
+    stdout_limit: int,
+    stdout_limit_name: str,
+) -> tuple[str, int] | None:
+    try:
+        if stdout_path.stat().st_size > stdout_limit:
+            return stdout_limit_name, stdout_limit
+        if stderr_path.stat().st_size > _MAX_GIT_STDERR_BYTES:
+            return "stderr_bytes", _MAX_GIT_STDERR_BYTES
+    except FileNotFoundError:
+        return None
+    except OSError:
+        return "unsafe_output", max(stdout_limit, _MAX_GIT_STDERR_BYTES)
+    return None
+
+
+def _terminate_git_process_group(process: subprocess.Popen[bytes]) -> None:
+    if process.poll() is not None and os.name != "posix":
+        return
+    try:
+        if os.name == "posix":
+            os.killpg(process.pid, signal.SIGTERM)
+        else:  # pragma: no cover - Windows packaging smoke only
+            process.terminate()
+    except ProcessLookupError:
+        return
+    except OSError:
+        with suppress(OSError):
+            process.terminate()
+    with suppress(subprocess.TimeoutExpired):
+        process.wait(timeout=0.5)
+    if os.name == "posix":
+        try:
+            os.killpg(process.pid, 0)
+        except OSError as error:
+            # A post-wait process-group probe can report EPERM on macOS after
+            # the group leader exits. Treat EPERM and ESRCH as terminal cleanup
+            # states instead of falling back to the already-exited parent.
+            if error.errno in {errno.EPERM, errno.ESRCH}:
+                return
+            raise
+    try:
+        if os.name == "posix":
+            os.killpg(process.pid, signal.SIGKILL)
+        else:  # pragma: no cover - Windows packaging smoke only
+            process.kill()
+    except ProcessLookupError:
+        return
+    except OSError:
+        with suppress(OSError):
+            process.kill()
+    with suppress(subprocess.TimeoutExpired):
+        process.wait(timeout=0.5)
 
 
 def _validated_document_path(value: str) -> tuple[PurePosixPath, str, str]:

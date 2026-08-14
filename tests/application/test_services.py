@@ -24,6 +24,7 @@ from roleloop.application import (
     ValidationError,
 )
 from roleloop.domain import (
+    AgentProvider,
     Answer,
     ApplicationStatus,
     ArtifactRef,
@@ -45,7 +46,11 @@ from .fakes import AdvancingClock, MemoryUnitOfWorkFactory, SequentialIds
 
 
 def profile_draft(name: str = "Primary") -> ProfileDraft:
-    return ProfileDraft(name=name, target_roles=("Staff Python Engineer",))
+    return ProfileDraft(
+        name=name,
+        target_roles=("Staff Python Engineer",),
+        agent_provider=AgentProvider.DEMO,
+    )
 
 
 def service_with(**providers: object) -> tuple[RoleLoopService, MemoryUnitOfWorkFactory]:
@@ -154,7 +159,7 @@ class Progress:
 def test_profile_validation_activation_and_optimistic_revision() -> None:
     service, _ = service_with()
     with pytest.raises(ValidationError, match="target role"):
-        service.create_profile(ProfileDraft(name="No target"))
+        service.create_profile(ProfileDraft(name="No target", agent_provider=AgentProvider.DEMO))
 
     first = service.create_profile(profile_draft())
     second = service.create_profile(profile_draft("Alternate"))

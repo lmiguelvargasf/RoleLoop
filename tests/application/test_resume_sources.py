@@ -16,7 +16,7 @@ from roleloop.application import (
     RoleLoopService,
     ValidationError,
 )
-from roleloop.domain import ArtifactRef, ResumeSourceKind
+from roleloop.domain import AgentProvider, ArtifactRef, ResumeSourceKind
 
 from .fakes import AdvancingClock, MemoryUnitOfWorkFactory, SequentialIds
 
@@ -60,6 +60,12 @@ def _snapshot(
         extension=".md",
         source_revision=revision,
         content_checksum=hashlib.sha256(content).hexdigest(),
+        contract_schema_version="v1",
+        canonical_evidence_bytes=b"{}",
+        source_bundle_bytes=b"source tar",
+        renderer_protocol_version="v1",
+        renderer_version="test-v1",
+        contract_checksum="1" * 64,
     )
 
 
@@ -82,14 +88,16 @@ def test_configure_source_applies_kind_specific_defaults_and_optimistic_updates(
     tmp_path: Path,
 ) -> None:
     service, _, _ = _service()
-    profile = service.create_profile(ProfileDraft("Primary", target_roles=("Engineer",)))
+    profile = service.create_profile(
+        ProfileDraft("Primary", target_roles=("Engineer",), agent_provider=AgentProvider.DEMO)
+    )
 
     source = service.configure_resume_source(
         profile.id,
         ResumeSourceDraft(
             repository=str(tmp_path),
             kind=ResumeSourceKind.LOCAL_GIT,
-            document_path="resume/master.md",
+            trust_repository=True,
         ),
     )
 
@@ -104,7 +112,7 @@ def test_configure_source_applies_kind_specific_defaults_and_optimistic_updates(
             ResumeSourceDraft(
                 repository="https://example.com/resume.git",
                 kind=ResumeSourceKind.REMOTE_GIT,
-                document_path="resume.md",
+                trust_repository=True,
             ),
             expected_revision=99,
         )
@@ -114,7 +122,7 @@ def test_configure_source_applies_kind_specific_defaults_and_optimistic_updates(
         ResumeSourceDraft(
             repository="https://example.com/resume.git",
             kind=ResumeSourceKind.REMOTE_GIT,
-            document_path="resume.md",
+            trust_repository=True,
         ),
         expected_revision=source.revision,
     )
@@ -125,15 +133,27 @@ def test_configure_source_applies_kind_specific_defaults_and_optimistic_updates(
 @pytest.mark.parametrize(
     ("repository", "kind", "document_path"),
     (
-        ("relative/repository", ResumeSourceKind.LOCAL_GIT, "resume.md"),
-        ("ftp://example.com/resume.git", ResumeSourceKind.REMOTE_GIT, "resume.md"),
-        ("https://user@example.com/resume.git", ResumeSourceKind.REMOTE_GIT, "resume.md"),
+        (
+            "relative/repository",
+            ResumeSourceKind.LOCAL_GIT,
+            "roleloop_contract/v1/cli.py",
+        ),
+        (
+            "ftp://example.com/resume.git",
+            ResumeSourceKind.REMOTE_GIT,
+            "roleloop_contract/v1/cli.py",
+        ),
+        (
+            "https://user@example.com/resume.git",
+            ResumeSourceKind.REMOTE_GIT,
+            "roleloop_contract/v1/cli.py",
+        ),
         (
             "https://example.com/resume.git?token=secret",
             ResumeSourceKind.REMOTE_GIT,
-            "resume.md",
+            "roleloop_contract/v1/cli.py",
         ),
-        ("http://[", ResumeSourceKind.REMOTE_GIT, "resume.md"),
+        ("http://[", ResumeSourceKind.REMOTE_GIT, "roleloop_contract/v1/cli.py"),
         ("https://example.com/resume.git", ResumeSourceKind.REMOTE_GIT, "../resume.md"),
         ("https://example.com/resume.git", ResumeSourceKind.REMOTE_GIT, "/resume.md"),
         ("https://example.com/resume.git", ResumeSourceKind.REMOTE_GIT, "resume\n.md"),
@@ -145,25 +165,46 @@ def test_configure_source_rejects_unsafe_locations(
     document_path: str,
 ) -> None:
     service, _, _ = _service()
-    profile = service.create_profile(ProfileDraft("Primary", target_roles=("Engineer",)))
+    profile = service.create_profile(
+        ProfileDraft("Primary", target_roles=("Engineer",), agent_provider=AgentProvider.DEMO)
+    )
 
     with pytest.raises(ValidationError):
         service.configure_resume_source(
             profile.id,
-            ResumeSourceDraft(repository, kind, document_path),
+            ResumeSourceDraft(repository, kind, document_path, trust_repository=True),
+        )
+
+
+def test_configure_source_requires_explicit_repository_trust(tmp_path: Path) -> None:
+    service, _, _ = _service()
+    profile = service.create_profile(
+        ProfileDraft("Primary", target_roles=("Engineer",), agent_provider=AgentProvider.DEMO)
+    )
+
+    with pytest.raises(ValidationError, match="acknowledge trust"):
+        service.configure_resume_source(
+            profile.id,
+            ResumeSourceDraft(
+                repository=str(tmp_path),
+                kind=ResumeSourceKind.LOCAL_GIT,
+                document_path="roleloop_contract/v1/cli.py",
+            ),
         )
 
 
 async def test_sync_creates_pinned_evidence_and_is_idempotent_for_same_snapshot() -> None:
     synchronizer = SnapshotSynchronizer(_snapshot())
     service, factory, store = _service(synchronizer=synchronizer)
-    profile = service.create_profile(ProfileDraft("Primary", target_roles=("Engineer",)))
+    profile = service.create_profile(
+        ProfileDraft("Primary", target_roles=("Engineer",), agent_provider=AgentProvider.DEMO)
+    )
     source = service.configure_resume_source(
         profile.id,
         ResumeSourceDraft(
             "https://example.com/resume.git",
             ResumeSourceKind.REMOTE_GIT,
-            "resume.md",
+            trust_repository=True,
         ),
     )
 
@@ -176,9 +217,9 @@ async def test_sync_creates_pinned_evidence_and_is_idempotent_for_same_snapshot(
     assert evidence.resume_source_kind is ResumeSourceKind.REMOTE_GIT
     assert evidence.source_repository == "https://example.com/resume.git"
     assert evidence.source_ref == "main"
-    assert evidence.source_document_path == "resume.md"
+    assert evidence.source_document_path == "roleloop_contract/v1/cli.py"
     assert evidence.source_artifact.checksum == synchronizer.snapshot.content_checksum
-    assert store.calls == 1
+    assert store.calls == 3
     with factory() as uow:
         synced = uow.resume_sources.get_for_profile(profile.id)
         active_profile = uow.profiles.get(profile.id)
@@ -193,14 +234,16 @@ async def test_sync_creates_pinned_evidence_and_is_idempotent_for_same_snapshot(
 async def test_reconfiguring_source_does_not_reinterpret_existing_evidence() -> None:
     synchronizer = SnapshotSynchronizer(_snapshot())
     service, factory, _ = _service(synchronizer=synchronizer)
-    profile = service.create_profile(ProfileDraft("Primary", target_roles=("Engineer",)))
+    profile = service.create_profile(
+        ProfileDraft("Primary", target_roles=("Engineer",), agent_provider=AgentProvider.DEMO)
+    )
     original_source = service.configure_resume_source(
         profile.id,
         ResumeSourceDraft(
             "https://example.com/original.git",
             ResumeSourceKind.REMOTE_GIT,
-            "resume/master.md",
             ref="main",
+            trust_repository=True,
         ),
     )
     original_evidence = await service.sync_resume_source(profile.id)
@@ -210,34 +253,36 @@ async def test_reconfiguring_source_does_not_reinterpret_existing_evidence() -> 
         ResumeSourceDraft(
             "https://example.com/replacement.git",
             ResumeSourceKind.REMOTE_GIT,
-            "cv/current.md",
             ref="stable",
+            trust_repository=True,
         ),
         expected_revision=original_source.revision + 1,
     )
 
     assert reconfigured.repository == "https://example.com/replacement.git"
     assert reconfigured.ref == "stable"
-    assert reconfigured.document_path == "cv/current.md"
+    assert reconfigured.document_path == "roleloop_contract/v1/cli.py"
     with factory() as uow:
         persisted = uow.evidence.get(original_evidence.id)
         assert persisted is not None
         assert persisted.resume_source_kind is ResumeSourceKind.REMOTE_GIT
         assert persisted.source_repository == "https://example.com/original.git"
         assert persisted.source_ref == "main"
-        assert persisted.source_document_path == "resume/master.md"
+        assert persisted.source_document_path == "roleloop_contract/v1/cli.py"
 
 
 async def test_new_revision_creates_new_evidence_even_when_document_bytes_match() -> None:
     synchronizer = SnapshotSynchronizer(_snapshot())
     service, factory, store = _service(synchronizer=synchronizer)
-    profile = service.create_profile(ProfileDraft("Primary", target_roles=("Engineer",)))
+    profile = service.create_profile(
+        ProfileDraft("Primary", target_roles=("Engineer",), agent_provider=AgentProvider.DEMO)
+    )
     service.configure_resume_source(
         profile.id,
         ResumeSourceDraft(
             "https://example.com/resume.git",
             ResumeSourceKind.REMOTE_GIT,
-            "resume.md",
+            trust_repository=True,
         ),
     )
     first = await service.sync_resume_source(profile.id)
@@ -247,7 +292,7 @@ async def test_new_revision_creates_new_evidence_even_when_document_bytes_match(
 
     assert second.id != first.id
     assert second.source_revision == "commit-2"
-    assert store.calls == 2
+    assert store.calls == 6
     with factory() as uow:
         assert uow.evidence.list_for_profile(profile.id) == (first, second)
 
@@ -255,7 +300,9 @@ async def test_new_revision_creates_new_evidence_even_when_document_bytes_match(
 async def test_sync_requires_configuration_and_verifies_provider_checksum() -> None:
     synchronizer = SnapshotSynchronizer(replace(_snapshot(), content_checksum="0" * 64))
     service, _, _ = _service(synchronizer=synchronizer)
-    profile = service.create_profile(ProfileDraft("Primary", target_roles=("Engineer",)))
+    profile = service.create_profile(
+        ProfileDraft("Primary", target_roles=("Engineer",), agent_provider=AgentProvider.DEMO)
+    )
 
     with pytest.raises(InvalidTransitionError):
         await service.sync_resume_source(profile.id)
@@ -265,7 +312,7 @@ async def test_sync_requires_configuration_and_verifies_provider_checksum() -> N
         ResumeSourceDraft(
             "https://example.com/resume.git",
             ResumeSourceKind.REMOTE_GIT,
-            "resume.md",
+            trust_repository=True,
         ),
     )
     with pytest.raises(ArtifactError, match="checksum"):

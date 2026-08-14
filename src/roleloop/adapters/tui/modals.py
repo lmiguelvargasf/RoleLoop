@@ -2,13 +2,14 @@
 
 from __future__ import annotations
 
+from datetime import date
 from typing import Any, ClassVar
 
 from textual import on
 from textual.app import ComposeResult
 from textual.containers import Grid, Horizontal, Vertical, VerticalScroll
 from textual.screen import ModalScreen
-from textual.widgets import Button, Input, Label, Select, Static, TextArea
+from textual.widgets import Button, Checkbox, Input, Label, Select, Static, TextArea
 
 from .presentation import csv_text, csv_values, field
 
@@ -191,6 +192,288 @@ class OutcomeModal(ModalScreen[str | None]):
         self.dismiss(None)
 
 
+class ResumeFeedbackModal(ModalScreen[str | None]):
+    """Capture feedback that must create a child résumé run."""
+
+    BINDINGS: ClassVar = [("escape", "cancel", "Cancel")]
+
+    def compose(self) -> ComposeResult:
+        with Vertical(id="path-dialog"):
+            yield Label("Request résumé changes", classes="dialog-title")
+            yield Static(
+                "Describe the change in positioning or selection. The current PDF remains "
+                "immutable and RoleLoop creates a child run.",
+                markup=False,
+            )
+            yield TextArea(id="resume-feedback")
+            yield Static("", id="resume-feedback-error", classes="form-error", markup=False)
+            with Horizontal(classes="dialog-actions"):
+                yield Button("Cancel", id="resume-feedback-cancel")
+                yield Button("Create child run", id="resume-feedback-save", variant="success")
+
+    def on_mount(self) -> None:
+        self.query_one("#resume-feedback", TextArea).focus()
+
+    @on(Button.Pressed, "#resume-feedback-save")
+    def save(self) -> None:
+        feedback = self.query_one("#resume-feedback", TextArea).text.strip()
+        if not feedback:
+            self.query_one("#resume-feedback-error", Static).update(
+                "Enter the changes you want reviewed."
+            )
+            return
+        self.dismiss(feedback)
+
+    @on(Button.Pressed, "#resume-feedback-cancel")
+    def cancel_button(self) -> None:
+        self.dismiss(None)
+
+    def action_cancel(self) -> None:
+        self.dismiss(None)
+
+
+class SubmissionModal(ModalScreen[dict[str, str] | None]):
+    """Require the operator to choose the first follow-up date."""
+
+    BINDINGS: ClassVar = [("escape", "cancel", "Cancel")]
+
+    def compose(self) -> ComposeResult:
+        with Vertical(id="path-dialog"):
+            yield Label("Record manual submission", classes="dialog-title")
+            yield Static(
+                "Only the approved RoleLoop PDF can be submitted. Enter the first date on "
+                "which you want this application to appear in the follow-up queue.",
+                markup=False,
+            )
+            yield Label("First follow-up date (YYYY-MM-DD)", classes="field-label")
+            yield Input(placeholder="2026-08-21", id="submission-follow-up")
+            yield Label("Note (optional)", classes="field-label")
+            yield Input(id="submission-note")
+            yield Static("", id="submission-error", classes="form-error", markup=False)
+            with Horizontal(classes="dialog-actions"):
+                yield Button("Cancel", id="submission-cancel")
+                yield Button("Record submission", id="submission-save", variant="success")
+
+    def on_mount(self) -> None:
+        self.query_one("#submission-follow-up", Input).focus()
+
+    @on(Button.Pressed, "#submission-save")
+    def save(self) -> None:
+        follow_up = self.query_one("#submission-follow-up", Input).value.strip()
+        if not _valid_iso_date(follow_up):
+            self.query_one("#submission-error", Static).update(
+                "Enter a valid follow-up date as YYYY-MM-DD."
+            )
+            return
+        self.dismiss(
+            {
+                "follow_up": follow_up,
+                "note": self.query_one("#submission-note", Input).value.strip(),
+            }
+        )
+
+    @on(Button.Pressed, "#submission-cancel")
+    def cancel_button(self) -> None:
+        self.dismiss(None)
+
+    def action_cancel(self) -> None:
+        self.dismiss(None)
+
+
+class FollowUpRescheduleModal(ModalScreen[dict[str, str] | None]):
+    """Choose a replacement date for one existing follow-up."""
+
+    BINDINGS: ClassVar = [("escape", "cancel", "Cancel")]
+
+    def compose(self) -> ComposeResult:
+        with Vertical(id="path-dialog"):
+            yield Label("Reschedule follow-up", classes="dialog-title")
+            yield Label("Replacement date (YYYY-MM-DD)", classes="field-label")
+            yield Input(placeholder="2026-08-28", id="reschedule-date")
+            yield Label("Note (optional)", classes="field-label")
+            yield Input(id="reschedule-note")
+            yield Static("", id="reschedule-error", classes="form-error", markup=False)
+            with Horizontal(classes="dialog-actions"):
+                yield Button("Cancel", id="reschedule-cancel")
+                yield Button("Reschedule", id="reschedule-save", variant="success")
+
+    def on_mount(self) -> None:
+        self.query_one("#reschedule-date", Input).focus()
+
+    @on(Button.Pressed, "#reschedule-save")
+    def save(self) -> None:
+        due_date = self.query_one("#reschedule-date", Input).value.strip()
+        if not _valid_iso_date(due_date):
+            self.query_one("#reschedule-error", Static).update(
+                "Enter a valid replacement date as YYYY-MM-DD."
+            )
+            return
+        self.dismiss(
+            {
+                "date": due_date,
+                "note": self.query_one("#reschedule-note", Input).value.strip(),
+            }
+        )
+
+    @on(Button.Pressed, "#reschedule-cancel")
+    def cancel_button(self) -> None:
+        self.dismiss(None)
+
+    def action_cancel(self) -> None:
+        self.dismiss(None)
+
+
+class ApplicationStageModal(ModalScreen[dict[str, Any] | None]):
+    """Record a fixed application stage and an explicit follow-up choice."""
+
+    BINDINGS: ClassVar = [("escape", "cancel", "Cancel")]
+    STAGES = (
+        ("Acknowledged", "acknowledged"),
+        ("Recruiter screen", "recruiter_screen"),
+        ("Hiring-manager screen", "hiring_manager_screen"),
+        ("Assessment", "assessment"),
+        ("Technical interview", "technical_interview"),
+        ("Final / onsite", "final_or_onsite"),
+        ("Offer", "offer"),
+        ("Rejected", "rejected"),
+        ("Withdrawn", "withdrawn"),
+        ("No response", "no_response"),
+    )
+    TERMINAL = frozenset({"offer", "rejected", "withdrawn", "no_response"})
+    FOLLOW_UP_CHOICES = (
+        ("Set replacement date", "replace"),
+        ("No follow-up", "none"),
+    )
+
+    def __init__(self, current: str = "acknowledged") -> None:
+        super().__init__()
+        available = {value for _, value in self.STAGES}
+        self.current = current if current in available else "acknowledged"
+
+    def compose(self) -> ComposeResult:
+        with Vertical(id="profile-dialog"):
+            with VerticalScroll(id="profile-fields"):
+                yield Label("Record application stage", classes="dialog-title")
+                yield Label("Stage", classes="field-label")
+                yield Select(
+                    self.STAGES,
+                    value=self.current,
+                    allow_blank=False,
+                    id="application-stage",
+                )
+                yield Label("Follow-up choice", classes="field-label")
+                yield Select(
+                    self.FOLLOW_UP_CHOICES,
+                    value="replace",
+                    allow_blank=False,
+                    id="application-follow-up-choice",
+                )
+                yield Label(
+                    "Replacement follow-up date (YYYY-MM-DD)",
+                    classes="field-label",
+                    id="application-follow-up-label",
+                )
+                yield Input(placeholder="2026-08-28", id="application-follow-up")
+                yield Label("Stage note (optional)", classes="field-label")
+                yield TextArea(id="application-stage-note")
+                yield Static("", id="application-stage-error", classes="form-error", markup=False)
+            with Horizontal(classes="dialog-actions"):
+                yield Button("Cancel", id="application-stage-cancel")
+                yield Button("Record stage", id="application-stage-save", variant="success")
+
+    def on_mount(self) -> None:
+        self._sync_follow_up_fields()
+        self.query_one("#application-stage", Select).focus()
+
+    @on(Select.Changed, "#application-stage")
+    @on(Select.Changed, "#application-follow-up-choice")
+    def choice_changed(self) -> None:
+        self._sync_follow_up_fields()
+
+    def _sync_follow_up_fields(self) -> None:
+        stage = str(self.query_one("#application-stage", Select).value)
+        terminal = stage in self.TERMINAL
+        choice = self.query_one("#application-follow-up-choice", Select)
+        if terminal:
+            choice.value = "none"
+        choice.disabled = terminal
+        replace = not terminal and str(choice.value) == "replace"
+        self.query_one("#application-follow-up-label", Label).display = replace
+        self.query_one("#application-follow-up", Input).display = replace
+
+    @on(Button.Pressed, "#application-stage-save")
+    def save(self) -> None:
+        stage = str(self.query_one("#application-stage", Select).value)
+        choice = str(self.query_one("#application-follow-up-choice", Select).value)
+        follow_up = self.query_one("#application-follow-up", Input).value.strip()
+        if stage not in self.TERMINAL and choice == "replace" and not _valid_iso_date(follow_up):
+            self.query_one("#application-stage-error", Static).update(
+                "Enter a valid replacement date as YYYY-MM-DD or choose no follow-up."
+            )
+            return
+        self.dismiss(
+            {
+                "stage": stage,
+                "follow_up": follow_up if choice == "replace" else None,
+                "no_follow_up": choice == "none",
+                "note": self.query_one("#application-stage-note", TextArea).text.strip(),
+            }
+        )
+
+    @on(Button.Pressed, "#application-stage-cancel")
+    def cancel_button(self) -> None:
+        self.dismiss(None)
+
+    def action_cancel(self) -> None:
+        self.dismiss(None)
+
+
+class ExportPathModal(ModalScreen[str | None]):
+    """Choose a destination without allowing the TUI to read artifact bytes."""
+
+    BINDINGS: ClassVar = [("escape", "cancel", "Cancel")]
+
+    def __init__(self, suggested_name: str = "tailored-resume.pdf") -> None:
+        super().__init__()
+        self.suggested_name = suggested_name
+
+    def compose(self) -> ComposeResult:
+        with Vertical(id="path-dialog"):
+            yield Label("Export approved artifact", classes="dialog-title")
+            yield Label("Destination path", classes="field-label")
+            yield Input(placeholder=f"/absolute/path/{self.suggested_name}", id="export-path")
+            yield Static("", id="export-error", classes="form-error", markup=False)
+            with Horizontal(classes="dialog-actions"):
+                yield Button("Cancel", id="export-cancel")
+                yield Button("Export", id="export-save", variant="success")
+
+    def on_mount(self) -> None:
+        self.query_one("#export-path", Input).focus()
+
+    @on(Button.Pressed, "#export-save")
+    def save(self) -> None:
+        destination = self.query_one("#export-path", Input).value.strip()
+        if not destination:
+            self.query_one("#export-error", Static).update("Enter a destination path.")
+            return
+        self.dismiss(destination)
+
+    @on(Button.Pressed, "#export-cancel")
+    def cancel_button(self) -> None:
+        self.dismiss(None)
+
+    def action_cancel(self) -> None:
+        self.dismiss(None)
+
+
+def _valid_iso_date(value: str) -> bool:
+    try:
+        date.fromisoformat(value)
+    except ValueError:
+        return False
+    return True
+
+
 class EvidencePathModal(ModalScreen[dict[str, str] | None]):
     """Capture either a PDF/text path or pasted UTF-8 résumé evidence."""
 
@@ -295,7 +578,7 @@ class EvidencePathModal(ModalScreen[dict[str, str] | None]):
         self.dismiss(None)
 
 
-class ResumeSourceModal(ModalScreen[dict[str, str] | None]):
+class ResumeSourceModal(ModalScreen[dict[str, Any] | None]):
     """Configure a persistent local or remote Git master résumé source."""
 
     BINDINGS: ClassVar = [("escape", "cancel", "Cancel")]
@@ -314,8 +597,9 @@ class ResumeSourceModal(ModalScreen[dict[str, str] | None]):
             with VerticalScroll(id="resume-source-fields"):
                 yield Label("Master résumé repository", classes="dialog-title")
                 yield Static(
-                    "RoleLoop resolves a committed Git revision only when you explicitly sync. "
-                    "Existing evidence and generated artifacts remain immutable.",
+                    "Analyze automatically resolves and archives an exact clean Git commit. "
+                    "RoleLoop executes only roleloop_contract/v1/cli.py from that snapshot; "
+                    "existing evidence and generated artifacts remain immutable.",
                     classes="dialog-copy",
                     markup=False,
                 )
@@ -337,11 +621,17 @@ class ResumeSourceModal(ModalScreen[dict[str, str] | None]):
                     placeholder="HEAD locally; main remotely",
                     id="resume-source-ref",
                 )
-                yield Label("Résumé path inside repository", classes="field-label")
+                yield Label("Fixed trusted bridge", classes="field-label")
                 yield Input(
-                    value=str(field(self.source, "document_path", default="") or ""),
-                    placeholder="resume/master.md",
+                    value="roleloop_contract/v1/cli.py",
                     id="resume-source-document-path",
+                    disabled=True,
+                )
+                yield Checkbox(
+                    "I trust this repository/ref and its future commits to execute "
+                    "the fixed bridge",
+                    value=field(self.source, "trust_acknowledged_at", default=None) is not None,
+                    id="resume-source-trust",
                 )
                 yield Static("", id="resume-source-error", classes="form-error", markup=False)
             with Horizontal(classes="dialog-actions"):
@@ -368,13 +658,12 @@ class ResumeSourceModal(ModalScreen[dict[str, str] | None]):
     @on(Button.Pressed, "#resume-source-save")
     def save(self) -> None:
         repository = self.query_one("#resume-source-repository", Input).value.strip()
-        document_path = self.query_one("#resume-source-document-path", Input).value.strip()
         if not repository:
             self.query_one("#resume-source-error", Static).update("Enter a repository.")
             return
-        if not document_path:
+        if not self.query_one("#resume-source-trust", Checkbox).value:
             self.query_one("#resume-source-error", Static).update(
-                "Enter the résumé path inside the repository."
+                "Acknowledge that this trusted repository executes code during sync and render."
             )
             return
         self.dismiss(
@@ -382,7 +671,8 @@ class ResumeSourceModal(ModalScreen[dict[str, str] | None]):
                 "kind": str(self.query_one("#resume-source-kind", Select).value),
                 "repository": repository,
                 "ref": self.query_one("#resume-source-ref", Input).value.strip(),
-                "document_path": document_path,
+                "document_path": "roleloop_contract/v1/cli.py",
+                "trust_repository": True,
             }
         )
 
@@ -405,6 +695,14 @@ class ProfileModal(ModalScreen[dict[str, Any] | None]):
         ("Hybrid", "hybrid"),
         ("On-site", "onsite"),
     )
+    PROVIDERS = (("Demo — deterministic and offline", "demo"), ("OpenAI", "openai"))
+    PAPER_SIZES = (("A4", "a4paper"), ("US Letter", "letterpaper"))
+    REASONING_EFFORTS = (
+        ("Low", "low"),
+        ("Medium", "medium"),
+        ("High", "high"),
+        ("Extra high", "xhigh"),
+    )
 
     def __init__(self, profile: Any | None = None, *, onboarding: bool = False) -> None:
         super().__init__()
@@ -422,16 +720,32 @@ class ProfileModal(ModalScreen[dict[str, Any] | None]):
         remote_preference = getattr(remote_preference, "value", remote_preference)
         if remote_preference not in {value for _, value in self.WORK_MODES}:
             remote_preference = "any"
+        provider = _profile_provider(self.profile)
+        if provider not in {value for _, value in self.PROVIDERS}:
+            provider = Select.NULL
+        paper_size = str(field(self.profile, "paper_size", default="a4paper") or "a4paper")
+        if paper_size == "A4":
+            paper_size = "a4paper"
+        if paper_size not in {value for _, value in self.PAPER_SIZES}:
+            paper_size = "a4paper"
         with Vertical(id="profile-dialog"):
             with VerticalScroll(id="profile-fields"):
                 yield Label(title, classes="dialog-title")
                 if self.onboarding:
                     yield Static(
-                        "Create one active profile. Providers and résumé evidence "
-                        "can be configured later.",
+                        "Create one active profile and explicitly choose Demo or OpenAI. "
+                        "Secrets are never stored in the profile.",
                         classes="dialog-copy",
                         markup=False,
                     )
+                yield Label("Agent provider", classes="field-label")
+                yield Select(
+                    self.PROVIDERS,
+                    value=provider,
+                    allow_blank=True,
+                    prompt="Choose Demo or OpenAI",
+                    id="profile-provider",
+                )
                 yield Label("Profile name", classes="field-label")
                 yield Input(
                     value=str(field(self.profile, "name", default="") or ""),
@@ -488,6 +802,84 @@ class ProfileModal(ModalScreen[dict[str, Any] | None]):
                     str(field(self.profile, "constraints", default="") or ""),
                     id="profile-constraints",
                 )
+                yield Label("Residence country", classes="field-label")
+                yield Input(
+                    value=str(field(self.profile, "residence_country", default="Ecuador")),
+                    id="profile-residence-country",
+                )
+                yield Label("Timezone", classes="field-label")
+                yield Input(
+                    value=str(field(self.profile, "timezone", default="America/Guayaquil")),
+                    id="profile-timezone",
+                )
+                yield Label(
+                    "Target headquarters countries — comma separated",
+                    classes="field-label",
+                )
+                yield Input(
+                    value=csv_text(field(self.profile, "target_hq_countries", default=())),
+                    placeholder="United States",
+                    id="profile-hq-countries",
+                )
+                yield Checkbox(
+                    "Require a startup",
+                    value=bool(field(self.profile, "startup_required", default=False)),
+                    id="profile-startup-required",
+                )
+                yield Label("Accepted remote arrangements — comma separated", classes="field-label")
+                yield Input(
+                    value=csv_text(field(self.profile, "accepted_remote_arrangements", default=())),
+                    placeholder="global remote, remote from Ecuador",
+                    id="profile-remote-arrangements",
+                )
+                yield Label("Accepted hiring arrangements — comma separated", classes="field-label")
+                yield Input(
+                    value=csv_text(field(self.profile, "accepted_hiring_arrangements", default=())),
+                    placeholder="employee of record, contractor",
+                    id="profile-hiring-arrangements",
+                )
+                yield Label("Scout search queries — comma separated", classes="field-label")
+                yield Input(
+                    value=csv_text(field(self.profile, "search_queries", default=())),
+                    id="profile-search-queries",
+                )
+                yield Label("Résumé paper size", classes="field-label")
+                yield Select(
+                    self.PAPER_SIZES,
+                    value=paper_size,
+                    allow_blank=False,
+                    id="profile-paper-size",
+                )
+                yield Label("Résumé page limit (1-5)", classes="field-label")
+                yield Input(
+                    value=str(field(self.profile, "page_limit", default=2) or 2),
+                    type="integer",
+                    id="profile-page-limit",
+                )
+                for agent_name in ("scout", "reviewer", "resume"):
+                    display_name = agent_name.capitalize()
+                    yield Label(f"{display_name} model", classes="field-label")
+                    yield Input(
+                        value=_agent_setting(
+                            self.profile,
+                            agent_name,
+                            "model",
+                            "gpt-5.6-terra",
+                        ),
+                        id=f"profile-{agent_name}-model",
+                    )
+                    yield Label(f"{display_name} reasoning effort", classes="field-label")
+                    yield Select(
+                        self.REASONING_EFFORTS,
+                        value=_agent_setting(
+                            self.profile,
+                            agent_name,
+                            "reasoning_effort",
+                            "medium",
+                        ),
+                        allow_blank=False,
+                        id=f"profile-{agent_name}-effort",
+                    )
                 yield Static("", id="profile-error", classes="form-error", markup=False)
             with Horizontal(classes="dialog-actions"):
                 if not self.onboarding:
@@ -506,13 +898,37 @@ class ProfileModal(ModalScreen[dict[str, Any] | None]):
         name = self.query_one("#profile-name", Input).value.strip()
         roles = csv_values(self.query_one("#profile-roles", Input).value)
         salary_text = self.query_one("#profile-salary", Input).value.strip()
+        provider = self.query_one("#profile-provider", Select).value
+        page_limit_text = self.query_one("#profile-page-limit", Input).value.strip()
+        if provider is Select.NULL:
+            self.query_one("#profile-error", Static).update("Choose Demo or OpenAI.")
+            return
         if not name:
             self.query_one("#profile-error", Static).update("Enter a profile name.")
             return
         if not roles:
             self.query_one("#profile-error", Static).update("Enter at least one target role.")
             return
+        try:
+            page_limit = int(page_limit_text)
+        except ValueError:
+            page_limit = 0
+        if not 1 <= page_limit <= 5:
+            self.query_one("#profile-error", Static).update(
+                "Résumé page limit must be between 1 and 5."
+            )
+            return
+        models = {
+            agent_name: self.query_one(f"#profile-{agent_name}-model", Input).value.strip()
+            for agent_name in ("scout", "reviewer", "resume")
+        }
+        if not all(models.values()):
+            self.query_one("#profile-error", Static).update(
+                "Enter a model for Scout, Reviewer, and Resume."
+            )
+            return
         result: dict[str, Any] = {
+            "agent_provider": str(provider),
             "name": name,
             "target_roles": roles,
             "locations": csv_values(self.query_one("#profile-locations", Input).value),
@@ -530,6 +946,30 @@ class ProfileModal(ModalScreen[dict[str, Any] | None]):
                 self.query_one("#profile-exclude-keywords", Input).value
             ),
             "constraints": self.query_one("#profile-constraints", TextArea).text.strip(),
+            "residence_country": self.query_one("#profile-residence-country", Input).value.strip(),
+            "timezone": self.query_one("#profile-timezone", Input).value.strip(),
+            "target_hq_countries": csv_values(self.query_one("#profile-hq-countries", Input).value),
+            "startup_required": self.query_one("#profile-startup-required", Checkbox).value,
+            "accepted_remote_arrangements": csv_values(
+                self.query_one("#profile-remote-arrangements", Input).value
+            ),
+            "accepted_hiring_arrangements": csv_values(
+                self.query_one("#profile-hiring-arrangements", Input).value
+            ),
+            "search_queries": csv_values(self.query_one("#profile-search-queries", Input).value),
+            "paper_size": str(self.query_one("#profile-paper-size", Select).value),
+            "page_limit": page_limit,
+            "agent_configurations": tuple(
+                {
+                    "kind": agent_name,
+                    "provider": str(provider),
+                    "model": models[agent_name],
+                    "reasoning_effort": str(
+                        self.query_one(f"#profile-{agent_name}-effort", Select).value
+                    ),
+                }
+                for agent_name in ("scout", "reviewer", "resume")
+            ),
         }
         self.dismiss(result)
 
@@ -540,3 +980,30 @@ class ProfileModal(ModalScreen[dict[str, Any] | None]):
     def action_cancel(self) -> None:
         if not self.onboarding:
             self.dismiss(None)
+
+
+def _agent_setting(profile: Any | None, kind: str, setting: str, default: str) -> str:
+    configurations = field(profile, "agent_configurations", default=()) or ()
+    for configuration in configurations:
+        configured_kind = field(configuration, "kind", default="")
+        configured_kind = getattr(configured_kind, "value", configured_kind)
+        if configured_kind == kind:
+            value = str(field(configuration, setting, default=default) or default)
+            return value
+    return default
+
+
+def _profile_provider(profile: Any | None) -> Any:
+    provider = field(profile, "agent_provider", default=None)
+    provider = getattr(provider, "value", provider)
+    if provider:
+        return provider
+    configurations = field(profile, "agent_configurations", default=()) or ()
+    configured = {
+        getattr(
+            field(item, "provider", default=None), "value", field(item, "provider", default=None)
+        )
+        for item in configurations
+        if field(item, "provider", default=None) is not None
+    }
+    return next(iter(configured)) if len(configured) == 1 else None
