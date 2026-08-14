@@ -3,6 +3,50 @@
 RoleLoop is a local, evidence-first job-search workflow for the terminal. Its primary interface is a
 Textual application; a small headless CLI exposes the same application services for automation.
 
+## Screenshots
+
+### Keyboard-first inbox
+
+Search, filter, and triage every job case from one responsive workspace. Each row keeps review,
+eligibility, decision, résumé, application, and outcome state visible without making the UI the
+source of truth.
+
+[![RoleLoop inbox with workflow filters, job ledger, and selected-case preview](docs/screenshots/roleloop-inbox.svg)](docs/screenshots/roleloop-inbox.svg)
+
+### Evidence-led review
+
+RoleLoop gives supporting evidence and skeptic findings equal visual weight, with source anchors
+and explicit workflow facets instead of an opaque match score.
+
+[![RoleLoop job review showing the case for and skeptic's case side by side](docs/screenshots/roleloop-review-evidence.svg)](docs/screenshots/roleloop-review-evidence.svg)
+
+### Résumé validation and application tracking
+
+Tailored résumé runs retain their validation result and compiled artifact. Submitted applications
+then move into a separate ledger with the artifact snapshot and current outcome.
+
+<table>
+  <tr>
+    <td width="50%">
+      <a href="docs/screenshots/roleloop-review-resume.svg">
+        <img src="docs/screenshots/roleloop-review-resume.svg" alt="RoleLoop résumé validation results">
+      </a>
+    </td>
+    <td width="50%">
+      <a href="docs/screenshots/roleloop-applications.svg">
+        <img src="docs/screenshots/roleloop-applications.svg" alt="RoleLoop application and outcome ledger">
+      </a>
+    </td>
+  </tr>
+</table>
+
+### Search profiles and provider readiness
+
+Settings shows the active search criteria, immutable résumé-evidence version, managed artifact,
+and which external provider capabilities are configured.
+
+[![RoleLoop settings with search profiles, résumé evidence, and provider readiness](docs/screenshots/roleloop-settings.svg)](docs/screenshots/roleloop-settings.svg)
+
 ## Install and run
 
 ```console
@@ -55,4 +99,10 @@ uv run ruff check .
 uv run ruff format --check .
 uv run mypy
 uv build
+```
+
+Regenerate the deterministic documentation screenshots with:
+
+```console
+uv run python scripts/capture_screenshots.py
 ```

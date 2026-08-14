@@ -396,6 +396,7 @@ async def test_settings_create_edit_and_activate_profile() -> None:
         await settle(app, pilot)
         profiles = app.screen.query_one("#profiles-table", DataTable)
         assert profiles.row_count == 2
+        assert "base-resume.pdf" in str(app.screen.query_one("#settings-summary", Static).render())
 
         await pilot.click("#profile-create")
         await pilot.pause()

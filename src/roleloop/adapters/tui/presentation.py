@@ -82,7 +82,14 @@ def csv_text(value: Any) -> str:
 
 
 def evidence_name(value: Any) -> str:
-    source = field(value, "source_path", "path", "filename", default="")
+    source = field(
+        value,
+        "source_name",
+        "source_path",
+        "path",
+        "filename",
+        default="",
+    )
     return Path(str(source)).name if source else "No evidence imported"
 
 
