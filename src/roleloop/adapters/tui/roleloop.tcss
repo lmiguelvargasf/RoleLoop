@@ -1,0 +1,441 @@
+/* RoleLoop's evidence desk: restrained graphite, explicit semantic signals. */
+
+Screen {
+    background: #10151c;
+    color: #d8dee9;
+}
+
+Screen > #startup-title {
+    dock: top;
+    margin-top: 8;
+    height: 3;
+    content-align: center middle;
+    color: #5cc8be;
+    text-style: bold;
+}
+
+Screen > #startup-loading {
+    height: 3;
+}
+
+Screen > #startup-state {
+    height: 3;
+    content-align: center top;
+    color: #9ba7b4;
+}
+
+#workspace-shell,
+#review-shell {
+    width: 100%;
+    height: 100%;
+}
+
+#roleloop-header {
+    height: 3;
+    padding: 1 2 0 2;
+    background: #1a222d;
+    color: #d8dee9;
+    text-style: bold;
+}
+
+#workspace-navigation {
+    height: 3;
+    padding: 0 1;
+    background: #1a222d;
+    border-bottom: solid #354150;
+}
+
+.nav-button {
+    width: auto;
+    min-width: 16;
+    height: 3;
+    margin: 0 1 0 0;
+    background: #1a222d;
+    color: #9ba7b4;
+    border: none;
+}
+
+.nav-button.-active {
+    color: #5cc8be;
+    text-style: bold underline;
+}
+
+#workspace-content {
+    height: 1fr;
+}
+
+#inbox-view {
+    height: 100%;
+}
+
+#inbox-filters {
+    width: 27;
+    height: 100%;
+    padding: 1;
+    background: #151c25;
+    border-right: solid #354150;
+}
+
+#inbox-search,
+.facet-select {
+    width: 100%;
+    margin-bottom: 1;
+}
+
+#compact-filter-toggle,
+#close-filters {
+    display: none;
+}
+
+#jobs-pane {
+    width: 1fr;
+    height: 100%;
+    padding: 0 1;
+}
+
+#inbox-state,
+#applications-state {
+    height: 2;
+    padding: 0 1;
+    color: #9ba7b4;
+}
+
+#job-table,
+#applications-table,
+#profiles-table,
+#questions-table {
+    height: 1fr;
+    background: #10151c;
+    border: none;
+}
+
+DataTable:focus {
+    border: tall #5cc8be;
+}
+
+#job-preview {
+    width: 38;
+    height: 100%;
+    padding: 1;
+    background: #151c25;
+    border-left: solid #354150;
+}
+
+#preview-copy {
+    height: 1fr;
+    padding: 1 0;
+}
+
+#preview-actions {
+    height: 3;
+}
+
+#preview-actions Button {
+    width: 1fr;
+    min-width: 8;
+    margin-right: 1;
+}
+
+#preview-open {
+    width: 100%;
+}
+
+.section-kicker {
+    height: 2;
+    color: #e5b567;
+    text-style: bold;
+}
+
+.operation-strip {
+    dock: bottom;
+    height: 2;
+    padding: 0 2;
+    background: #1a222d;
+    color: #9ba7b4;
+}
+
+.operation-strip.-busy {
+    color: #5cc8be;
+}
+
+.operation-strip.-error,
+.form-error {
+    color: #e06c75;
+}
+
+.view-toolbar {
+    height: 4;
+    padding: 1;
+    border-bottom: solid #354150;
+}
+
+.view-toolbar .section-kicker {
+    width: 1fr;
+}
+
+#applications-outcome-filter {
+    width: 24;
+    margin-right: 1;
+}
+
+#applications-view {
+    padding: 0 1;
+}
+
+#profiles-pane {
+    width: 40%;
+    height: 100%;
+    padding: 1;
+    border-right: solid #354150;
+}
+
+#settings-summary-pane {
+    width: 1fr;
+    height: 100%;
+    padding: 1 2;
+}
+
+#settings-summary {
+    height: 1fr;
+}
+
+.button-row,
+.dialog-actions {
+    height: 3;
+}
+
+.button-row Button,
+.dialog-actions Button {
+    width: 1fr;
+    margin-right: 1;
+}
+
+WorkspaceScreen.compact #job-preview {
+    display: none;
+}
+
+WorkspaceScreen.compact #inbox-filters {
+    display: none;
+    width: 100%;
+    border-right: none;
+}
+
+WorkspaceScreen.compact #compact-filter-toggle {
+    display: block;
+    width: 16;
+    height: 3;
+}
+
+WorkspaceScreen.compact InboxView.filters-open #inbox-filters {
+    display: block;
+}
+
+WorkspaceScreen.compact InboxView.filters-open #jobs-pane {
+    display: none;
+}
+
+WorkspaceScreen.compact InboxView.filters-open #close-filters {
+    display: block;
+    width: 100%;
+}
+
+WorkspaceScreen.compact #profiles-pane {
+    width: 35;
+}
+
+WorkspaceScreen.narrow #profiles-pane {
+    width: 28;
+}
+
+/* Full review */
+
+#review-title {
+    height: 3;
+    padding: 1 2 0 2;
+    background: #1a222d;
+    text-style: bold;
+}
+
+#workflow-rail {
+    height: 3;
+    padding: 1 2 0 2;
+    color: #e5b567;
+    border-bottom: solid #354150;
+}
+
+#review-error {
+    height: auto;
+    max-height: 3;
+    padding: 0 2;
+}
+
+#review-tabs {
+    height: 1fr;
+    padding: 0 1;
+}
+
+#review-summary,
+#resume-status,
+#history-ledger {
+    height: 1fr;
+    padding: 1 2;
+    overflow-y: auto;
+}
+
+#evidence-ledger {
+    height: 1fr;
+    padding: 1;
+}
+
+.evidence-column {
+    width: 1fr;
+    height: 1fr;
+    padding: 1 2;
+    overflow-y: auto;
+}
+
+#evidence-support {
+    margin-right: 1;
+    border-left: tall #5cc8be;
+}
+
+#evidence-skeptic {
+    border-left: tall #e06c75;
+}
+
+JobReviewScreen.compact-review #evidence-ledger {
+    layout: vertical;
+}
+
+JobReviewScreen.compact-review .evidence-column {
+    width: 100%;
+    height: 1fr;
+}
+
+JobReviewScreen.compact-review #evidence-support {
+    margin-right: 0;
+    margin-bottom: 1;
+}
+
+#questions-gate {
+    height: 3;
+    padding: 1 2;
+    color: #e5b567;
+}
+
+#questions-table {
+    margin: 0 1;
+}
+
+#review-actions {
+    height: 4;
+    padding: 0 1;
+    border-top: solid #354150;
+}
+
+#review-actions Button {
+    width: 1fr;
+    min-width: 12;
+    margin: 0 1 0 0;
+}
+
+/* Modal forms and confirmations */
+
+ConfirmActionModal,
+AddJobModal,
+QuestionAnswerModal,
+OutcomeModal,
+EvidencePathModal,
+ProfileModal {
+    align: center middle;
+    background: #10151c 82%;
+}
+
+#confirm-dialog,
+#question-dialog,
+#outcome-dialog {
+    width: 64;
+    height: auto;
+    max-height: 80%;
+    grid-size: 2;
+    grid-gutter: 1 2;
+    padding: 1 2;
+    background: #1a222d;
+    border: solid #5cc8be;
+}
+
+#path-dialog {
+    width: 72;
+    height: 86%;
+    padding: 1 2;
+    background: #1a222d;
+    border: solid #5cc8be;
+}
+
+#evidence-fields,
+#profile-fields {
+    height: 1fr;
+}
+
+#confirm-title,
+.dialog-title {
+    column-span: 2;
+    height: 2;
+    color: #d8dee9;
+    text-style: bold;
+}
+
+#confirm-body,
+#question-prompt,
+#outcome-value,
+#evidence-path,
+#path-error {
+    column-span: 2;
+    height: auto;
+    min-height: 3;
+}
+
+#question-answer {
+    column-span: 2;
+}
+
+#form-dialog,
+#profile-dialog {
+    width: 72;
+    height: 88%;
+    padding: 1 2;
+    background: #1a222d;
+    border: solid #5cc8be;
+}
+
+.dialog-copy {
+    height: auto;
+    margin-bottom: 1;
+    color: #9ba7b4;
+}
+
+.field-label {
+    height: 1;
+    margin-top: 1;
+    color: #e5b567;
+}
+
+#job-details,
+#profile-constraints,
+#evidence-text {
+    height: 7;
+}
+
+#form-error,
+#profile-error,
+#settings-error {
+    height: auto;
+    min-height: 1;
+}
+
+Input:focus,
+Select:focus,
+TextArea:focus,
+Button:focus {
+    border: tall #5cc8be;
+}
