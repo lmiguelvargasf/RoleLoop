@@ -25,6 +25,8 @@ from roleloop.domain import (
     RemotePreference,
     ResumeEvidenceVersion,
     ResumeRun,
+    ResumeSource,
+    ResumeSourceKind,
     ResumeStage,
     ReviewQuestion,
     ReviewVersion,
@@ -114,8 +116,10 @@ class SQLiteEvidenceRepository:
             INSERT INTO evidence_versions (
                 id, profile_id, source_kind, source_name, artifact_id,
                 artifact_checksum, artifact_uri, artifact_media_type,
-                artifact_size_bytes, extracted_text, created_at
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                artifact_size_bytes, extracted_text, created_at, resume_source_id,
+                source_revision, resume_source_kind, source_repository, source_ref,
+                source_document_path
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 evidence.id,
@@ -129,6 +133,16 @@ class SQLiteEvidenceRepository:
                 artifact.size_bytes,
                 evidence.extracted_text,
                 _datetime_text(evidence.created_at),
+                evidence.resume_source_id,
+                evidence.source_revision,
+                (
+                    None
+                    if evidence.resume_source_kind is None
+                    else evidence.resume_source_kind.value
+                ),
+                evidence.source_repository,
+                evidence.source_ref,
+                evidence.source_document_path,
             ),
         )
 
@@ -148,6 +162,50 @@ class SQLiteEvidenceRepository:
             (profile_id,),
         ).fetchall()
         return tuple(_evidence_from_row(row) for row in rows)
+
+
+class SQLiteResumeSourcesRepository:
+    def __init__(self, connection: sqlite3.Connection) -> None:
+        self._connection = connection
+
+    def add(self, source: ResumeSource) -> None:
+        self._connection.execute(
+            """
+            INSERT INTO resume_sources (
+                id, profile_id, kind, repository, ref, document_path,
+                last_synced_revision, last_synced_checksum,
+                last_synced_evidence_version_id, last_synced_at, revision,
+                created_at, updated_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            _resume_source_parameters(source),
+        )
+
+    def get(self, source_id: str) -> ResumeSource | None:
+        row = self._connection.execute(
+            "SELECT * FROM resume_sources WHERE id = ?", (source_id,)
+        ).fetchone()
+        return None if row is None else _resume_source_from_row(row)
+
+    def get_for_profile(self, profile_id: str) -> ResumeSource | None:
+        row = self._connection.execute(
+            "SELECT * FROM resume_sources WHERE profile_id = ?", (profile_id,)
+        ).fetchone()
+        return None if row is None else _resume_source_from_row(row)
+
+    def update(self, source: ResumeSource, *, expected_revision: int) -> bool:
+        cursor = self._connection.execute(
+            """
+            UPDATE resume_sources SET
+                profile_id = ?, kind = ?, repository = ?, ref = ?, document_path = ?,
+                last_synced_revision = ?, last_synced_checksum = ?,
+                last_synced_evidence_version_id = ?, last_synced_at = ?, revision = ?,
+                created_at = ?, updated_at = ?
+            WHERE id = ? AND revision = ?
+            """,
+            (*_resume_source_parameters(source)[1:], source.id, expected_revision),
+        )
+        return cursor.rowcount == 1
 
 
 class SQLiteJobsRepository:
@@ -561,6 +619,42 @@ def _profile_parameters(profile: SearchProfile) -> tuple[object, ...]:
     )
 
 
+def _resume_source_parameters(source: ResumeSource) -> tuple[object, ...]:
+    return (
+        source.id,
+        source.profile_id,
+        source.kind.value,
+        source.repository,
+        source.ref,
+        source.document_path,
+        source.last_synced_revision,
+        source.last_synced_checksum,
+        source.last_synced_evidence_version_id,
+        _datetime_text(source.last_synced_at),
+        source.revision,
+        _datetime_text(source.created_at),
+        _datetime_text(source.updated_at),
+    )
+
+
+def _resume_source_from_row(row: sqlite3.Row) -> ResumeSource:
+    return ResumeSource(
+        id=row["id"],
+        profile_id=row["profile_id"],
+        kind=ResumeSourceKind(row["kind"]),
+        repository=row["repository"],
+        ref=row["ref"],
+        document_path=row["document_path"],
+        last_synced_revision=row["last_synced_revision"],
+        last_synced_checksum=row["last_synced_checksum"],
+        last_synced_evidence_version_id=row["last_synced_evidence_version_id"],
+        last_synced_at=_datetime_value(row["last_synced_at"]),
+        revision=row["revision"],
+        created_at=_datetime_value(row["created_at"]),
+        updated_at=_datetime_value(row["updated_at"]),
+    )
+
+
 def _profile_from_row(connection: sqlite3.Connection, row: sqlite3.Row) -> SearchProfile:
     return SearchProfile(
         id=row["id"],
@@ -663,6 +757,16 @@ def _evidence_from_row(row: sqlite3.Row) -> ResumeEvidenceVersion:
         ),
         extracted_text=row["extracted_text"],
         created_at=_required_datetime(row["created_at"]),
+        resume_source_id=row["resume_source_id"],
+        source_revision=row["source_revision"],
+        resume_source_kind=(
+            None
+            if row["resume_source_kind"] is None
+            else ResumeSourceKind(row["resume_source_kind"])
+        ),
+        source_repository=row["source_repository"],
+        source_ref=row["source_ref"],
+        source_document_path=row["source_document_path"],
     )
 
 

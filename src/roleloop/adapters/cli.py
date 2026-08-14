@@ -22,10 +22,11 @@ from roleloop.application import (
     ProgressUpdate,
     ProviderFailureError,
     ProviderUnavailableError,
+    ResumeSourceDraft,
     RevisionConflictError,
     ValidationError,
 )
-from roleloop.domain import Decision, Outcome
+from roleloop.domain import Decision, Outcome, ResumeSourceKind
 
 SCHEMA_VERSION = 1
 
@@ -84,6 +85,50 @@ def build_parser() -> argparse.ArgumentParser:
         choices=["interviewing", "offer", "rejected", "withdrawn", "no_response"],
         metavar="OUTCOME",
     )
+
+    source_parser = commands.add_parser(
+        "resume-source",
+        help="Configure and explicitly sync a master résumé Git repository",
+    )
+    source_commands = source_parser.add_subparsers(
+        dest="resume_source_command",
+        required=True,
+    )
+    configure_source_parser = source_commands.add_parser(
+        "configure",
+        help="Configure the active profile's master résumé repository",
+    )
+    configure_source_parser.add_argument("repository", metavar="REPOSITORY")
+    configure_source_parser.add_argument(
+        "--kind",
+        required=True,
+        choices=[kind.value for kind in ResumeSourceKind],
+    )
+    configure_source_parser.add_argument(
+        "--document-path",
+        required=True,
+        metavar="PATH",
+        help="Repository-relative path to the résumé document",
+    )
+    configure_source_parser.add_argument(
+        "--ref",
+        default=None,
+        metavar="REF",
+        help="Git branch, tag, or revision (defaults to HEAD locally and main remotely)",
+    )
+    configure_source_parser.add_argument("--json", action="store_true", dest="as_json")
+
+    show_source_parser = source_commands.add_parser(
+        "show",
+        help="Show the active profile's master résumé source",
+    )
+    show_source_parser.add_argument("--json", action="store_true", dest="as_json")
+
+    sync_source_parser = source_commands.add_parser(
+        "sync",
+        help="Resolve and activate an immutable master résumé snapshot",
+    )
+    sync_source_parser.add_argument("--json", action="store_true", dest="as_json")
     return parser
 
 
@@ -174,6 +219,22 @@ def _render_review(view: Any) -> str:
     return "\n".join(lines)
 
 
+def _render_resume_source(source: Any | None) -> str:
+    if source is None:
+        return "No master résumé source is configured."
+    kind = getattr(getattr(source, "kind", ""), "value", getattr(source, "kind", ""))
+    last_revision = getattr(source, "last_synced_revision", None) or "never"
+    return "\n".join(
+        (
+            f"Kind: {kind}",
+            f"Repository: {getattr(source, 'repository', '-')}",
+            f"Ref: {getattr(source, 'ref', '-')}",
+            f"Document: {getattr(source, 'document_path', '-')}",
+            f"Last synced revision: {last_revision}",
+        )
+    )
+
+
 def _dispatch(args: argparse.Namespace, service: Any, progress: StderrProgress) -> tuple[Any, str]:
     profile_id = _active_profile_id(service)
     if args.command == "find":
@@ -216,6 +277,37 @@ def _dispatch(args: argparse.Namespace, service: Any, progress: StderrProgress) 
     if args.command == "outcome":
         view = _resolve(service.record_outcome(profile_id, args.job_id, Outcome(args.outcome)))
         return view, f"Outcome recorded: {args.outcome}."
+    if args.command == "resume-source":
+        if args.resume_source_command == "configure":
+            current = _resolve(service.get_resume_source(profile_id))
+            source = _resolve(
+                service.configure_resume_source(
+                    profile_id,
+                    ResumeSourceDraft(
+                        repository=args.repository,
+                        kind=ResumeSourceKind(args.kind),
+                        document_path=args.document_path,
+                        ref=args.ref,
+                    ),
+                    expected_revision=getattr(current, "revision", None),
+                )
+            )
+            return (
+                source,
+                "Configured master résumé source. Run `roleloop resume-source sync` to import it.",
+            )
+        if args.resume_source_command == "show":
+            source = _resolve(service.get_resume_source(profile_id))
+            return source, _render_resume_source(source)
+        if args.resume_source_command == "sync":
+            evidence = _resolve(service.sync_resume_source(profile_id, progress=progress))
+            revision = getattr(evidence, "source_revision", None) or "unknown revision"
+            evidence_id = getattr(evidence, "id", "-")
+            return (
+                evidence,
+                f"Synced master résumé at {revision}; evidence {evidence_id} is active.",
+            )
+        raise AssertionError(f"Unhandled résumé source command: {args.resume_source_command}")
     raise AssertionError(f"Unhandled command: {args.command}")
 
 

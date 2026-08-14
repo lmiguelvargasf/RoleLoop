@@ -3,8 +3,11 @@
 from __future__ import annotations
 
 import asyncio
+import hashlib
+import re
 from collections.abc import Sequence
 from dataclasses import replace
+from pathlib import Path, PurePosixPath
 from typing import Any, TypeVar
 
 from roleloop.domain import (
@@ -13,6 +16,7 @@ from roleloop.domain import (
     ApplicationSubmission,
     Decision,
     EligibilityStatus,
+    EvidenceSourceKind,
     Finding,
     Job,
     JobCase,
@@ -21,6 +25,8 @@ from roleloop.domain import (
     QuestionCategory,
     ResumeEvidenceVersion,
     ResumeRun,
+    ResumeSource,
+    ResumeSourceKind,
     ResumeStage,
     ResumeStatus,
     ReviewQuestion,
@@ -37,6 +43,12 @@ from roleloop.domain import (
     review_fingerprint,
     review_status,
 )
+from roleloop.domain.git import (
+    InvalidGitRef,
+    InvalidGitRemote,
+    validate_git_ref,
+    validate_remote_git_repository,
+)
 from roleloop.domain.urls import InvalidJobUrl
 
 from .dto import (
@@ -52,6 +64,8 @@ from .dto import (
     Page,
     ProfileDraft,
     ProgressUpdate,
+    ResumeSourceDraft,
+    ResumeSourceSnapshot,
     ReviewContext,
 )
 from .errors import (
@@ -74,6 +88,7 @@ from .ports import (
     PdfCompiler,
     ProgressReporter,
     ResumeGenerator,
+    ResumeSourceSynchronizer,
     ResumeValidator,
     ReviewAnalyzer,
     UnitOfWork,
@@ -99,6 +114,7 @@ class RoleLoopService:
         compiler: PdfCompiler | None = None,
         evidence_extractor: EvidenceExtractor | None = None,
         artifact_store: ArtifactStore | None = None,
+        resume_source_synchronizer: ResumeSourceSynchronizer | None = None,
     ) -> None:
         self._uow_factory = uow_factory
         self._clock = clock
@@ -110,6 +126,7 @@ class RoleLoopService:
         self._compiler = compiler
         self._evidence_extractor = evidence_extractor
         self._artifact_store = artifact_store
+        self._resume_source_synchronizer = resume_source_synchronizer
 
     @property
     def provider_capabilities(self) -> dict[str, bool]:
@@ -121,6 +138,8 @@ class RoleLoopService:
             "pdf_compilation": _provider_is_available(self._compiler),
             "evidence_extraction": _provider_is_available(self._evidence_extractor),
             "artifact_storage": _provider_is_available(self._artifact_store),
+            "resume_source_sync": _provider_is_available(self._resume_source_synchronizer)
+            and _provider_is_available(self._artifact_store),
         }
 
     # Profiles and evidence -------------------------------------------------
@@ -218,6 +237,7 @@ class RoleLoopService:
                 profile=profile,
                 evidence=evidence,
                 provider_capabilities=self.provider_capabilities,
+                resume_source=uow.resume_sources.get_for_profile(profile.id),
             )
 
     async def import_evidence(
@@ -292,6 +312,279 @@ class RoleLoopService:
                 },
             )
             uow.commit()
+        return evidence
+
+    def configure_resume_source(
+        self,
+        profile_id: str,
+        draft: ResumeSourceDraft,
+        *,
+        expected_revision: int | None = None,
+    ) -> ResumeSource:
+        """Create or update the one master-résumé source assigned to a profile."""
+
+        draft = _validated_resume_source_draft(draft)
+        now = self._clock.now()
+        with self._uow_factory() as uow:
+            self._require_profile(uow, profile_id)
+            current = uow.resume_sources.get_for_profile(profile_id)
+            if current is None:
+                if expected_revision is not None:
+                    self._check_revision(0, expected_revision, "résumé source")
+                source = ResumeSource(
+                    id=self._ids.new(),
+                    profile_id=profile_id,
+                    kind=draft.kind,
+                    repository=draft.repository,
+                    ref=draft.ref or _default_resume_source_ref(draft.kind),
+                    document_path=draft.document_path,
+                    created_at=now,
+                    updated_at=now,
+                )
+                uow.resume_sources.add(source)
+                event_type = "resume_source.configured"
+            else:
+                concurrency_revision = (
+                    current.revision if expected_revision is None else expected_revision
+                )
+                self._check_revision(current.revision, concurrency_revision, "résumé source")
+                configured_values = (
+                    draft.kind,
+                    draft.repository,
+                    draft.ref or _default_resume_source_ref(draft.kind),
+                    draft.document_path,
+                )
+                current_values = (
+                    current.kind,
+                    current.repository,
+                    current.ref,
+                    current.document_path,
+                )
+                if configured_values == current_values:
+                    return current
+                source = replace(
+                    current,
+                    kind=configured_values[0],
+                    repository=configured_values[1],
+                    ref=configured_values[2],
+                    document_path=configured_values[3],
+                    last_synced_revision=None,
+                    last_synced_checksum=None,
+                    last_synced_evidence_version_id=None,
+                    last_synced_at=None,
+                    revision=current.revision + 1,
+                    updated_at=now,
+                )
+                if not uow.resume_sources.update(source, expected_revision=concurrency_revision):
+                    raise RevisionConflictError("résumé source was changed by another operation")
+                event_type = "resume_source.reconfigured"
+            self._event(
+                uow,
+                profile_id,
+                event_type,
+                metadata={
+                    "resume_source_id": source.id,
+                    "kind": source.kind.value,
+                    "ref": source.ref,
+                    "document_path": source.document_path,
+                },
+            )
+            uow.commit()
+            return source
+
+    def get_resume_source(self, profile_id: str) -> ResumeSource | None:
+        with self._uow_factory() as uow:
+            self._require_profile(uow, profile_id)
+            return uow.resume_sources.get_for_profile(profile_id)
+
+    async def sync_resume_source(
+        self,
+        profile_id: str,
+        *,
+        progress: ProgressReporter | None = None,
+    ) -> ResumeEvidenceVersion:
+        """Resolve a pinned Git snapshot and activate it as immutable evidence."""
+
+        synchronizer = self._require_provider(
+            self._resume_source_synchronizer, "résumé source synchronization"
+        )
+        store = self._require_provider(self._artifact_store, "artifact storage")
+        reporter = progress or NullProgressReporter()
+        with self._uow_factory() as uow:
+            profile = self._require_profile(uow, profile_id)
+            source = uow.resume_sources.get_for_profile(profile_id)
+            if source is None:
+                raise InvalidTransitionError(
+                    "configure a master résumé source before synchronizing it"
+                )
+            expected_profile_revision = profile.revision
+            expected_source_revision = source.revision
+
+        reporter.report(
+            ProgressUpdate(
+                operation="resume_source_sync",
+                stage="resolving",
+                message="Resolving master résumé snapshot",
+            )
+        )
+        try:
+            snapshot = await synchronizer.sync(source, progress=reporter)
+        except ApplicationError:
+            raise
+        except Exception as exc:
+            raise ProviderFailureError(
+                f"résumé source synchronization failed: {exc}",
+                details={"provider": "resume_source_sync"},
+            ) from exc
+        snapshot = _validated_resume_source_snapshot(snapshot)
+
+        with self._uow_factory() as uow:
+            current_profile = self._require_profile(uow, profile_id)
+            current_source = uow.resume_sources.get_for_profile(profile_id)
+            if current_source is None:
+                raise RevisionConflictError(
+                    "résumé source was removed while synchronization was running"
+                )
+            self._check_revision(current_source.revision, expected_source_revision, "résumé source")
+            self._check_revision(current_profile.revision, expected_profile_revision, "profile")
+            existing_evidence = _matching_synced_evidence(
+                uow,
+                source=current_source,
+                snapshot=snapshot,
+            )
+            if existing_evidence is not None:
+                if current_profile.active_evidence_version_id == existing_evidence.id:
+                    reporter.report(
+                        ProgressUpdate(
+                            operation="resume_source_sync",
+                            stage="complete",
+                            message="Master résumé is already current",
+                        )
+                    )
+                    return existing_evidence
+                now = self._clock.now()
+                activated_profile = replace(
+                    current_profile,
+                    active_evidence_version_id=existing_evidence.id,
+                    revision=current_profile.revision + 1,
+                    updated_at=now,
+                )
+                if not uow.profiles.update(
+                    activated_profile,
+                    expected_revision=current_profile.revision,
+                ):
+                    raise RevisionConflictError(
+                        "profile changed while résumé evidence was being activated"
+                    )
+                self._event(
+                    uow,
+                    profile_id,
+                    "resume_source.activated",
+                    metadata={
+                        "resume_source_id": current_source.id,
+                        "evidence_version_id": existing_evidence.id,
+                        "source_revision": snapshot.source_revision,
+                    },
+                )
+                uow.commit()
+                reporter.report(
+                    ProgressUpdate(
+                        operation="resume_source_sync",
+                        stage="complete",
+                        message="Master résumé snapshot activated",
+                    )
+                )
+                return existing_evidence
+
+        try:
+            source_artifact = await store.put_bytes(
+                snapshot.source_bytes,
+                media_type=snapshot.media_type,
+                extension=snapshot.extension,
+            )
+        except ApplicationError:
+            raise
+        except Exception as exc:
+            raise ArtifactError(f"could not preserve master résumé snapshot: {exc}") from exc
+        if source_artifact.checksum != snapshot.content_checksum:
+            raise ArtifactError(
+                "artifact storage checksum does not match the synchronized résumé snapshot"
+            )
+
+        now = self._clock.now()
+        evidence = ResumeEvidenceVersion(
+            id=self._ids.new(),
+            profile_id=profile_id,
+            source_kind=(
+                EvidenceSourceKind.PDF
+                if snapshot.media_type.partition(";")[0].strip().lower() == "application/pdf"
+                else EvidenceSourceKind.TEXT_FILE
+            ),
+            source_name=snapshot.source_name,
+            source_artifact=source_artifact,
+            extracted_text=snapshot.extracted_text,
+            created_at=now,
+            resume_source_id=source.id,
+            source_revision=snapshot.source_revision,
+            resume_source_kind=source.kind,
+            source_repository=source.repository,
+            source_ref=source.ref,
+            source_document_path=source.document_path,
+        )
+        with self._uow_factory() as uow:
+            current_profile = self._require_profile(uow, profile_id)
+            current_source = uow.resume_sources.get_for_profile(profile_id)
+            if current_source is None:
+                raise RevisionConflictError(
+                    "résumé source was removed while synchronization was running"
+                )
+            self._check_revision(current_source.revision, expected_source_revision, "résumé source")
+            self._check_revision(current_profile.revision, expected_profile_revision, "profile")
+            uow.evidence.add(evidence)
+            synced_source = replace(
+                current_source,
+                last_synced_revision=snapshot.source_revision,
+                last_synced_checksum=snapshot.content_checksum,
+                last_synced_evidence_version_id=evidence.id,
+                last_synced_at=now,
+                revision=current_source.revision + 1,
+                updated_at=now,
+            )
+            if not uow.resume_sources.update(
+                synced_source, expected_revision=current_source.revision
+            ):
+                raise RevisionConflictError(
+                    "résumé source changed while its snapshot was being saved"
+                )
+            activated_profile = replace(
+                current_profile,
+                active_evidence_version_id=evidence.id,
+                revision=current_profile.revision + 1,
+                updated_at=now,
+            )
+            if not uow.profiles.update(
+                activated_profile, expected_revision=current_profile.revision
+            ):
+                raise RevisionConflictError("profile changed while résumé evidence was being saved")
+            self._event(
+                uow,
+                profile_id,
+                "resume_source.synced",
+                metadata={
+                    "resume_source_id": current_source.id,
+                    "evidence_version_id": evidence.id,
+                    "source_revision": snapshot.source_revision,
+                    "checksum": snapshot.content_checksum,
+                },
+            )
+            uow.commit()
+        reporter.report(
+            ProgressUpdate(
+                operation="resume_source_sync",
+                stage="complete",
+                message="Master résumé snapshot synchronized",
+            )
+        )
         return evidence
 
     # Jobs and inbox --------------------------------------------------------
@@ -1248,6 +1541,119 @@ def _validated_profile_draft(draft: ProfileDraft) -> ProfileDraft:
         salary_currency=currency,
         constraints=draft.constraints.strip(),
     )
+
+
+def _validated_resume_source_draft(draft: ResumeSourceDraft) -> ResumeSourceDraft:
+    if not isinstance(draft.kind, ResumeSourceKind):
+        raise ValidationError("résumé source kind must be local_git or remote_git")
+
+    repository = draft.repository.strip()
+    if not repository or "\x00" in repository or "\n" in repository or "\r" in repository:
+        raise ValidationError("résumé source repository is required")
+    if draft.kind is ResumeSourceKind.LOCAL_GIT:
+        repository_path = Path(repository).expanduser()
+        if not repository_path.is_absolute():
+            raise ValidationError("a local Git résumé source must use an absolute path")
+        repository = str(repository_path.resolve(strict=False))
+    else:
+        try:
+            repository = validate_remote_git_repository(repository)
+        except InvalidGitRemote as error:
+            raise ValidationError(str(error)) from error
+
+    document_path = draft.document_path.strip()
+    relative_path = PurePosixPath(document_path)
+    if (
+        not document_path
+        or "\x00" in document_path
+        or "\\" in document_path
+        or any(ord(character) < 32 for character in document_path)
+        or relative_path.is_absolute()
+        or not relative_path.parts
+        or any(part in {"", ".", ".."} for part in relative_path.parts)
+    ):
+        raise ValidationError("résumé document path must be a safe repository-relative path")
+
+    try:
+        ref = validate_git_ref(draft.ref or _default_resume_source_ref(draft.kind))
+    except InvalidGitRef as error:
+        raise ValidationError(str(error)) from error
+    return replace(
+        draft,
+        repository=repository,
+        document_path=relative_path.as_posix(),
+        ref=ref,
+    )
+
+
+def _validated_resume_source_snapshot(
+    snapshot: ResumeSourceSnapshot,
+) -> ResumeSourceSnapshot:
+    if not isinstance(snapshot, ResumeSourceSnapshot):
+        raise ArtifactError("résumé source synchronizer returned an invalid snapshot")
+    if not isinstance(snapshot.source_bytes, bytes) or not snapshot.source_bytes:
+        raise ArtifactError("the synchronized résumé source is empty")
+    if not snapshot.extracted_text.strip():
+        raise ArtifactError("no résumé text could be extracted from the synchronized source")
+    source_revision = snapshot.source_revision.strip()
+    if not source_revision or any(character.isspace() for character in source_revision):
+        raise ArtifactError("résumé source synchronizer returned an invalid revision")
+    source_name = snapshot.source_name.strip()
+    if not source_name or "\x00" in source_name:
+        raise ArtifactError("résumé source synchronizer returned an invalid source name")
+    media_type = snapshot.media_type.strip()
+    if not media_type or "\x00" in media_type:
+        raise ArtifactError("résumé source synchronizer returned an invalid media type")
+    extension = snapshot.extension.strip().lower()
+    if not re.fullmatch(r"(?:\.[a-z0-9]+)?", extension):
+        raise ArtifactError("résumé source synchronizer returned an unsafe extension")
+    content_checksum = snapshot.content_checksum.strip().lower()
+    actual_checksum = hashlib.sha256(snapshot.source_bytes).hexdigest()
+    if content_checksum != actual_checksum:
+        raise ArtifactError("synchronized résumé checksum does not match its content")
+    return replace(
+        snapshot,
+        source_name=source_name,
+        media_type=media_type,
+        extension=extension,
+        source_revision=source_revision,
+        content_checksum=content_checksum,
+    )
+
+
+def _matching_synced_evidence(
+    uow: UnitOfWork,
+    *,
+    source: ResumeSource,
+    snapshot: ResumeSourceSnapshot,
+) -> ResumeEvidenceVersion | None:
+    if (
+        source.last_synced_revision != snapshot.source_revision
+        or source.last_synced_checksum != snapshot.content_checksum
+        or source.last_synced_evidence_version_id is None
+    ):
+        return None
+    evidence = uow.evidence.get(source.last_synced_evidence_version_id)
+    if (
+        evidence is None
+        or evidence.profile_id != source.profile_id
+        or evidence.resume_source_id != source.id
+        or evidence.source_revision != snapshot.source_revision
+        or evidence.resume_source_kind is not source.kind
+        or evidence.source_repository != source.repository
+        or evidence.source_ref != source.ref
+        or evidence.source_document_path != source.document_path
+        or evidence.source_artifact.checksum != snapshot.content_checksum
+        or evidence.source_artifact.media_type != snapshot.media_type
+        or evidence.source_name != snapshot.source_name
+        or evidence.extracted_text != snapshot.extracted_text
+    ):
+        return None
+    return evidence
+
+
+def _default_resume_source_ref(kind: ResumeSourceKind) -> str:
+    return "HEAD" if kind is ResumeSourceKind.LOCAL_GIT else "main"
 
 
 def _validate_evidence_import(request: EvidenceImport) -> None:

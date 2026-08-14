@@ -295,6 +295,105 @@ class EvidencePathModal(ModalScreen[dict[str, str] | None]):
         self.dismiss(None)
 
 
+class ResumeSourceModal(ModalScreen[dict[str, str] | None]):
+    """Configure a persistent local or remote Git master résumé source."""
+
+    BINDINGS: ClassVar = [("escape", "cancel", "Cancel")]
+    KINDS = (("Local Git repository", "local_git"), ("Remote Git repository", "remote_git"))
+
+    def __init__(self, source: Any | None = None) -> None:
+        super().__init__()
+        self.source = source
+
+    def compose(self) -> ComposeResult:
+        kind = field(self.source, "kind", default="local_git")
+        kind = getattr(kind, "value", kind)
+        if kind not in {value for _, value in self.KINDS}:
+            kind = "local_git"
+        with Vertical(id="resume-source-dialog"):
+            with VerticalScroll(id="resume-source-fields"):
+                yield Label("Master résumé repository", classes="dialog-title")
+                yield Static(
+                    "RoleLoop resolves a committed Git revision only when you explicitly sync. "
+                    "Existing evidence and generated artifacts remain immutable.",
+                    classes="dialog-copy",
+                    markup=False,
+                )
+                yield Label("Repository kind", classes="field-label")
+                yield Select(
+                    self.KINDS,
+                    value=kind,
+                    allow_blank=False,
+                    id="resume-source-kind",
+                )
+                yield Label("Repository", classes="field-label")
+                yield Input(
+                    value=str(field(self.source, "repository", default="") or ""),
+                    id="resume-source-repository",
+                )
+                yield Label("Git ref — optional", classes="field-label")
+                yield Input(
+                    value=str(field(self.source, "ref", default="") or ""),
+                    placeholder="HEAD locally; main remotely",
+                    id="resume-source-ref",
+                )
+                yield Label("Résumé path inside repository", classes="field-label")
+                yield Input(
+                    value=str(field(self.source, "document_path", default="") or ""),
+                    placeholder="resume/master.md",
+                    id="resume-source-document-path",
+                )
+                yield Static("", id="resume-source-error", classes="form-error", markup=False)
+            with Horizontal(classes="dialog-actions"):
+                yield Button("Cancel", id="resume-source-cancel")
+                yield Button("Save source", id="resume-source-save", variant="success")
+
+    def on_mount(self) -> None:
+        self._sync_repository_placeholder()
+        self.query_one("#resume-source-repository", Input).focus()
+
+    @on(Select.Changed, "#resume-source-kind")
+    def kind_changed(self) -> None:
+        self._sync_repository_placeholder()
+
+    def _sync_repository_placeholder(self) -> None:
+        kind = str(self.query_one("#resume-source-kind", Select).value)
+        placeholder = (
+            "/absolute/path/to/resume-repository"
+            if kind == "local_git"
+            else "git@example.com:owner/resume.git"
+        )
+        self.query_one("#resume-source-repository", Input).placeholder = placeholder
+
+    @on(Button.Pressed, "#resume-source-save")
+    def save(self) -> None:
+        repository = self.query_one("#resume-source-repository", Input).value.strip()
+        document_path = self.query_one("#resume-source-document-path", Input).value.strip()
+        if not repository:
+            self.query_one("#resume-source-error", Static).update("Enter a repository.")
+            return
+        if not document_path:
+            self.query_one("#resume-source-error", Static).update(
+                "Enter the résumé path inside the repository."
+            )
+            return
+        self.dismiss(
+            {
+                "kind": str(self.query_one("#resume-source-kind", Select).value),
+                "repository": repository,
+                "ref": self.query_one("#resume-source-ref", Input).value.strip(),
+                "document_path": document_path,
+            }
+        )
+
+    @on(Button.Pressed, "#resume-source-cancel")
+    def cancel_button(self) -> None:
+        self.dismiss(None)
+
+    def action_cancel(self) -> None:
+        self.dismiss(None)
+
+
 class ProfileModal(ModalScreen[dict[str, Any] | None]):
     """Create or edit a practical search profile."""
 

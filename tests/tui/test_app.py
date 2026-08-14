@@ -24,6 +24,7 @@ from roleloop.adapters.tui.modals import (
     OutcomeModal,
     ProfileModal,
     QuestionAnswerModal,
+    ResumeSourceModal,
 )
 from roleloop.adapters.tui.review import JobReviewScreen
 from roleloop.adapters.tui.workspace import WorkspaceScreen
@@ -430,6 +431,94 @@ async def test_settings_create_edit_and_activate_profile() -> None:
         await settle(app, pilot)
         assert facade.profile.id == "profile-3"
         assert sum(profile.is_active for profile in facade.profile_list) == 1
+
+
+async def test_settings_configures_then_explicitly_syncs_master_resume() -> None:
+    facade = FakeFacade()
+    app = RoleLoopApp(facade)
+
+    async with app.run_test(size=(120, 44)) as pilot:
+        await settle(app, pilot)
+        await pilot.press("3")
+        await settle(app, pilot)
+
+        sync_button = app.screen.query_one("#resume-source-sync", Button)
+        assert sync_button.disabled
+
+        await pilot.click("#resume-source-configure")
+        await pilot.pause()
+        assert isinstance(app.screen, ResumeSourceModal)
+
+        app.screen.query_one("#resume-source-kind", Select).value = "remote_git"
+        app.screen.query_one(
+            "#resume-source-repository", Input
+        ).value = "git@example.test:person/resume.git"
+        app.screen.query_one("#resume-source-document-path", Input).value = "cv/resume.md"
+        await pilot.pause()
+        await pilot.click("#resume-source-save")
+        await settle(app, pilot)
+
+        assert facade.resume_source_requests == [
+            {
+                "kind": "remote_git",
+                "repository": "git@example.test:person/resume.git",
+                "ref": "",
+                "document_path": "cv/resume.md",
+            }
+        ]
+        assert [call for call in facade.calls if call[0] == "sync_resume_source"] == []
+        assert not sync_button.disabled
+
+        await pilot.click("#resume-source-sync")
+        await settle(app, pilot)
+
+        assert [call for call in facade.calls if call[0] == "sync_resume_source"] == [
+            ("sync_resume_source",)
+        ]
+        summary = str(app.screen.query_one("#settings-summary", Static).render())
+        assert "git@example.test:person/resume.git" in summary
+        assert "abc123" in summary
+        assert "resume.md" in summary
+        assert app.active_operations == {}
+
+
+async def test_resume_source_modal_prefills_configuration_and_passes_revision() -> None:
+    facade = FakeFacade()
+    facade.configure_resume_source(
+        {
+            "kind": "local_git",
+            "repository": "/work/master-resume",
+            "ref": "release",
+            "document_path": "resume/master.md",
+        }
+    )
+    facade.calls.clear()
+    app = RoleLoopApp(facade)
+
+    async with app.run_test(size=(120, 44)) as pilot:
+        await settle(app, pilot)
+        await pilot.press("3")
+        await settle(app, pilot)
+        await pilot.click("#resume-source-configure")
+        await pilot.pause()
+
+        assert isinstance(app.screen, ResumeSourceModal)
+        assert app.screen.query_one("#resume-source-kind", Select).value == "local_git"
+        assert (
+            app.screen.query_one("#resume-source-repository", Input).value == "/work/master-resume"
+        )
+        assert app.screen.query_one("#resume-source-ref", Input).value == "release"
+        assert (
+            app.screen.query_one("#resume-source-document-path", Input).value == "resume/master.md"
+        )
+
+        app.screen.query_one("#resume-source-ref", Input).value = "HEAD"
+        await pilot.click("#resume-source-save")
+        await settle(app, pilot)
+
+        configure_calls = [call for call in facade.calls if call[0] == "configure_resume_source"]
+        assert len(configure_calls) == 1
+        assert configure_calls[0][2] == 1
 
 
 async def test_real_service_sqlite_state_remains_authoritative(tmp_path: Path) -> None:

@@ -13,9 +13,11 @@ def test_data_directory_override_controls_managed_paths(tmp_path: Path) -> None:
     assert paths.data_dir == tmp_path
     assert paths.database_path == tmp_path / "roleloop.sqlite3"
     assert paths.artifacts_dir == tmp_path / "artifacts"
+    assert paths.resume_sources_dir == tmp_path / "resume-sources"
 
     paths.ensure_directories()
     assert paths.artifacts_dir.is_dir()
+    assert paths.resume_sources_dir.is_dir()
 
 
 def test_database_override_uses_its_parent_for_other_managed_data(tmp_path: Path) -> None:
@@ -25,6 +27,7 @@ def test_database_override_uses_its_parent_for_other_managed_data(tmp_path: Path
     assert paths.database_path == database_path
     assert paths.data_dir == database_path.parent
     assert paths.artifacts_dir == database_path.parent / "artifacts"
+    assert paths.resume_sources_dir == database_path.parent / "resume-sources"
 
 
 def test_system_clock_and_uuid_generator_produce_port_values() -> None:

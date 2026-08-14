@@ -24,6 +24,8 @@ from roleloop.domain import (
     RemotePreference,
     ResumeEvidenceVersion,
     ResumeRun,
+    ResumeSource,
+    ResumeSourceKind,
     ResumeStatus,
     ReviewStatus,
     ReviewVersion,
@@ -45,6 +47,27 @@ class ProfileDraft:
     include_keywords: tuple[str, ...] = ()
     exclude_keywords: tuple[str, ...] = ()
     constraints: str = ""
+
+
+@dataclass(frozen=True, slots=True)
+class ResumeSourceDraft:
+    repository: str
+    kind: ResumeSourceKind
+    document_path: str
+    ref: str | None = None
+
+
+@dataclass(frozen=True, slots=True)
+class ResumeSourceSnapshot:
+    """Immutable result resolved by a résumé-source synchronizer."""
+
+    source_bytes: bytes
+    extracted_text: str
+    source_name: str
+    media_type: str
+    extension: str
+    source_revision: str
+    content_checksum: str
 
 
 @dataclass(frozen=True, slots=True)
@@ -103,6 +126,7 @@ class ActiveProfileSummary:
     profile: SearchProfile
     evidence: ResumeEvidenceVersion | None
     provider_capabilities: Mapping[str, bool]
+    resume_source: ResumeSource | None = None
 
 
 @dataclass(frozen=True, slots=True)

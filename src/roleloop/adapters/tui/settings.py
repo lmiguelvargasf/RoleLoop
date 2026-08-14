@@ -13,7 +13,7 @@ from textual.binding import Binding
 from textual.containers import Horizontal, Vertical
 from textual.widgets import Button, DataTable, Label, Static
 
-from .modals import ConfirmActionModal, EvidencePathModal, ProfileModal
+from .modals import ConfirmActionModal, EvidencePathModal, ProfileModal, ResumeSourceModal
 from .presentation import (
     as_items,
     compact_date,
@@ -35,6 +35,8 @@ class SettingsView(Horizontal):
         Binding("e", "edit_profile", "Edit profile", show=False),
         Binding("a", "activate_profile", "Activate", show=False),
         Binding("i", "import_evidence", "Import evidence", show=False),
+        Binding("m", "configure_resume_source", "Master résumé source", show=False),
+        Binding("s", "sync_resume_source", "Sync master résumé", show=False),
         Binding("r", "refresh", "Refresh", show=False),
     ]
 
@@ -60,6 +62,14 @@ class SettingsView(Horizontal):
         with Vertical(id="settings-summary-pane"):
             yield Label("ACTIVE PROFILE", classes="section-kicker")
             yield Static("Loading settings…", id="settings-summary", markup=False)
+            with Horizontal(classes="button-row"):
+                yield Button("Configure master résumé", id="resume-source-configure")
+                yield Button(
+                    "Sync master résumé",
+                    id="resume-source-sync",
+                    variant="primary",
+                    disabled=True,
+                )
             yield Button(
                 "Import / replace résumé evidence",
                 id="evidence-import",
@@ -130,6 +140,7 @@ class SettingsView(Horizontal):
     def _render_summary(self, summary: Any) -> None:
         profile = field(summary, "profile", default=summary)
         evidence = field(summary, "evidence", default=None)
+        source = field(summary, "resume_source", default=None)
         evidence_artifact = field(evidence, "source_artifact", "artifact", default=None)
         capabilities = field(summary, "provider_capabilities", "capabilities", default={})
         capability_lines = []
@@ -140,6 +151,12 @@ class SettingsView(Horizontal):
         evidence_line = evidence_name(evidence)
         if evidence is not None:
             evidence_line += f" / version {item_id(evidence, 'evidence_id') or '-'}"
+        source_kind = enum_text(field(source, "kind"), "-").replace("_", " ")
+        source_repository = field(source, "repository", default="-")
+        source_ref = field(source, "ref", default="-")
+        source_document = field(source, "document_path", default="-")
+        source_revision = field(source, "last_synced_revision", default="-") or "-"
+        source_synced_at = compact_date(field(source, "last_synced_at"))
         summary_text = "\n".join(
             (
                 str(field(profile, "name", default="No active profile")),
@@ -158,6 +175,13 @@ class SettingsView(Horizontal):
                 f"{csv_text(field(profile, 'exclude_keywords', default=())) or '-'}",
                 f"Constraints        {field(profile, 'constraints', default='') or '-'}",
                 "",
+                f"Master source      {source_kind}",
+                f"Repository         {source_repository}",
+                f"Git ref            {source_ref}",
+                f"Résumé path        {source_document}",
+                f"Last revision      {source_revision}",
+                f"Last source sync   {source_synced_at}",
+                "",
                 f"Résumé evidence    {evidence_line}",
                 f"Evidence imported  {compact_date(field(evidence, 'created_at'))}",
                 f"Evidence checksum  {field(evidence_artifact, 'checksum', default='-')}",
@@ -168,6 +192,12 @@ class SettingsView(Horizontal):
             )
         )
         self.query_one("#settings-summary", Static).update(summary_text)
+        self.query_one("#resume-source-configure", Button).label = (
+            "Change master résumé" if source is not None else "Configure master résumé"
+        )
+        self.query_one("#resume-source-sync", Button).disabled = source is None or not bool(
+            dict(capabilities or {}).get("resume_source_sync", False)
+        )
         self.roleloop_app.update_header(summary)
 
     @on(DataTable.RowHighlighted, "#profiles-table")
@@ -201,6 +231,14 @@ class SettingsView(Horizontal):
     @on(Button.Pressed, "#evidence-import")
     def import_button(self) -> None:
         self.action_import_evidence()
+
+    @on(Button.Pressed, "#resume-source-configure")
+    def configure_resume_source_button(self) -> None:
+        self.action_configure_resume_source()
+
+    @on(Button.Pressed, "#resume-source-sync")
+    def sync_resume_source_button(self) -> None:
+        self.action_sync_resume_source()
 
     def action_refresh(self) -> None:
         self.refresh_data()
@@ -292,3 +330,44 @@ class SettingsView(Horizontal):
         except BaseException as error:
             self.roleloop_app.report_error(operation_error(error), title="Evidence not imported")
         self.refresh_data()
+
+    def action_configure_resume_source(self) -> None:
+        self.run_worker(self._configure_resume_source, exit_on_error=False)  # type: ignore[arg-type]
+
+    async def _configure_resume_source(self) -> None:
+        source = field(self.summary, "resume_source", default=None)
+        values = await self.app.push_screen_wait(ResumeSourceModal(source))
+        if values is None:
+            return
+        expected_revision = field(source, "revision", default=None)
+        try:
+            await self.roleloop_app.invoke(
+                "configure_resume_source",
+                values,
+                expected_revision,
+            )
+        except BaseException as error:
+            self.roleloop_app.report_error(
+                operation_error(error),
+                title="Master résumé source not configured",
+            )
+            return
+        self.roleloop_app.notify(
+            "Master résumé source configured. Sync it to activate an immutable snapshot.",
+            title="Settings",
+        )
+        self.refresh_data()
+
+    def action_sync_resume_source(self) -> None:
+        source = field(self.summary, "resume_source", default=None)
+        if source is None:
+            self.roleloop_app.report_error(
+                "Configure a master résumé source before synchronizing it.",
+                title="Master résumé source",
+            )
+            return
+        self.roleloop_app.start_operation(
+            "resume-source-sync",
+            "Sync master résumé",
+            "sync_resume_source",
+        )

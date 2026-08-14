@@ -58,5 +58,13 @@ class RoleLoopFacade(Protocol):
 
     def import_evidence(self, request: Mapping[str, str]) -> MaybeAwaitable: ...
 
+    def configure_resume_source(
+        self,
+        values: Mapping[str, Any],
+        expected_revision: int | None = None,
+    ) -> MaybeAwaitable: ...
+
+    def sync_resume_source(self, progress: ProgressSink | None = None) -> MaybeAwaitable: ...
+
 
 ProfileCollection: TypeAlias = Sequence[Any]

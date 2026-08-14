@@ -11,6 +11,7 @@ from roleloop.application.ports import (
     JobsRepository,
     ProfilesRepository,
     ResumeRunsRepository,
+    ResumeSourcesRepository,
     ReviewsRepository,
     UnitOfWork,
 )
@@ -24,6 +25,7 @@ from .repositories import (
     SQLiteJobsRepository,
     SQLiteProfilesRepository,
     SQLiteResumeRunsRepository,
+    SQLiteResumeSourcesRepository,
     SQLiteReviewsRepository,
 )
 
@@ -31,6 +33,7 @@ from .repositories import (
 class SQLiteUnitOfWork:
     profiles: ProfilesRepository
     evidence: EvidenceRepository
+    resume_sources: ResumeSourcesRepository
     jobs: JobsRepository
     cases: JobCasesRepository
     reviews: ReviewsRepository
@@ -52,6 +55,7 @@ class SQLiteUnitOfWork:
         self._connection = connection
         self.profiles = SQLiteProfilesRepository(connection)
         self.evidence = SQLiteEvidenceRepository(connection)
+        self.resume_sources = SQLiteResumeSourcesRepository(connection)
         self.jobs = SQLiteJobsRepository(connection)
         self.cases = SQLiteJobCasesRepository(connection)
         self.reviews = SQLiteReviewsRepository(connection)

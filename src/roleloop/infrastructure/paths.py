@@ -19,6 +19,12 @@ class RoleLoopPaths:
     database_path: Path
     artifacts_dir: Path
 
+    @property
+    def resume_sources_dir(self) -> Path:
+        """Managed clone cache used only during explicit résumé synchronization."""
+
+        return self.data_dir / "resume-sources"
+
     @classmethod
     def from_environment(cls, environment: Mapping[str, str] | None = None) -> RoleLoopPaths:
         values = os.environ if environment is None else environment
@@ -47,6 +53,7 @@ class RoleLoopPaths:
         self.data_dir.mkdir(parents=True, exist_ok=True)
         self.database_path.parent.mkdir(parents=True, exist_ok=True)
         self.artifacts_dir.mkdir(parents=True, exist_ok=True)
+        self.resume_sources_dir.mkdir(parents=True, exist_ok=True)
 
 
 def _absolute_path(value: str) -> Path:

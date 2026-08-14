@@ -18,6 +18,10 @@ from roleloop.infrastructure.providers import (
     UnavailableReviewAnalyzer,
     provider_capabilities,
 )
+from roleloop.infrastructure.resume_sources import (
+    GitResumeSourceSynchronizer,
+    ResumeSourceSyncError,
+)
 from roleloop.infrastructure.runtime import SystemClock, UUID4Generator
 from roleloop.infrastructure.uow import SQLiteUnitOfWork, SQLiteUnitOfWorkFactory
 
@@ -27,7 +31,9 @@ __all__ = [
     "EvidenceExtractionError",
     "ExtractedText",
     "FileSystemArtifactStore",
+    "GitResumeSourceSynchronizer",
     "LocalEvidenceExtractor",
+    "ResumeSourceSyncError",
     "RoleLoopPaths",
     "SQLiteDatabase",
     "SQLiteUnitOfWork",

@@ -3,7 +3,10 @@ from __future__ import annotations
 import sqlite3
 from importlib.resources import files
 
-_MIGRATION_FILES = ((1, "001_initial.sql"),)
+_MIGRATION_FILES = (
+    (1, "001_initial.sql"),
+    (2, "002_resume_sources.sql"),
+)
 _KNOWN_VERSIONS = tuple(version for version, _ in _MIGRATION_FILES)
 
 

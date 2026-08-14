@@ -64,20 +64,55 @@ uv run roleloop applied JOB_ID
 uv run roleloop outcome JOB_ID interviewing
 ```
 
+### Master résumé repository
+
+A search profile can use a local or remote Git repository as its persistent master résumé source.
+Configuration does not clone, fetch, or change active evidence. Synchronization is an explicit,
+separate operation that resolves one committed Git revision and activates an immutable evidence
+snapshot:
+
+```console
+# Use a repository already available on this machine. Local paths must be absolute.
+uv run roleloop resume-source configure /absolute/path/to/resume-repository \
+  --kind local_git \
+  --document-path resume/master.md
+
+# Or configure a remote whose managed clone RoleLoop will cache and reuse.
+uv run roleloop resume-source configure git@example.com:person/resume.git \
+  --kind remote_git \
+  --document-path resume/master.md \
+  --ref main
+
+uv run roleloop resume-source show
+uv run roleloop resume-source sync
+```
+
+The ref defaults to `HEAD` for a local source and `main` for a remote source. Local synchronization
+refuses a dirty working tree; commit or stash local changes before syncing so the snapshot always
+corresponds to an exact Git revision. Each new resolved revision becomes a provenance-bearing
+evidence version; repeated synchronization of the same revision and content is idempotent. Job
+evaluation and résumé generation use the active snapshot without cloning or fetching during each
+job workflow. The configured document must be tracked UTF-8 source with a `.json`, `.md`, `.txt`,
+`.yaml`, `.yml`, `.toml`, `.tex`, or `.typ` extension.
+
+The same configure-and-sync workflow is available in Settings. Direct PDF/text evidence import
+remains available as a manual alternative.
+
 In the TUI, use `1`/`2`/`3` for Inbox, Applications, and Settings; `/` searches,
 `f` opens compact filters, `n` adds a URL, and `d` starts discovery. A detailed job
 review provides Summary, Evidence, Questions, Résumé, and History tabs. RoleLoop asks
 for confirmation before generation, submission, skipping, or replacing evidence.
 
 Discovery, automated review, résumé generation, validation, and PDF compilation are provider ports.
-This core release intentionally ships no live network, LLM, or compiler providers; those actions
-report a clear unavailable-provider error without changing workflow state.
+This core release ships Git-backed résumé-source synchronization, but no live job-network, LLM, or
+PDF-compiler providers; unavailable actions report a clear error without changing workflow state.
 
 ## Architecture
 
 - `roleloop.domain`: models, value objects, and state rules; standard library only.
 - `roleloop.application`: use cases, read models, ports, and transaction orchestration.
-- `roleloop.infrastructure`: SQLite, migrations, filesystem artifacts, and local evidence extraction.
+- `roleloop.infrastructure`: SQLite, migrations, filesystem artifacts, local evidence extraction,
+  and pinned Git résumé snapshots.
 - `roleloop.adapters.tui`: the Textual evidence desk.
 - `roleloop.adapters.cli`: the thin headless command adapter and TUI launcher.
 

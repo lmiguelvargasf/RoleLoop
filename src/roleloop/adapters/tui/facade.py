@@ -13,6 +13,7 @@ from roleloop.application.dto import (
     Page,
     ProfileDraft,
     ProgressUpdate,
+    ResumeSourceDraft,
 )
 from roleloop.application.errors import ValidationError
 from roleloop.domain import (
@@ -23,6 +24,7 @@ from roleloop.domain import (
     EvidenceSourceKind,
     Outcome,
     RemotePreference,
+    ResumeSourceKind,
     ResumeStatus,
     ReviewStatus,
 )
@@ -234,4 +236,26 @@ class ApplicationServiceFacade:
         return await self.service.import_evidence(
             self._active_profile_id(),
             evidence_import,
+        )
+
+    def configure_resume_source(
+        self,
+        values: Mapping[str, Any],
+        expected_revision: int | None = None,
+    ) -> Any:
+        return self.service.configure_resume_source(
+            self._active_profile_id(),
+            ResumeSourceDraft(
+                repository=str(values.get("repository", "")).strip(),
+                kind=ResumeSourceKind(str(values.get("kind", ""))),
+                document_path=str(values.get("document_path", "")).strip(),
+                ref=str(values.get("ref", "")).strip() or None,
+            ),
+            expected_revision=expected_revision,
+        )
+
+    async def sync_resume_source(self, progress: Callable[[Any], None] | None = None) -> Any:
+        return await self.service.sync_resume_source(
+            self._active_profile_id(),
+            progress=CallbackProgressReporter(progress),
         )

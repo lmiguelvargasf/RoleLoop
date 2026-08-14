@@ -9,6 +9,7 @@ from roleloop.infrastructure.artifacts import FileSystemArtifactStore
 from roleloop.infrastructure.database import SQLiteDatabase
 from roleloop.infrastructure.evidence import LocalEvidenceExtractor
 from roleloop.infrastructure.paths import RoleLoopPaths
+from roleloop.infrastructure.resume_sources import GitResumeSourceSynchronizer
 from roleloop.infrastructure.runtime import SystemClock, UUID4Generator
 from roleloop.infrastructure.uow import SQLiteUnitOfWorkFactory
 
@@ -36,6 +37,7 @@ def build_service(paths: RoleLoopPaths | None = None) -> RoleLoopService:
             resolved_paths.artifacts_dir,
             id_generator=ids,
         ),
+        resume_source_synchronizer=GitResumeSourceSynchronizer(resolved_paths.resume_sources_dir),
     )
     service.recover_interrupted_runs()
     return service

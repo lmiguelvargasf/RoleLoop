@@ -13,6 +13,7 @@ from roleloop.application import (
     NotFoundError,
     ProgressUpdate,
     ProviderUnavailableError,
+    ResumeSourceDraft,
 )
 from roleloop.domain import (
     ApplicationStatus,
@@ -20,6 +21,8 @@ from roleloop.domain import (
     EligibilityStatus,
     Outcome,
     RemotePreference,
+    ResumeSource,
+    ResumeSourceKind,
     ResumeStatus,
     ReviewStatus,
     SearchProfile,
@@ -39,6 +42,12 @@ class Item:
     updated_at: datetime = datetime(2026, 8, 13, tzinfo=UTC)
 
 
+@dataclass(frozen=True)
+class SyncedEvidence:
+    id: str = "evidence-git-1"
+    source_revision: str = "abc123"
+
+
 class FakeService:
     def __init__(self) -> None:
         self.calls: list[tuple[Any, ...]] = []
@@ -50,6 +59,7 @@ class FakeService:
             is_active=True,
         )
         self.summary: ActiveProfileSummary | None = ActiveProfileSummary(profile, None, {})
+        self.resume_source: ResumeSource | None = None
 
     def get_active_profile_summary(self) -> ActiveProfileSummary | None:
         return self.summary
@@ -83,6 +93,40 @@ class FakeService:
         self.calls.append(("record_outcome", profile_id, job_id, outcome))
         return Item(application_status=ApplicationStatus.SUBMITTED)
 
+    def get_resume_source(self, profile_id: str) -> ResumeSource | None:
+        self.calls.append(("get_resume_source", profile_id))
+        return self.resume_source
+
+    def configure_resume_source(
+        self,
+        profile_id: str,
+        draft: ResumeSourceDraft,
+        *,
+        expected_revision: int | None,
+    ) -> ResumeSource:
+        self.calls.append(("configure_resume_source", profile_id, draft, expected_revision))
+        self.resume_source = ResumeSource(
+            id="source-1",
+            profile_id=profile_id,
+            kind=draft.kind,
+            repository=draft.repository,
+            ref=draft.ref or ("HEAD" if draft.kind is ResumeSourceKind.LOCAL_GIT else "main"),
+            document_path=draft.document_path,
+            revision=1 if self.resume_source is None else self.resume_source.revision + 1,
+        )
+        return self.resume_source
+
+    async def sync_resume_source(self, profile_id: str, *, progress: Any) -> SyncedEvidence:
+        self.calls.append(("sync_resume_source", profile_id))
+        progress.report(
+            ProgressUpdate(
+                "resume_source_sync",
+                "complete",
+                "Master résumé snapshot synchronized",
+            )
+        )
+        return SyncedEvidence()
+
 
 def test_no_arguments_launches_tui_without_building_headless_service() -> None:
     launched: list[bool] = []
@@ -101,6 +145,18 @@ def test_no_arguments_launches_tui_without_building_headless_service() -> None:
         (["find", "--limit", "0"], 2),
         (["find", "--limit", "not-a-number"], 2),
         (["decide", "job-1", "maybe"], 2),
+        (
+            [
+                "resume-source",
+                "configure",
+                "/tmp/resume",
+                "--kind",
+                "unknown",
+                "--document-path",
+                "resume.md",
+            ],
+            2,
+        ),
         (["unknown-command"], 2),
     ],
 )
@@ -243,6 +299,123 @@ def test_outcome_maps_every_supported_value(outcome: Outcome, capsys: Any) -> No
 
     assert service.calls[-1] == ("record_outcome", "profile-1", "job-1", outcome)
     assert f"Outcome recorded: {outcome.value}" in capsys.readouterr().out
+
+
+def test_resume_source_configure_maps_explicit_git_settings(capsys: Any) -> None:
+    service = FakeService()
+
+    assert (
+        main(
+            [
+                "resume-source",
+                "configure",
+                "/work/master-resume",
+                "--kind",
+                "local_git",
+                "--document-path",
+                "resume/master.md",
+                "--ref",
+                "release",
+            ],
+            service_factory=lambda: service,
+        )
+        == 0
+    )
+
+    assert service.calls[-1] == (
+        "configure_resume_source",
+        "profile-1",
+        ResumeSourceDraft(
+            repository="/work/master-resume",
+            kind=ResumeSourceKind.LOCAL_GIT,
+            document_path="resume/master.md",
+            ref="release",
+        ),
+        None,
+    )
+    output = capsys.readouterr().out
+    assert "Configured master résumé source" in output
+    assert "resume-source sync" in output
+
+
+def test_resume_source_reconfigure_passes_optimistic_revision(capsys: Any) -> None:
+    service = FakeService()
+    service.resume_source = ResumeSource(
+        id="source-1",
+        profile_id="profile-1",
+        kind=ResumeSourceKind.REMOTE_GIT,
+        repository="https://example.test/old.git",
+        ref="main",
+        document_path="resume.md",
+        revision=4,
+    )
+
+    assert (
+        main(
+            [
+                "resume-source",
+                "configure",
+                "git@example.test:team/resume.git",
+                "--kind",
+                "remote_git",
+                "--document-path",
+                "cv/resume.md",
+            ],
+            service_factory=lambda: service,
+        )
+        == 0
+    )
+
+    assert service.calls[-1][-1] == 4
+    assert capsys.readouterr().err == ""
+
+
+def test_resume_source_show_json_is_versioned(capsys: Any) -> None:
+    service = FakeService()
+    service.resume_source = ResumeSource(
+        id="source-1",
+        profile_id="profile-1",
+        kind=ResumeSourceKind.REMOTE_GIT,
+        repository="https://example.test/resume.git",
+        ref="main",
+        document_path="resume.md",
+        last_synced_revision="deadbeef",
+    )
+
+    assert (
+        main(
+            ["resume-source", "show", "--json"],
+            service_factory=lambda: service,
+        )
+        == 0
+    )
+
+    captured = capsys.readouterr()
+    data = json.loads(captured.out)
+    assert data["schema_version"] == 1
+    assert data["data"]["kind"] == "remote_git"
+    assert data["data"]["last_synced_revision"] == "deadbeef"
+    assert captured.err == ""
+
+
+def test_resume_source_sync_supports_async_progress_and_json(capsys: Any) -> None:
+    service = FakeService()
+
+    assert (
+        main(
+            ["resume-source", "sync", "--json"],
+            service_factory=lambda: service,
+        )
+        == 0
+    )
+
+    captured = capsys.readouterr()
+    assert json.loads(captured.out)["data"] == {
+        "id": "evidence-git-1",
+        "source_revision": "abc123",
+    }
+    assert service.calls[-1] == ("sync_resume_source", "profile-1")
+    assert "resume_source_sync [complete]" in captured.err
 
 
 def test_no_profile_returns_onboarding_validation_error(capsys: Any) -> None:

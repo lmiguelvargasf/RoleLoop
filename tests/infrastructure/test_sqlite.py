@@ -3,6 +3,7 @@ from __future__ import annotations
 import sqlite3
 from dataclasses import replace
 from datetime import UTC, datetime, timedelta
+from importlib.resources import files
 from pathlib import Path
 
 import pytest
@@ -46,11 +47,11 @@ def test_database_applies_packaged_migration_and_required_pragmas(tmp_path: Path
     assert first.execute("PRAGMA journal_mode").fetchone()[0] == "wal"
     assert first.execute("PRAGMA foreign_keys").fetchone()[0] == 1
     assert first.execute("PRAGMA busy_timeout").fetchone()[0] == 2_345
-    assert [row[0] for row in first.execute("SELECT version FROM schema_migrations")] == [1]
+    assert [row[0] for row in first.execute("SELECT version FROM schema_migrations")] == [1, 2]
     first.close()
 
     second = database.connect()
-    assert [row[0] for row in second.execute("SELECT version FROM schema_migrations")] == [1]
+    assert [row[0] for row in second.execute("SELECT version FROM schema_migrations")] == [1, 2]
     second.close()
 
 
@@ -62,6 +63,65 @@ def test_database_refuses_unknown_newer_schema_version(tmp_path: Path) -> None:
 
     with pytest.raises(UnsupportedSchemaVersionError, match="newer than supported"):
         SQLiteDatabase(path).connect()
+
+
+def test_existing_version_one_database_migrates_without_losing_evidence(
+    tmp_path: Path,
+) -> None:
+    path = tmp_path / "roleloop.sqlite3"
+    connection = sqlite3.connect(path)
+    connection.execute("PRAGMA foreign_keys = ON")
+    connection.execute(
+        """
+        CREATE TABLE schema_migrations (
+            version INTEGER PRIMARY KEY,
+            applied_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+        )
+        """
+    )
+    initial = (
+        files("roleloop.infrastructure.migrations")
+        .joinpath("001_initial.sql")
+        .read_text(encoding="utf-8")
+    )
+    connection.executescript(initial)
+    connection.execute("INSERT INTO schema_migrations (version) VALUES (1)")
+    connection.execute(
+        """
+        INSERT INTO profiles (
+            id, name, remote_preference, annual_salary_floor, salary_currency,
+            constraints_text, revision, is_active, active_evidence_version_id,
+            created_at, updated_at
+        ) VALUES ('profile-1', 'Primary', 'any', NULL, 'USD', '', 1, 1, NULL, NULL, NULL)
+        """
+    )
+    connection.execute(
+        """
+        INSERT INTO evidence_versions (
+            id, profile_id, source_kind, source_name, artifact_id,
+            artifact_checksum, artifact_uri, artifact_media_type,
+            artifact_size_bytes, extracted_text, created_at
+        ) VALUES (
+            'evidence-1', 'profile-1', 'text_file', 'resume.md', 'artifact-1',
+            'checksum', 'managed/resume', 'text/markdown', 6, 'Resume',
+            '2026-08-14T00:00:00+00:00'
+        )
+        """
+    )
+    connection.commit()
+    connection.close()
+
+    upgraded = SQLiteDatabase(path).connect()
+    assert [row[0] for row in upgraded.execute("SELECT version FROM schema_migrations")] == [1, 2]
+    evidence = upgraded.execute(
+        """
+        SELECT extracted_text, resume_source_id, source_revision,
+            resume_source_kind, source_repository, source_ref, source_document_path
+        FROM evidence_versions WHERE id = 'evidence-1'
+        """
+    ).fetchone()
+    assert tuple(evidence) == ("Resume", None, None, None, None, None, None)
+    upgraded.close()
 
 
 def test_schema_rejects_unknown_fixed_enum_values(tmp_path: Path) -> None:

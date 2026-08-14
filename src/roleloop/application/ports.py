@@ -18,6 +18,7 @@ from roleloop.domain import (
     OutcomeEvent,
     ResumeEvidenceVersion,
     ResumeRun,
+    ResumeSource,
     ReviewVersion,
     SearchProfile,
     ValidationFinding,
@@ -33,6 +34,7 @@ from .dto import (
     GenerationContext,
     ProgressUpdate,
     ResumeDraft,
+    ResumeSourceSnapshot,
     ReviewAnalysis,
     ReviewContext,
 )
@@ -58,6 +60,16 @@ class EvidenceRepository(Protocol):
     def get(self, evidence_id: str) -> ResumeEvidenceVersion | None: ...
 
     def list_for_profile(self, profile_id: str) -> Sequence[ResumeEvidenceVersion]: ...
+
+
+class ResumeSourcesRepository(Protocol):
+    def add(self, source: ResumeSource) -> None: ...
+
+    def get(self, source_id: str) -> ResumeSource | None: ...
+
+    def get_for_profile(self, profile_id: str) -> ResumeSource | None: ...
+
+    def update(self, source: ResumeSource, *, expected_revision: int) -> bool: ...
 
 
 class JobsRepository(Protocol):
@@ -129,6 +141,7 @@ class EventsRepository(Protocol):
 class UnitOfWork(Protocol):
     profiles: ProfilesRepository
     evidence: EvidenceRepository
+    resume_sources: ResumeSourcesRepository
     jobs: JobsRepository
     cases: JobCasesRepository
     reviews: ReviewsRepository
@@ -177,6 +190,15 @@ class DiscoveryProvider(Protocol):
         limit: int,
         progress: ProgressReporter,
     ) -> Sequence[DiscoveredJob]: ...
+
+
+class ResumeSourceSynchronizer(Protocol):
+    async def sync(
+        self,
+        source: ResumeSource,
+        *,
+        progress: ProgressReporter,
+    ) -> ResumeSourceSnapshot: ...
 
 
 class ReviewAnalyzer(Protocol):

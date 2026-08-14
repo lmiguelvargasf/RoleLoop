@@ -11,6 +11,7 @@ from roleloop.domain import (
     OutcomeEvent,
     ResumeEvidenceVersion,
     ResumeRun,
+    ResumeSource,
     ReviewVersion,
     SearchProfile,
     VerificationAnswer,
@@ -22,6 +23,7 @@ from roleloop.domain import (
 class MemoryState:
     profiles: dict[str, SearchProfile] = field(default_factory=dict)
     evidence: dict[str, ResumeEvidenceVersion] = field(default_factory=dict)
+    resume_sources: dict[str, ResumeSource] = field(default_factory=dict)
     jobs: dict[str, Job] = field(default_factory=dict)
     cases: dict[str, JobCase] = field(default_factory=dict)
     reviews: dict[str, ReviewVersion] = field(default_factory=dict)
@@ -80,6 +82,34 @@ class EvidenceRepo:
 
     def list_for_profile(self, profile_id: str) -> tuple[ResumeEvidenceVersion, ...]:
         return tuple(item for item in self.state.evidence.values() if item.profile_id == profile_id)
+
+
+class ResumeSourcesRepo:
+    def __init__(self, state: MemoryState) -> None:
+        self.state = state
+
+    def add(self, source: ResumeSource) -> None:
+        self.state.resume_sources[source.id] = source
+
+    def get(self, source_id: str) -> ResumeSource | None:
+        return self.state.resume_sources.get(source_id)
+
+    def get_for_profile(self, profile_id: str) -> ResumeSource | None:
+        return next(
+            (
+                source
+                for source in self.state.resume_sources.values()
+                if source.profile_id == profile_id
+            ),
+            None,
+        )
+
+    def update(self, source: ResumeSource, *, expected_revision: int) -> bool:
+        current = self.get(source.id)
+        if current is None or current.revision != expected_revision:
+            return False
+        self.state.resume_sources[source.id] = source
+        return True
 
 
 class JobsRepo:
@@ -233,6 +263,7 @@ class MemoryUnitOfWork:
         self.state = deepcopy(factory.state)
         self.profiles = ProfilesRepo(self.state)
         self.evidence = EvidenceRepo(self.state)
+        self.resume_sources = ResumeSourcesRepo(self.state)
         self.jobs = JobsRepo(self.state)
         self.cases = CasesRepo(self.state)
         self.reviews = ReviewsRepo(self.state)

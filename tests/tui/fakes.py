@@ -31,6 +31,8 @@ from roleloop.domain import (
     RemotePreference,
     ResumeEvidenceVersion,
     ResumeRun,
+    ResumeSource,
+    ResumeSourceKind,
     ResumeStage,
     ResumeStatus,
     ReviewQuestion,
@@ -148,6 +150,8 @@ class FakeFacade:
         self.events: list[WorkflowEvent] = []
         self.imported_paths: list[str] = []
         self.imported_requests: list[dict[str, str]] = []
+        self.resume_source: ResumeSource | None = None
+        self.resume_source_requests: list[dict[str, Any]] = []
         self.generation_gate: asyncio.Event | None = None
         self.generation_started: asyncio.Event | None = None
         self.generation_returns_failed = False
@@ -161,7 +165,9 @@ class FakeFacade:
                 "review": True,
                 "resume": True,
                 "pdf": True,
+                "resume_source_sync": True,
             },
+            resume_source=self.resume_source,
         )
 
     def _inbox_item(self) -> JobInboxItem:
@@ -384,6 +390,71 @@ class FakeFacade:
             id=f"evidence-{len(self.imported_requests) + 1}",
             source_name=source_name,
         )
+        return self.evidence
+
+    def configure_resume_source(
+        self,
+        values: dict[str, Any],
+        expected_revision: int | None = None,
+    ) -> ResumeSource:
+        self.calls.append(("configure_resume_source", dict(values), expected_revision))
+        self.resume_source_requests.append(dict(values))
+        current_revision = self.resume_source.revision if self.resume_source is not None else 0
+        kind = ResumeSourceKind(str(values["kind"]))
+        self.resume_source = ResumeSource(
+            id="resume-source-1",
+            profile_id=self.profile.id,
+            kind=kind,
+            repository=str(values["repository"]),
+            ref=str(
+                values.get("ref") or ("HEAD" if kind is ResumeSourceKind.LOCAL_GIT else "main")
+            ),
+            document_path=str(values["document_path"]),
+            revision=current_revision + 1,
+            created_at=NOW,
+            updated_at=NOW,
+        )
+        return self.resume_source
+
+    async def sync_resume_source(self, progress: Any = None) -> ResumeEvidenceVersion:
+        self.calls.append(("sync_resume_source",))
+        if progress:
+            progress(
+                ProgressUpdate(
+                    "resume_source_sync",
+                    "resolving",
+                    "Resolving master résumé snapshot",
+                )
+            )
+        assert self.resume_source is not None
+        self.evidence = replace(
+            self.evidence,
+            id="evidence-git-1",
+            source_name=Path(self.resume_source.document_path).name,
+            resume_source_id=self.resume_source.id,
+            source_revision="abc123",
+        )
+        self.profile = replace(
+            self.profile,
+            active_evidence_version_id=self.evidence.id,
+        )
+        self.resume_source = replace(
+            self.resume_source,
+            last_synced_revision="abc123",
+            last_synced_checksum=self.evidence.source_artifact.checksum,
+            last_synced_evidence_version_id=self.evidence.id,
+            last_synced_at=NOW,
+            revision=self.resume_source.revision + 1,
+            updated_at=NOW,
+        )
+        if progress:
+            progress(
+                ProgressUpdate(
+                    "resume_source_sync",
+                    "complete",
+                    "Master résumé snapshot synchronized",
+                )
+            )
         return self.evidence
 
 

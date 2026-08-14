@@ -22,6 +22,7 @@ EvidenceVersionId: TypeAlias = str
 ReviewVersionId: TypeAlias = str
 ResumeRunId: TypeAlias = str
 ArtifactId: TypeAlias = str
+ResumeSourceId: TypeAlias = str
 
 
 class RemotePreference(StrEnum):
@@ -113,6 +114,11 @@ class EvidenceSourceKind(StrEnum):
     PASTED_TEXT = "pasted_text"
 
 
+class ResumeSourceKind(StrEnum):
+    LOCAL_GIT = "local_git"
+    REMOTE_GIT = "remote_git"
+
+
 @dataclass(frozen=True, slots=True)
 class SearchProfile:
     id: ProfileId
@@ -152,6 +158,31 @@ class ResumeEvidenceVersion:
     source_artifact: ArtifactRef
     extracted_text: str
     created_at: datetime
+    resume_source_id: ResumeSourceId | None = None
+    source_revision: str | None = None
+    resume_source_kind: ResumeSourceKind | None = None
+    source_repository: str | None = None
+    source_ref: str | None = None
+    source_document_path: str | None = None
+
+
+@dataclass(frozen=True, slots=True)
+class ResumeSource:
+    """Mutable profile-level configuration for a versioned master résumé."""
+
+    id: ResumeSourceId
+    profile_id: ProfileId
+    kind: ResumeSourceKind
+    repository: str
+    ref: str
+    document_path: str
+    last_synced_revision: str | None = None
+    last_synced_checksum: str | None = None
+    last_synced_evidence_version_id: EvidenceVersionId | None = None
+    last_synced_at: datetime | None = None
+    revision: int = 1
+    created_at: datetime | None = None
+    updated_at: datetime | None = None
 
 
 @dataclass(frozen=True, slots=True)
