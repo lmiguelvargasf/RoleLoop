@@ -131,9 +131,7 @@ class JobReviewScreen(Screen[None]):
         self._request_generation += 1
         generation = self._request_generation
         self.run_worker(
-            partial(  # type: ignore[arg-type]
-                self._load, generation, analyze=analyze
-            ),
+            partial(self._load, generation, analyze=analyze),
             group="review-read",
             exclusive=True,
             exit_on_error=False,
@@ -538,9 +536,7 @@ class JobReviewScreen(Screen[None]):
         question_id = str(event.row_key.value)
         if question_id in self.questions:
             self.run_worker(
-                partial(  # type: ignore[arg-type]
-                    self._answer_question, question_id
-                ),
+                partial(self._answer_question, question_id),
                 exit_on_error=False,
             )
 
@@ -625,7 +621,7 @@ class JobReviewScreen(Screen[None]):
         if self.view is None or self._mutation_busy:
             return
         self.run_worker(
-            partial(self._decide, decision),  # type: ignore[arg-type]
+            partial(self._decide, decision),
             exit_on_error=False,
         )
 
@@ -799,7 +795,7 @@ class JobReviewScreen(Screen[None]):
         if self.view is None or self._mutation_busy:
             return
         self.run_worker(
-            partial(self._guard_mutation, operation),  # type: ignore[arg-type]
+            partial(self._guard_mutation, operation),
             exit_on_error=False,
         )
 

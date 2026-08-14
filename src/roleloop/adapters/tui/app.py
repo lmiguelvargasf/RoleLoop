@@ -40,7 +40,7 @@ class RoleLoopApp(App[None]):
 
     def on_mount(self) -> None:
         self.run_worker(
-            self._bootstrap,  # type: ignore[arg-type]
+            self._bootstrap,
             group="bootstrap",
             exclusive=True,
             exit_on_error=False,
@@ -137,9 +137,7 @@ class RoleLoopApp(App[None]):
         self.active_operations[key] = label
         self._show_progress(label, "queued")
         self.run_worker(
-            partial(  # type: ignore[arg-type]
-                self._run_operation, key, label, method_name, args, job_id
-            ),
+            partial(self._run_operation, key, label, method_name, args, job_id),
             group=f"operation:{key}",
             exclusive=False,
             exit_on_error=False,
@@ -241,7 +239,7 @@ class RoleLoopApp(App[None]):
 
     def refresh_workspace(self) -> None:
         self.run_worker(
-            self._refresh_workspace,  # type: ignore[arg-type]
+            self._refresh_workspace,
             group="active-profile-refresh",
             exclusive=True,
             exit_on_error=False,
@@ -269,7 +267,7 @@ class RoleLoopApp(App[None]):
         if not self.active_operations:
             self.exit()
             return
-        self.run_worker(self._confirm_quit, exit_on_error=False)  # type: ignore[arg-type]
+        self.run_worker(self._confirm_quit, exit_on_error=False)
 
     async def _confirm_quit(self) -> None:
         operations = ", ".join(self.active_operations.values())

@@ -21,13 +21,13 @@ roleloop = "roleloop.adapters.cli:main"
 
 [dependency-groups]
 dev = [
-  "mypy>=1.17,<2",
   "pytest>=8.4,<10",
   "pytest-asyncio>=1.1,<2",
   "pytest-cov>=6.2,<8",
   "pytest-timeout>=2.4,<3",
   "resvg-py>=0.4,<1",
   "ruff>=0.12,<1",
+  "ty==0.0.71",
 ]
 
 [tool.hatch.build.targets.wheel]
@@ -56,15 +56,34 @@ line-length = 100
 extend-exclude = ["tests/fixtures/master_resume_contract/roleloop_contract"]
 
 [tool.ruff.lint]
-select = ["E", "F", "I", "UP", "B", "SIM", "RUF"]
+select = [
+  "E",
+  "F",
+  "I",
+  "UP",
+  "B",
+  "SIM",
+  "RUF",
+  "ANN001",
+  "ANN002",
+  "ANN003",
+  "ANN201",
+  "ANN202",
+]
 
 [tool.ruff.lint.per-file-ignores]
 # This fixture is copied byte-for-byte from the coordinated master-resume
 # contract so the drift test can prove both repositories execute the same bridge.
 "tests/fixtures/master_resume_contract/roleloop_contract/v1/core.py" = ["B905"]
+"tests/**/*.py" = ["ANN001", "ANN002", "ANN003", "ANN201", "ANN202"]
+"scripts/**/*.py" = ["ANN001", "ANN002", "ANN003", "ANN201", "ANN202"]
 
-[tool.mypy]
-python_version = "3.11"
-strict = true
-packages = ["roleloop"]
-mypy_path = "src"
+[tool.ty.environment]
+python-version = "3.11"
+root = ["./src"]
+
+[tool.ty.src]
+include = ["src"]
+
+[tool.ty.terminal]
+error-on-warning = true

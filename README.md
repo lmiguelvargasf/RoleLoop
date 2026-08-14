@@ -286,7 +286,7 @@ See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) for boundaries and invariants a
 uv run pytest
 uv run ruff check .
 uv run ruff format --check .
-uv run mypy
+uv run ty check
 uv build
 ```
 

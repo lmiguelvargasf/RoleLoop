@@ -168,7 +168,7 @@ class InboxView(Horizontal):
         generation = self._request_generation
         self.query_one("#inbox-state", Static).update("Loading inbox…")
         self.run_worker(
-            partial(self._load_jobs, generation),  # type: ignore[arg-type]
+            partial(self._load_jobs, generation),
             group="inbox-read",
             exclusive=True,
             exit_on_error=False,
@@ -321,9 +321,7 @@ class InboxView(Horizontal):
         if not self.selected_job_id or self._mutation_busy:
             return
         self.run_worker(
-            partial(  # type: ignore[arg-type]
-                self._set_decision, self.selected_job_id, decision
-            ),
+            partial(self._set_decision, self.selected_job_id, decision),
             exit_on_error=False,
         )
 

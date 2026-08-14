@@ -110,7 +110,7 @@ class WorkspaceScreen(Screen[None]):
         )
 
     def action_add_job(self) -> None:
-        self.run_worker(self._add_job, exit_on_error=False)  # type: ignore[arg-type]
+        self.run_worker(self._add_job, exit_on_error=False)
 
     async def _add_job(self) -> None:
         result = await self.app.push_screen_wait(AddJobModal())

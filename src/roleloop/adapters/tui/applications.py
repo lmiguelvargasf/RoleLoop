@@ -75,7 +75,7 @@ class ApplicationsView(Vertical):
         self.query_one("#applications-state", Static).update("Loading applications…")
         self.query_one("#followups-state", Static).update("Loading follow-ups…")
         self.run_worker(
-            partial(self._load, generation),  # type: ignore[arg-type]
+            partial(self._load, generation),
             group="applications-read",
             exclusive=True,
             exit_on_error=False,
@@ -175,12 +175,12 @@ class ApplicationsView(Vertical):
     @on(Button.Pressed, "#followup-resolve")
     def resolve_button(self) -> None:
         if self.selected_follow_up_id:
-            self.run_worker(self._resolve_followup, exit_on_error=False)  # type: ignore[arg-type]
+            self.run_worker(self._resolve_followup, exit_on_error=False)
 
     @on(Button.Pressed, "#followup-reschedule")
     def reschedule_button(self) -> None:
         if self.selected_follow_up_id:
-            self.run_worker(self._reschedule_followup, exit_on_error=False)  # type: ignore[arg-type]
+            self.run_worker(self._reschedule_followup, exit_on_error=False)
 
     def action_refresh(self) -> None:
         self.refresh_data()
@@ -191,7 +191,7 @@ class ApplicationsView(Vertical):
 
     def action_stage(self) -> None:
         if self.selected_job_id:
-            self.run_worker(self._record_stage, exit_on_error=False)  # type: ignore[arg-type]
+            self.run_worker(self._record_stage, exit_on_error=False)
 
     async def _record_stage(self) -> None:
         if not self.selected_job_id:

@@ -78,7 +78,7 @@ Normal checks are deterministic and make no OpenAI calls:
 uv run pytest
 uv run ruff check .
 uv run ruff format --check .
-uv run mypy
+uv run ty check
 uv build
 ```
 
@@ -95,11 +95,11 @@ Run the master-resume repository's own reproducible gates from that checkout
 as part of the same coordinated release:
 
 ```console
-uv -C "$MASTER_RESUME_REPO" sync
-uv -C "$MASTER_RESUME_REPO" run pytest
-uv -C "$MASTER_RESUME_REPO" run ruff check .
-uv -C "$MASTER_RESUME_REPO" run ruff format --check .
-uv -C "$MASTER_RESUME_REPO" run mypy
+uv --directory "$MASTER_RESUME_REPO" sync
+uv --directory "$MASTER_RESUME_REPO" run pytest
+uv --directory "$MASTER_RESUME_REPO" run ruff check .
+uv --directory "$MASTER_RESUME_REPO" run ruff format --check .
+uv --directory "$MASTER_RESUME_REPO" run ty check
 ```
 
 The drift check compares the sanitized vendored bridge byte-for-byte with a

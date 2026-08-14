@@ -85,7 +85,7 @@ class SettingsView(Horizontal):
         self._request_generation += 1
         generation = self._request_generation
         self.run_worker(
-            partial(self._load, generation),  # type: ignore[arg-type]
+            partial(self._load, generation),
             group="settings-read",
             exclusive=True,
             exit_on_error=False,
@@ -300,13 +300,13 @@ class SettingsView(Horizontal):
 
     @on(Button.Pressed, "#legacy-apply")
     def apply_legacy_button(self) -> None:
-        self.run_worker(self._apply_legacy_import, exit_on_error=False)  # type: ignore[arg-type]
+        self.run_worker(self._apply_legacy_import, exit_on_error=False)
 
     def action_refresh(self) -> None:
         self.refresh_data()
 
     def action_create_profile(self) -> None:
-        self.run_worker(self._create_profile, exit_on_error=False)  # type: ignore[arg-type]
+        self.run_worker(self._create_profile, exit_on_error=False)
 
     async def _create_profile(self) -> None:
         values = await self.app.push_screen_wait(ProfileModal())
@@ -322,9 +322,7 @@ class SettingsView(Horizontal):
         profile_id = self._cursor_profile_id()
         if profile_id:
             self.run_worker(
-                partial(  # type: ignore[arg-type]
-                    self._edit_profile, profile_id
-                ),
+                partial(self._edit_profile, profile_id),
                 exit_on_error=False,
             )
 
@@ -343,9 +341,7 @@ class SettingsView(Horizontal):
         profile_id = self._cursor_profile_id()
         if profile_id:
             self.run_worker(
-                partial(  # type: ignore[arg-type]
-                    self._activate_profile, profile_id
-                ),
+                partial(self._activate_profile, profile_id),
                 exit_on_error=False,
             )
 
@@ -358,7 +354,7 @@ class SettingsView(Horizontal):
         self.roleloop_app.refresh_workspace()
 
     def action_preview_legacy_import(self) -> None:
-        self.run_worker(self._preview_legacy_import, exit_on_error=False)  # type: ignore[arg-type]
+        self.run_worker(self._preview_legacy_import, exit_on_error=False)
 
     async def _preview_legacy_import(self) -> Any | None:
         try:
@@ -424,7 +420,7 @@ class SettingsView(Horizontal):
         self.refresh_data()
 
     def action_configure_resume_source(self) -> None:
-        self.run_worker(self._configure_resume_source, exit_on_error=False)  # type: ignore[arg-type]
+        self.run_worker(self._configure_resume_source, exit_on_error=False)
 
     async def _configure_resume_source(self) -> None:
         source = field(self.summary, "resume_source", default=None)
