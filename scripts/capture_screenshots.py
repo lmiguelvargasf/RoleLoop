@@ -23,6 +23,8 @@ sys.path.insert(0, str(ROOT))
 
 from textual.widgets import DataTable, TabbedContent
 
+import resvg_py
+
 from roleloop.adapters.tui.app import RoleLoopApp
 from roleloop.adapters.tui.review import JobReviewScreen
 from roleloop.adapters.tui.workspace import WorkspaceScreen
@@ -116,7 +118,9 @@ def save(app: RoleLoopApp, filename: str) -> None:
         "\n".join(line.rstrip() for line in document.splitlines()) + "\n",
         encoding="utf-8",
     )
-    print(path)
+    png_path = screenshot.with_suffix(".png")
+    png_path.write_bytes(resvg_py.svg_to_bytes(svg_string=document))
+    print(f"{screenshot}\n{png_path}")
 
 
 async def capture_inbox() -> None:
@@ -140,10 +144,10 @@ async def capture_review() -> None:
             raise RuntimeError("Job review did not open")
         tabs = app.screen.query_one("#review-tabs", TabbedContent)
         tabs.active = "evidence-tab"
-        await pilot.pause()
+        await pilot.pause(0.5)
         save(app, "roleloop-review-evidence.svg")
         tabs.active = "resume-tab"
-        await pilot.pause()
+        await pilot.pause(0.5)
         save(app, "roleloop-review-resume.svg")
 
 
