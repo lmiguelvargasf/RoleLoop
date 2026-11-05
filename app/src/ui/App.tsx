@@ -54,6 +54,7 @@ import type {
   Source,
 } from "../shared/types";
 import { api, date, downloadFile, safeUrl, uid, words, write } from "./api";
+import { SalaryFields } from "./SalaryFields";
 
 type Page =
   | "jobs"
@@ -1764,27 +1765,16 @@ function PreferencesEditor({
           <div className="form-section-heading">
             <h2>Compensation</h2>
             <p>
-              Annual base salary in USD. Unknown currencies or pay periods are
-              flagged for review.
+              Set your base salary in either period. The other amount updates
+              automatically.
             </p>
           </div>
-          <div className="form-grid">
-            <Field label="Minimum annual salary (USD)">
-              <input
-                type="number"
-                min="0"
-                value={prefs.minimumSalary}
-                onChange={(e) => set("minimumSalary", +e.target.value)}
-              />
-            </Field>
-            <Field label="Target annual salary (USD)">
-              <input
-                type="number"
-                min="0"
-                value={prefs.targetSalary}
-                onChange={(e) => set("targetSalary", +e.target.value)}
-              />
-            </Field>
+          <div className="form-grid compensation-grid">
+            <SalaryFields
+              minimumSalary={prefs.minimumSalary}
+              targetSalary={prefs.targetSalary}
+              onChange={set}
+            />
             <Field label="Salary range policy">
               <select
                 value={prefs.salaryPolicy}

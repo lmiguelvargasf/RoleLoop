@@ -1097,6 +1097,128 @@ code {
 .checkbox-field.wide {
   grid-column: 1/-1;
 }
+.salary-toolbar {
+  grid-column: 1/-1;
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 12px;
+}
+.salary-period {
+  min-width: 0;
+  margin: 0;
+  padding: 0;
+  border: 0;
+}
+.salary-period legend {
+  margin-bottom: 8px;
+  padding: 0;
+  color: #6b7b8e;
+  font-size: 11px;
+  font-weight: 550;
+}
+.salary-period-options {
+  display: inline-flex;
+  padding: 3px;
+  border: 1px solid #dce3eb;
+  border-radius: 7px;
+  background: #edf1f5;
+}
+.salary-period-options label {
+  position: relative;
+  cursor: pointer;
+}
+.salary-period-options input {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  opacity: 0;
+  padding: 0;
+}
+.salary-period-options span {
+  display: block;
+  min-width: 91px;
+  padding: 10px 16px;
+  border-radius: 4px;
+  color: #6b7b8e;
+  font-size: 11px;
+  font-weight: 550;
+  text-align: center;
+}
+.salary-period-options input:checked + span {
+  background: var(--paper);
+  color: var(--accent);
+  box-shadow: 0 1px 3px #18293b12;
+}
+.salary-period-options input:focus-visible + span {
+  outline: 3px solid #49aab4;
+  outline-offset: 2px;
+}
+.salary-conversion-note {
+  padding-bottom: 12px;
+  color: #718092;
+  font-size: 10px;
+}
+.salary-field {
+  min-width: 0;
+}
+.salary-input {
+  display: block;
+  position: relative;
+}
+.salary-input input {
+  padding-left: 27px;
+  padding-right: 67px;
+  font-variant-numeric: tabular-nums;
+  appearance: textfield;
+  -moz-appearance: textfield;
+}
+.salary-input input::-webkit-inner-spin-button,
+.salary-input input::-webkit-outer-spin-button {
+  margin: 0;
+  -webkit-appearance: none;
+}
+.salary-input > span {
+  position: absolute;
+  top: 50%;
+  transform: translateY(-50%);
+  color: #718092;
+  font-size: 11px;
+  pointer-events: none;
+}
+.salary-input > span:first-child {
+  left: 12px;
+}
+.salary-input > span:last-child {
+  right: 12px;
+}
+.salary-equivalent {
+  display: flex;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 5px 12px;
+  padding-top: 10px;
+  font-size: 10px;
+  line-height: 1.6;
+  color: #718092;
+}
+.salary-equivalent output {
+  color: #33485e;
+  font-size: 11px;
+  font-weight: 550;
+  font-variant-numeric: tabular-nums;
+}
+.salary-equivalent output span {
+  color: #718092;
+  font-size: 10px;
+  font-weight: 400;
+}
+@media (max-width: 600px) {
+  .compensation-grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
 input,
 textarea,
 select {
