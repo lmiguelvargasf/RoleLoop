@@ -1,4 +1,4 @@
-import { randomUUID } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import { z } from "zod";
 import {
   OpportunitySchema,
@@ -16,7 +16,7 @@ import {
 } from "../domain/rules.js";
 import { demoOpportunities } from "../domain/fixtures.js";
 import { discover, research } from "../domain/connectors.js";
-import * as store from "./store.js";
+import { getGlobalRuntime, type WorkspaceStore } from "./store.js";
 import { assertApproved, assertFresh } from "./guards.js";
 import { generateDraft, ollamaAvailable } from "./model.js";
 import { resumePdf, sendToLocalInbox } from "./documents.js";
@@ -28,7 +28,7 @@ export const RunInput = z.object({
   sourceId: z.string().optional(),
   draftId: z.string().optional(),
 });
-export async function bootstrap(): Promise<Bootstrap> {
+export async function bootstrap(store: WorkspaceStore): Promise<Bootstrap> {
   const [workspace, opportunities, drafts, runs, events, heartbeat, model] =
     await Promise.all([
       store.getWorkspace(),
@@ -36,7 +36,7 @@ export async function bootstrap(): Promise<Bootstrap> {
       store.list("drafts"),
       store.list("runs", 100),
       store.list("events", 60),
-      store.runtime<{ at: string }>("worker"),
+      getGlobalRuntime<{ at: string }>("worker"),
       ollamaAvailable(),
     ]);
   const window = dateWindow(workspace.preferences);
@@ -78,18 +78,28 @@ export async function bootstrap(): Promise<Bootstrap> {
     },
   };
 }
-export async function seed() {
+export async function seed(store: WorkspaceStore) {
   const workspace = await store.getWorkspace();
-  for (const op of demoOpportunities()) {
+  for (const sample of demoOpportunities()) {
+    const op = {
+      ...sample,
+      id:
+        store.workspaceId === "default"
+          ? sample.id
+          : `demo-${createHash("sha256").update(`${store.workspaceId}:${sample.id}`).digest("hex").slice(0, 32)}`,
+    };
     const stored = await store.importOpportunity(op);
-    if (!stored.assessment) await analyze(stored, workspace);
+    if (!stored.assessment) await analyze(store, stored, workspace);
   }
   await store.event(
     "Added fictional sample opportunities for both flows. Your profile and preferences were preserved.",
   );
-  return bootstrap();
+  return bootstrap(store);
 }
-export async function enqueue(input: z.infer<typeof RunInput>): Promise<Run> {
+export async function enqueue(
+  store: WorkspaceStore,
+  input: z.infer<typeof RunInput>,
+): Promise<Run> {
   const parsed = RunInput.parse(input);
   if (parsed.action !== "discover" && !parsed.opportunityId)
     throw Object.assign(new Error("Choose an opportunity for this action."), {
@@ -124,6 +134,7 @@ export async function enqueue(input: z.infer<typeof RunInput>): Promise<Run> {
   const run: Run = {
     id: randomUUID(),
     ...parsed,
+    workspaceId: store.workspaceId,
     status: "queued",
     progress: 0,
     message: "Waiting for the local worker",
@@ -131,12 +142,17 @@ export async function enqueue(input: z.infer<typeof RunInput>): Promise<Run> {
     updatedAt: now,
   };
   const { data, error } = await store.db.rpc("enqueue_run", {
+    target_workspace: store.workspaceId,
     run_payload: run,
   });
   if (error) throw new Error(`Queue: ${error.message}`);
   return data[0].payload as Run;
 }
-export async function analyze(op: Opportunity, workspace: Workspace) {
+export async function analyze(
+  store: WorkspaceStore,
+  op: Opportunity,
+  workspace: Workspace,
+) {
   const assessment = assessOpportunity(
     op,
     workspace.profile,
@@ -156,20 +172,27 @@ export async function analyze(op: Opportunity, workspace: Workspace) {
     updatedAt: new Date().toISOString(),
   });
 }
-async function draftCountToday(workspace: Workspace) {
+async function draftCountToday(store: WorkspaceStore, workspace: Workspace) {
   const day = localDay(new Date(), workspace.preferences.timezone);
   return (await store.list("drafts", 10000)).filter(
     (d) =>
       localDay(new Date(d.createdAt), workspace.preferences.timezone) === day,
   ).length;
 }
-async function prepare(op: Opportunity, workspace: Workspace) {
-  const assessed = await analyze(op, workspace);
+async function prepare(
+  store: WorkspaceStore,
+  op: Opportunity,
+  workspace: Workspace,
+) {
+  const assessed = await analyze(store, op, workspace);
   if (assessed.assessment!.recommendation === "excluded")
     throw new Error(
       `Resolve the exclusion before drafting: ${assessed.assessment!.blockers.join(" ")}`,
     );
-  if ((await draftCountToday(workspace)) >= workspace.preferences.dailyLimit)
+  if (
+    (await draftCountToday(store, workspace)) >=
+    workspace.preferences.dailyLimit
+  )
     throw new Error(
       "Daily draft limit reached. Adjust the limit in Settings or wait until tomorrow.",
     );
@@ -187,7 +210,10 @@ async function prepare(op: Opportunity, workspace: Workspace) {
   );
   return draft;
 }
-export async function approve(id: string): Promise<Draft> {
+export async function approve(
+  store: WorkspaceStore,
+  id: string,
+): Promise<Draft> {
   const draft = await store.get("drafts", id),
     op = await store.get("opportunities", draft.opportunityId),
     workspace = await store.getWorkspace();
@@ -221,7 +247,11 @@ export const DraftEdit = z
       .max(100),
   })
   .partial();
-export async function editDraft(id: string, body: unknown) {
+export async function editDraft(
+  store: WorkspaceStore,
+  id: string,
+  body: unknown,
+) {
   const draft = await store.get("drafts", id);
   const next = {
     ...draft,
@@ -234,7 +264,10 @@ export async function editDraft(id: string, body: unknown) {
   next.contentHash = draftContentHash(next);
   return store.save("drafts", next);
 }
-export async function invalidateDrafts(opportunityId?: string) {
+export async function invalidateDrafts(
+  store: WorkspaceStore,
+  opportunityId?: string,
+) {
   for (const draft of await store.list("drafts", 10000))
     if (
       (!opportunityId || draft.opportunityId === opportunityId) &&
@@ -247,15 +280,18 @@ export async function invalidateDrafts(opportunityId?: string) {
         updatedAt: new Date().toISOString(),
       });
 }
-export async function refreshAssessments() {
+export async function refreshAssessments(store: WorkspaceStore) {
   const workspace = await store.getWorkspace();
   for (const op of await store.list("opportunities", 10000))
-    await analyze(op, workspace);
+    await analyze(store, op, workspace);
 }
 export async function processRun(
+  store: WorkspaceStore,
   run: Run,
   progress: (amount: number, message: string) => Promise<void>,
 ) {
+  if (run.workspaceId !== store.workspaceId)
+    throw new Error("Task workspace does not match its execution context.");
   const workspace = await store.getWorkspace();
   if (run.action === "discover") {
     const sources = workspace.sources.filter(
@@ -277,7 +313,7 @@ export async function processRun(
             OpportunitySchema.parse(candidate),
           );
           if (existing.stage === "archived") continue;
-          const op = await analyze(existing, workspace);
+          const op = await analyze(store, existing, workspace);
           imported++;
           // Automatically prepare only reviewed, well-supported opportunities. Approval remains explicit.
           if (
@@ -285,10 +321,10 @@ export async function processRun(
             !(await store.list("drafts", 10000)).some(
               (d) => d.opportunityId === op.id,
             ) &&
-            (await draftCountToday(workspace)) <
+            (await draftCountToday(store, workspace)) <
               workspace.preferences.dailyLimit
           )
-            await prepare(op, workspace);
+            await prepare(store, op, workspace);
         }
       } catch (error) {
         failed++;
@@ -310,13 +346,14 @@ export async function processRun(
   }
   const op = await store.get("opportunities", run.opportunityId!);
   if (run.action === "analyze") {
-    await analyze(op, workspace);
+    await analyze(store, op, workspace);
     return "Evidence and eligibility checked";
   }
   if (run.action === "research") {
     await progress(20, "Reading the public company website");
     const facts = await research(op);
     await analyze(
+      store,
       OpportunitySchema.parse({
         ...op,
         ...facts,
@@ -324,12 +361,12 @@ export async function processRun(
       }),
       workspace,
     );
-    await invalidateDrafts(op.id);
+    await invalidateDrafts(store, op.id);
     return "Public website research saved; confirm company facts";
   }
   if (run.action === "draft") {
     await progress(30, "Selecting verified experience");
-    await prepare(op, workspace);
+    await prepare(store, op, workspace);
     return "Draft prepared for review";
   }
   if (run.action === "simulate") {
@@ -339,7 +376,7 @@ export async function processRun(
       return "This draft has already completed its local test";
     await progress(25, "Preparing local test artifacts");
     const pdf = await resumePdf(draft);
-    const artifactPath = `drafts/${draft.id}/resume.pdf`;
+    const artifactPath = `${store.workspaceId}/drafts/${draft.id}/resume.pdf`;
     const uploaded = await store.db.storage
       .from("documents")
       .upload(artifactPath, pdf, {

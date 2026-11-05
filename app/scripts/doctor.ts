@@ -55,6 +55,16 @@ async function main() {
     ["Supabase Studio", env.SUPABASE_STUDIO_URL || "http://127.0.0.1:54333"],
     ["Test email inbox", env.MAILPIT_URL || "http://127.0.0.1:54334"],
   ];
+  if (env.SUPABASE_ANON_KEY) {
+    probes.push([
+      "Supabase Auth",
+      `${env.SUPABASE_URL}/auth/v1/settings`,
+      { apikey: env.SUPABASE_ANON_KEY },
+    ]);
+  } else {
+    console.log("FAIL Authentication key is missing. Run npm run setup.");
+    process.exitCode = 1;
+  }
   for (const [name, url, headers] of probes) {
     try {
       const response = await fetch(url, {

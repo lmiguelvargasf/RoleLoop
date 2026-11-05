@@ -1,4 +1,4 @@
-import Fastify from "fastify";
+import Fastify, { type FastifyRequest } from "fastify";
 import fastifyStatic from "@fastify/static";
 import { randomUUID } from "node:crypto";
 import { resolve } from "node:path";
@@ -10,13 +10,31 @@ import {
   ProfileSchema,
   SourceSchema,
 } from "../shared/types.js";
-import * as store from "./store.js";
+import type { WorkspaceStore } from "./store.js";
+import * as auth from "./auth.js";
 import * as service from "./service.js";
 import { allowedOrigin } from "./guards.js";
 import { emailFile, resumePdf } from "./documents.js";
 
+declare module "fastify" {
+  interface FastifyRequest {
+    identity: auth.Identity | null;
+    workspaceStore: WorkspaceStore | null;
+  }
+}
+function identity(req: FastifyRequest) {
+  if (!req.identity) throw auth.fail("Sign in to continue.", 401);
+  return req.identity;
+}
+function requestStore(req: FastifyRequest) {
+  if (!req.workspaceStore) throw auth.fail("Choose a workspace.", 400);
+  return req.workspaceStore;
+}
+
 export async function buildServer() {
   const app = Fastify({ bodyLimit: 250_000, logger: false });
+  app.decorateRequest("identity", null);
+  app.decorateRequest("workspaceStore", null);
   app.addHook("onRequest", async (req, reply) => {
     if (
       !allowedOrigin(
@@ -26,11 +44,9 @@ export async function buildServer() {
         settings.apiPort,
       )
     )
-      return reply
-        .code(403)
-        .send({
-          error: "Only requests from the local RoleLoop app are allowed.",
-        });
+      return reply.code(403).send({
+        error: "Only requests from the local RoleLoop app are allowed.",
+      });
     if (req.headers["sec-fetch-site"] === "cross-site")
       return reply
         .code(403)
@@ -41,6 +57,25 @@ export async function buildServer() {
       !req.headers["content-type"]?.startsWith("application/json")
     )
       return reply.code(415).send({ error: "Use application/json." });
+    const path = req.url.split("?")[0];
+    if (
+      path.startsWith("/api/") &&
+      !["/api/health", "/api/auth/config"].includes(path)
+    ) {
+      req.identity = await auth.authenticate(req);
+      if (
+        /^\/api\/(bootstrap|profile|preferences|sources|seed|opportunities|runs|drafts)(?:\/|$)/.test(
+          path,
+        )
+      ) {
+        req.workspaceStore = (
+          await auth.workspaceAccess(
+            req.identity,
+            req.headers["x-workspace-id"],
+          )
+        ).store;
+      }
+    }
   });
   app.addHook("onSend", async (_req, reply, payload) => {
     reply.header("X-Content-Type-Options", "nosniff");
@@ -50,29 +85,79 @@ export async function buildServer() {
   });
   app.setErrorHandler((error, _req, reply) => {
     if (error instanceof z.ZodError)
-      return reply
-        .code(400)
-        .send({
-          error: error.issues
-            .map((issue) => `${issue.path.join(".")}: ${issue.message}`)
-            .join("; "),
-        });
-    const err = error as Error & { statusCode?: number };
+      return reply.code(400).send({
+        error: error.issues
+          .map((issue) => `${issue.path.join(".")}: ${issue.message}`)
+          .join("; "),
+      });
+    const err = error as Error & { statusCode?: number; code?: string };
     reply
       .code(err.statusCode || 500)
-      .send({ error: err.message || "Request failed" });
+      .send({
+        error: err.message || "Request failed",
+        ...(err.code === "WORKSPACE_ACCESS_DENIED" ? { code: err.code } : {}),
+      });
   });
   app.get("/api/health", async () => ({ ok: true, testMode: true }));
-  app.get("/api/bootstrap", async () => service.bootstrap());
+  app.get("/api/auth/config", async () => ({
+    supabaseUrl: settings.supabaseUrl,
+    anonKey: settings.supabaseAnonKey,
+    setupAvailable: await auth.setupAvailable(),
+  }));
+  app.get("/api/account", async (req) => auth.accountContext(identity(req)));
+  app.post("/api/account/claim-owner", async (req) =>
+    auth.claimOwner(identity(req), req.body),
+  );
+  app.get<{ Params: { id: string } }>(
+    "/api/workspaces/:id/members",
+    async (req) => auth.workspaceMembers(identity(req), req.params.id),
+  );
+  app.post<{ Params: { id: string } }>(
+    "/api/workspaces/:id/members",
+    async (req) => auth.grantManager(identity(req), req.params.id, req.body),
+  );
+  app.delete<{ Params: { id: string; userId: string } }>(
+    "/api/workspaces/:id/members/:userId",
+    async (req) =>
+      auth.revokeManager(identity(req), req.params.id, req.params.userId),
+  );
+  app.patch<{ Params: { id: string } }>("/api/workspaces/:id", async (req) => {
+    await auth.workspaceAccess(identity(req), req.params.id, true);
+    const { name } = z
+      .object({ name: z.string().trim().min(1).max(100) })
+      .parse(req.body);
+    const { error } = await identity(req)
+      .client.from("workspace")
+      .update({ name, updated_at: new Date().toISOString() })
+      .eq("id", req.params.id);
+    if (error) throw auth.fail("Could not rename this workspace.");
+    return { id: req.params.id, name };
+  });
+  app.get<{ Querystring: { page?: string } }>("/api/admin/users", async (req) =>
+    auth.adminUsers(identity(req), req.query.page),
+  );
+  app.post("/api/admin/users", async (req) =>
+    auth.createAccount(identity(req), req.body),
+  );
+  app.get("/api/bootstrap", async (req) => {
+    const data = await service.bootstrap(requestStore(req));
+    if (!identity(req).isAdmin) {
+      data.status.studioUrl = "";
+      data.status.mailpitUrl = "";
+    }
+    return data;
+  });
   app.put("/api/profile", async (req) => {
     const profile = ProfileSchema.parse(req.body);
-    const previous = (await store.getWorkspace()).profile;
-    await store.updateWorkspace({ profile });
+    const previous = (await requestStore(req).getWorkspace()).profile;
+    await requestStore(req).updateWorkspace({ profile });
     if (JSON.stringify(previous) !== JSON.stringify(profile)) {
-      await service.invalidateDrafts();
-      await service.refreshAssessments();
+      await service.invalidateDrafts(requestStore(req));
+      await service.refreshAssessments(requestStore(req));
     }
-    await store.event("Profile saved. Existing draft approvals were cleared.");
+    await requestStore(req).event(
+      "Profile saved. Existing draft approvals were cleared.",
+    );
     return profile;
   });
   app.put("/api/preferences", async (req) => {
@@ -92,13 +177,13 @@ export async function buildServer() {
         new Error("Target salary must be at least the minimum salary."),
         { statusCode: 400 },
       );
-    const old = (await store.getWorkspace()).preferences;
-    await store.updateWorkspace({ preferences });
+    const old = (await requestStore(req).getWorkspace()).preferences;
+    await requestStore(req).updateWorkspace({ preferences });
     if (JSON.stringify(old) !== JSON.stringify(preferences)) {
-      await service.invalidateDrafts();
-      await service.refreshAssessments();
+      await service.invalidateDrafts(requestStore(req));
+      await service.refreshAssessments(requestStore(req));
     }
-    await store.event("Search and automation preferences saved.");
+    await requestStore(req).event("Search and automation preferences saved.");
     return preferences;
   });
   app.put("/api/sources", async (req) => {
@@ -109,10 +194,17 @@ export async function buildServer() {
       throw Object.assign(new Error("Source IDs must be unique."), {
         statusCode: 400,
       });
-    await store.updateWorkspace({ sources });
+    await requestStore(req).updateWorkspace({ sources });
     return sources;
   });
-  app.post("/api/seed", async () => service.seed());
+  app.post("/api/seed", async (req) => {
+    const data = await service.seed(requestStore(req));
+    if (!identity(req).isAdmin) {
+      data.status.studioUrl = "";
+      data.status.mailpitUrl = "";
+    }
+    return data;
+  });
   const manual = z
     .object({
       kind: z.enum(["job", "startup"]),
@@ -160,13 +252,20 @@ export async function buildServer() {
       firstSeenAt: now,
       updatedAt: now,
     });
-    await store.save("opportunities", op);
-    return service.analyze(op, await store.getWorkspace());
+    await requestStore(req).save("opportunities", op);
+    return service.analyze(
+      requestStore(req),
+      op,
+      await requestStore(req).getWorkspace(),
+    );
   });
   app.patch<{ Params: { id: string } }>(
     "/api/opportunities/:id",
     async (req) => {
-      const existing = await store.get("opportunities", req.params.id);
+      const existing = await requestStore(req).get(
+        "opportunities",
+        req.params.id,
+      );
       const patch = editable.parse(req.body);
       const saved = OpportunitySchema.parse({
         ...existing,
@@ -174,13 +273,19 @@ export async function buildServer() {
         updatedAt: new Date().toISOString(),
       });
       const { stage: _stage, ...corrections } = patch;
-      await store.setRuntime(`corrections:${existing.id}`, {
-        ...((await store.runtime(`corrections:${existing.id}`)) as object),
+      await requestStore(req).setRuntime(`corrections:${existing.id}`, {
+        ...((await requestStore(req).runtime(
+          `corrections:${existing.id}`,
+        )) as object),
         ...corrections,
       });
-      await store.save("opportunities", saved);
-      await service.invalidateDrafts(saved.id);
-      return service.analyze(saved, await store.getWorkspace());
+      await requestStore(req).save("opportunities", saved);
+      await service.invalidateDrafts(requestStore(req), saved.id);
+      return service.analyze(
+        requestStore(req),
+        saved,
+        await requestStore(req).getWorkspace(),
+      );
     },
   );
   app.post("/api/runs", async (req) => {
@@ -189,16 +294,16 @@ export async function buildServer() {
       throw Object.assign(new Error("Use the draft test endpoint."), {
         statusCode: 400,
       });
-    return service.enqueue(run);
+    return service.enqueue(requestStore(req), run);
   });
   app.post<{ Params: { id: string } }>("/api/drafts/:id/approve", async (req) =>
-    service.approve(req.params.id),
+    service.approve(requestStore(req), req.params.id),
   );
   app.post<{ Params: { id: string } }>(
     "/api/drafts/:id/simulate",
     async (req) => {
-      const draft = await store.get("drafts", req.params.id);
-      return service.enqueue({
+      const draft = await requestStore(req).get("drafts", req.params.id);
+      return service.enqueue(requestStore(req), {
         action: "simulate",
         opportunityId: draft.opportunityId,
         draftId: draft.id,
@@ -206,14 +311,14 @@ export async function buildServer() {
     },
   );
   app.patch<{ Params: { id: string } }>("/api/drafts/:id", async (req) =>
-    service.editDraft(req.params.id, req.body),
+    service.editDraft(requestStore(req), req.params.id, req.body),
   );
   app.get<{ Params: { id: string }; Querystring: { format?: string } }>(
     "/api/drafts/:id/download",
     async (req, reply) => {
-      const draft = await store.get("drafts", req.params.id),
-        op = await store.get("opportunities", draft.opportunityId),
-        workspace = await store.getWorkspace();
+      const draft = await requestStore(req).get("drafts", req.params.id),
+        op = await requestStore(req).get("opportunities", draft.opportunityId),
+        workspace = await requestStore(req).getWorkspace();
       const format = z
         .enum(["pdf", "eml", "json", "txt"])
         .parse(req.query.format || "txt");
@@ -256,7 +361,6 @@ export async function buildServer() {
 }
 if (!process.env.VITEST) {
   const app = await buildServer();
-  await store.getWorkspace();
   await app.listen({ host: "127.0.0.1", port: settings.apiPort });
   console.log(
     `RoleLoop API listening at http://127.0.0.1:${settings.apiPort} • local test mode`,

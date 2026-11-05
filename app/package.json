@@ -4,16 +4,17 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "dev": "tsx scripts/dev.ts",
+    "dev": "node --import tsx scripts/dev.ts",
     "setup": "tsx scripts/setup.ts && playwright install chromium",
     "doctor": "tsx scripts/doctor.ts",
-    "api": "tsx watch src/server/index.ts",
-    "worker": "tsx watch src/server/worker.ts",
+    "api": "node --watch --import tsx src/server/index.ts",
+    "worker": "node --import tsx src/server/worker.ts",
     "ui": "vite --host 127.0.0.1",
     "build": "tsc --noEmit && vite build",
     "test": "vitest run",
     "typecheck": "tsc --noEmit",
-    "start": "tsx scripts/dev.ts --production"
+    "start": "node --import tsx scripts/dev.ts --production",
+    "account:setup": "tsx scripts/account-setup.ts"
   },
   "dependencies": {
     "@fastify/static": "^10.1.10",

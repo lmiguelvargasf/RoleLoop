@@ -25,6 +25,8 @@ import {
   Inbox,
   Link2,
   LoaderCircle,
+  LogOut,
+  Users,
   Pencil,
   Play,
   Plus,
@@ -41,6 +43,8 @@ import {
 } from "lucide-react";
 import type {
   Activity,
+  AccountContext,
+  WorkspaceAccess,
   Bootstrap,
   Draft,
   Opportunity,
@@ -49,7 +53,7 @@ import type {
   RunAction,
   Source,
 } from "../shared/types";
-import { api, date, safeUrl, uid, words, write } from "./api";
+import { api, date, downloadFile, safeUrl, uid, words, write } from "./api";
 
 type Page =
   | "jobs"
@@ -58,7 +62,8 @@ type Page =
   | "profile"
   | "settings"
   | "sources"
-  | "activity";
+  | "activity"
+  | "account";
 type Perform = (
   task: () => Promise<unknown>,
   success?: string,
@@ -71,6 +76,7 @@ const nav = [
   { id: "settings", label: "Search preferences", icon: SlidersHorizontal },
   { id: "sources", label: "Discovery sources", icon: Radio },
   { id: "activity", label: "Activity", icon: ActivityIcon },
+  { id: "account", label: "Account & access", icon: Users },
 ] as const;
 const statusLabels: Record<string, string> = {
   new: "New",
@@ -202,7 +208,21 @@ function Modal({
   );
 }
 
-export function App() {
+export function App({
+  account,
+  workspace,
+  onWorkspaceChange,
+  onSignOut,
+  accountPage,
+  accountNotice,
+}: {
+  account: AccountContext;
+  workspace: WorkspaceAccess;
+  onWorkspaceChange: (id: string) => void;
+  onSignOut: () => void;
+  accountPage: ReactNode;
+  accountNotice: string;
+}) {
   const [data, setData] = useState<Bootstrap | null>(null),
     [failure, setFailure] = useState(""),
     [busy, setBusy] = useState(false),
@@ -215,12 +235,25 @@ export function App() {
     message: string;
     error: boolean;
   } | null>(null);
+  const mounted = useRef(true);
+  useEffect(() => {
+    mounted.current = true;
+    return () => {
+      mounted.current = false;
+    };
+  }, []);
   const refresh = useCallback(async () => {
     try {
       const next = await api<Bootstrap>("/bootstrap");
+      if (!mounted.current) return;
       setData(next);
       setFailure("");
     } catch (e) {
+      if (
+        !mounted.current ||
+        (e instanceof DOMException && e.name === "AbortError")
+      )
+        return;
       setFailure(
         e instanceof Error
           ? e.message
@@ -328,7 +361,27 @@ export function App() {
           <span className="brand-mark" />
           RoleLoop<span className="brand-period">.</span>
         </a>
-        <div className="workspace-label">PERSONAL WORKSPACE</div>
+        <div className="workspace-picker">
+          <label htmlFor="workspace-picker">WORKSPACE</label>
+          <select
+            id="workspace-picker"
+            aria-label="Active workspace"
+            value={workspace.id}
+            onChange={(e) => onWorkspaceChange(e.target.value)}
+          >
+            {account.workspaces.map((item) => (
+              <option key={item.id} value={item.id}>
+                {item.name}
+                {item.role === "manager" ? " · manager" : ""}
+              </option>
+            ))}
+          </select>
+          <span>
+            {workspace.role === "owner"
+              ? "Your private workspace"
+              : "Shared with you as a manager"}
+          </span>
+        </div>
         <nav aria-label="Main navigation">
           {nav.map(({ id, label, icon: Icon }, i) => (
             <button
@@ -345,6 +398,27 @@ export function App() {
             </button>
           ))}
         </nav>
+        <div className="sidebar-account">
+          <button
+            type="button"
+            className="sidebar-identity"
+            onClick={() => navigate("account")}
+            title={account.user.email}
+          >
+            <span className="account-avatar small">
+              {(account.user.name || account.user.email)
+                .slice(0, 1)
+                .toUpperCase()}
+            </span>
+            <span>
+              <strong>{account.user.name || account.user.email}</strong>
+              <small>{account.user.email}</small>
+            </span>
+          </button>
+          <IconButton label="Sign out" onClick={onSignOut}>
+            <LogOut size={16} />
+          </IconButton>
+        </div>
         <div className="sidebar-bottom">
           <div className="test-seal">
             <ShieldCheck size={17} />
@@ -371,7 +445,7 @@ export function App() {
       <main className="main-area">
         <header className="topbar">
           <div className="breadcrumb">
-            Workspace
+            <span className="breadcrumb-workspace">{workspace.name}</span>
             <ChevronRight size={13} />
             <strong>{nav.find((n) => n.id === page)?.label}</strong>
           </div>
@@ -387,6 +461,12 @@ export function App() {
             </IconButton>
           </div>
         </header>
+        {accountNotice && page !== "account" && (
+          <div className="notice neutral" role="status">
+            <ShieldCheck size={16} />
+            <span>{accountNotice}</span>
+          </div>
+        )}
         {failure && (
           <div className="notice error" role="alert">
             <AlertTriangle size={16} />
@@ -450,6 +530,7 @@ export function App() {
         {page === "activity" && (
           <ActivityPage events={data.events} data={data} />
         )}
+        {page === "account" && accountPage}
       </main>
       {toast && (
         <div
@@ -2210,7 +2291,12 @@ function DraftDetail({
       });
   }, [draft.updatedAt, editing]);
   const download = (format: string) =>
-    `/api/drafts/${draft.id}/download?format=${format}`;
+    void perform(() =>
+      downloadFile(
+        `/drafts/${draft.id}/download?format=${format}`,
+        `roleloop-${draft.id}.${format}`,
+      ),
+    );
   return (
     <article className="draft-detail">
       <div className="draft-detail-top">
@@ -2384,21 +2470,30 @@ function DraftDetail({
       <div className="draft-actions">
         <div className="button-row">
           {draft.kind === "application" && (
-            <a className="button" href={download("pdf")}>
+            <button
+              className="button"
+              disabled={busy}
+              onClick={() => download("pdf")}
+            >
               <Download size={15} />
               PDF
-            </a>
+            </button>
           )}
-          <a
+          <button
             className="button"
-            href={download(draft.kind === "outreach" ? "eml" : "txt")}
+            disabled={busy}
+            onClick={() => download(draft.kind === "outreach" ? "eml" : "txt")}
           >
             <Download size={15} />
             {draft.kind === "outreach" ? "Email file" : "Text"}
-          </a>
-          <a className="text-button" href={download("json")}>
+          </button>
+          <button
+            className="text-button"
+            disabled={busy}
+            onClick={() => download("json")}
+          >
             JSON
-          </a>
+          </button>
         </div>
         <div className="button-row">
           {draft.status === "draft" && (

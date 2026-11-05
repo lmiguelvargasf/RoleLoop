@@ -157,6 +157,7 @@ export type RunAction =
   "discover" | "analyze" | "draft" | "simulate" | "research";
 export interface Run {
   id: string;
+  workspaceId?: string;
   action: RunAction;
   opportunityId?: string;
   sourceId?: string;
@@ -178,6 +179,22 @@ export interface Workspace {
   profile: Profile;
   preferences: Preferences;
   sources: Source[];
+}
+export interface WorkspaceAccess {
+  id: string;
+  name: string;
+  role: "owner" | "manager";
+  ownerUserId: string;
+}
+export interface AccountContext {
+  user: { id: string; email: string; name: string };
+  isAdmin: boolean;
+  workspaces: WorkspaceAccess[];
+}
+export interface AuthConfig {
+  supabaseUrl: string;
+  anonKey: string;
+  setupAvailable: boolean;
 }
 export interface Bootstrap extends Workspace {
   opportunities: Opportunity[];

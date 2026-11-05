@@ -19,6 +19,7 @@ export const settings = {
     "Supabase",
   ),
   supabaseKey: process.env.SUPABASE_SERVICE_ROLE_KEY || "",
+  supabaseAnonKey: process.env.SUPABASE_ANON_KEY || "",
   apiPort: Number(process.env.API_PORT || 4310),
   appUrl: localUrl(process.env.APP_URL || "http://127.0.0.1:5173", "App"),
   ollamaUrl: localUrl(

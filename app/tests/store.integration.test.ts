@@ -20,34 +20,70 @@ function isolatedOpportunity(): Opportunity {
   };
 }
 
-async function cleanup(
-  store: typeof import("../src/server/store.js"),
-  id: string,
-) {
+async function makeStore(owned = false) {
+  const module = await import("../src/server/store.js");
+  const workspaceId = "integration-" + randomUUID();
+  let ownerId: string | null = null;
+  if (owned) {
+    const account = await module.db.auth.admin.createUser({
+      email: `integration-${randomUUID()}@example.test`,
+      password: `${randomUUID()}Aa1!`,
+      email_confirm: true,
+    });
+    if (account.error) throw new Error(account.error.message);
+    ownerId = account.data.user.id;
+  }
+  const result = await module.db.from("workspace").insert({
+    id: workspaceId,
+    name: "Integration workspace",
+    owner_user_id: ownerId,
+    payload: demoWorkspace(),
+  });
+  if (result.error) {
+    if (ownerId) await module.db.auth.admin.deleteUser(ownerId);
+    throw new Error(result.error.message);
+  }
+  return module.createWorkspaceStore({ workspaceId, client: module.db });
+}
+async function cleanup(store: import("../src/server/store.js").WorkspaceStore) {
   const errors: string[] = [];
-  // Preserve foreign-key ordering and still attempt all cleanup if a deletion fails.
-  const draftResult = await store.db
-    .from("drafts")
+  const ownership = await store.db
+    .from("workspace")
+    .select("owner_user_id")
+    .eq("id", store.workspaceId)
+    .maybeSingle();
+  for (const table of [
+    "drafts",
+    "runs",
+    "events",
+    "opportunities",
+    "workspace_runtime",
+    "workspace_members",
+  ]) {
+    const result = await store.db
+      .from(table)
+      .delete()
+      .eq("workspace_id", store.workspaceId);
+    if (result.error) errors.push(result.error.message);
+  }
+  const result = await store.db
+    .from("workspace")
     .delete()
-    .eq("opportunity_id", id);
-  if (draftResult.error) errors.push(draftResult.error.message);
-  const opportunityResult = await store.db
-    .from("opportunities")
-    .delete()
-    .eq("id", id);
-  if (opportunityResult.error) errors.push(opportunityResult.error.message);
-  const correctionResult = await store.db
-    .from("runtime")
-    .delete()
-    .eq("key", `corrections:${id}`);
-  if (correctionResult.error) errors.push(correctionResult.error.message);
+    .eq("id", store.workspaceId);
+  if (result.error) errors.push(result.error.message);
+  if (ownership.data?.owner_user_id) {
+    const removed = await store.db.auth.admin.deleteUser(
+      ownership.data.owner_user_id,
+    );
+    if (removed.error) errors.push(removed.error.message);
+  }
   if (errors.length)
-    throw new Error(`Integration cleanup failed: ${errors.join("; ")}`);
+    throw new Error("Integration cleanup failed: " + errors.join("; "));
 }
 
 integration("local Supabase source refresh and lifecycle", () => {
   it("refreshes source facts, keeps human corrections, and invalidates stale approvals", async () => {
-    const store = await import("../src/server/store.js");
+    const store = await makeStore();
     const workspace = demoWorkspace();
     const op = isolatedOpportunity();
     const originalFirstSeen = op.firstSeenAt;
@@ -139,27 +175,266 @@ integration("local Supabase source refresh and lifecycle", () => {
         assertApproved(unchangedDraft, unchanged, workspace),
       ).not.toThrow();
     } finally {
-      await cleanup(store, op.id);
+      await cleanup(store);
     }
   }, 20000);
 
   it.each(["drafted", "approved", "tested", "archived"] as const)(
     "preserves the %s stage when reassessing current facts",
     async (stage) => {
-      const store = await import("../src/server/store.js");
+      const store = await makeStore();
       const { analyze } = await import("../src/server/service.js");
       const workspace = demoWorkspace();
       const op = { ...isolatedOpportunity(), stage };
       try {
         await store.save("opportunities", op);
-        const result = await analyze(op, workspace);
+        const result = await analyze(store, op, workspace);
         expect(result.stage).toBe(stage);
         expect(result.assessment?.recommendation).toBe("ready");
         expect((await store.get("opportunities", op.id)).stage).toBe(stage);
       } finally {
-        await cleanup(store, op.id);
+        await cleanup(store);
       }
     },
     20000,
   );
+});
+
+integration("workspace-scoped persistence", () => {
+  it("accepts SQL-valid colon and 200-character IDs while rejecting path traversal", async () => {
+    const store = await makeStore();
+    try {
+      const base = isolatedOpportunity();
+      const ids = [
+        `record:${randomUUID()}`,
+        `r${randomUUID().replaceAll("-", "")}${"x".repeat(167)}`,
+      ];
+      expect(ids[1]).toHaveLength(200);
+      for (const id of ids) {
+        const op = { ...base, id, sourceKey: `integration:${id}` };
+        await store.save("opportunities", op);
+        expect((await store.get("opportunities", id)).id).toBe(id);
+      }
+      expect(
+        (await store.list("opportunities")).map((op) => op.id).sort(),
+      ).toEqual([...ids].sort());
+      await expect(
+        store.save("opportunities", { ...base, id: "../foreign" }),
+      ).rejects.toThrow(/identifier/);
+      await expect(
+        store.save("opportunities", { ...base, id: "x".repeat(201) }),
+      ).rejects.toThrow(/identifier/);
+      const now = new Date().toISOString();
+      const runId = `running:${randomUUID()}`;
+      const direct = await store.db
+        .from("runs")
+        .insert({
+          id: runId,
+          workspace_id: store.workspaceId,
+          status: "running",
+          payload: {},
+        });
+      if (direct.error) throw new Error(direct.error.message);
+      const recovered = (await store.list("runs"))[0];
+      expect(recovered.id).toBe(runId);
+      expect(recovered.status).toBe("running");
+      await store.save("runs", {
+        ...recovered,
+        action: "discover",
+        status: "failed",
+        message: "Recovery test",
+        progress: 0,
+        createdAt: now,
+        updatedAt: now,
+      });
+      expect((await store.get("runs", runId)).status).toBe("failed");
+    } finally {
+      await cleanup(store);
+    }
+  }, 20000);
+
+  it("uses SQL identity and relationships even when JSON payloads are tampered with", async () => {
+    const store = await makeStore();
+    try {
+      const op = isolatedOpportunity(),
+        workspace = demoWorkspace();
+      await store.save("opportunities", op);
+      const draft = createDraft(
+        op,
+        workspace.profile,
+        workspace.preferences,
+        assessOpportunity(op, workspace.profile, workspace.preferences),
+      );
+      await store.save("drafts", draft);
+      const changedOp = await store.db
+        .from("opportunities")
+        .update({
+          payload: {
+            ...op,
+            id: "../../foreign-record",
+            kind: "startup",
+            sourceKey: "forged-source",
+          },
+        })
+        .eq("workspace_id", store.workspaceId)
+        .eq("id", op.id);
+      if (changedOp.error) throw new Error(changedOp.error.message);
+      const changedDraft = await store.db
+        .from("drafts")
+        .update({
+          payload: {
+            ...draft,
+            id: "../../foreign-document",
+            opportunityId: "foreign-opportunity",
+          },
+        })
+        .eq("workspace_id", store.workspaceId)
+        .eq("id", draft.id);
+      if (changedDraft.error) throw new Error(changedDraft.error.message);
+      const readOp = await store.get("opportunities", op.id);
+      expect(readOp.id).toBe(op.id);
+      expect(readOp.kind).toBe(op.kind);
+      expect(readOp.sourceKey).toBe(op.sourceKey);
+      const readDraft = await store.get("drafts", draft.id);
+      expect(readDraft.id).toBe(draft.id);
+      expect(readDraft.opportunityId).toBe(op.id);
+      expect((await store.list("drafts"))[0].id).toBe(draft.id);
+      expect((await store.importOpportunity(op)).id).toBe(op.id);
+      const { createWorkspaceStore } = await import("../src/server/store.js");
+      expect(() =>
+        createWorkspaceStore({ workspaceId: "../another", client: store.db }),
+      ).toThrow(/workspace context/);
+      await expect(
+        store.save("opportunities", { ...op, id: "../another" }),
+      ).rejects.toThrow(/identifier/);
+    } finally {
+      await cleanup(store);
+    }
+  }, 20000);
+
+  it("keeps identical source keys, corrections, lists and ID lookups isolated even for the worker client", async () => {
+    const first = await makeStore(),
+      second = await makeStore();
+    try {
+      const opportunity = isolatedOpportunity();
+      const other = {
+        ...opportunity,
+        id: randomUUID(),
+        company: "Second workspace company",
+      };
+      await first.importOpportunity(opportunity);
+      await second.importOpportunity(other);
+      expect((await first.list("opportunities")).map((x) => x.company)).toEqual(
+        [opportunity.company],
+      );
+      expect(
+        (await second.list("opportunities")).map((x) => x.company),
+      ).toEqual([other.company]);
+      await first.setRuntime("last-discovery", { at: "first workspace only" });
+      expect(await second.runtime("last-discovery")).toBeNull();
+      await expect(second.get("opportunities", opportunity.id)).rejects.toThrow(
+        /not found/,
+      );
+      await expect(
+        second.save("opportunities", {
+          ...opportunity,
+          company: "Attempted overwrite",
+        }),
+      ).rejects.toThrow();
+      expect((await first.get("opportunities", opportunity.id)).company).toBe(
+        opportunity.company,
+      );
+      expect((await first.getWorkspace()).profile.name).toBe("Alex Morgan");
+      const updated = { ...demoWorkspace().profile, name: "Private candidate" };
+      await second.updateWorkspace({ profile: updated });
+      expect((await first.getWorkspace()).profile.name).toBe("Alex Morgan");
+      expect((await second.getWorkspace()).profile.name).toBe(
+        "Private candidate",
+      );
+    } finally {
+      await cleanup(first);
+      await cleanup(second);
+    }
+  }, 20000);
+
+  it("rejects a draft referencing another workspace's opportunity", async () => {
+    const first = await makeStore(),
+      second = await makeStore();
+    try {
+      const op = isolatedOpportunity(),
+        workspace = demoWorkspace();
+      await first.save("opportunities", op);
+      const draft = createDraft(
+        op,
+        workspace.profile,
+        workspace.preferences,
+        assessOpportunity(op, workspace.profile, workspace.preferences),
+      );
+      await expect(second.save("drafts", draft)).rejects.toThrow();
+      expect(await first.list("drafts")).toEqual([]);
+      expect(await second.list("drafts")).toEqual([]);
+    } finally {
+      await cleanup(first);
+      await cleanup(second);
+    }
+  }, 20000);
+
+  it("namespaces demo IDs and keeps queue deduplication local to each workspace", async () => {
+    const first = await makeStore(true),
+      second = await makeStore(true);
+    try {
+      const { seed, enqueue } = await import("../src/server/service.js");
+      await seed(first);
+      await seed(second);
+      const firstOps = await first.list("opportunities"),
+        secondOps = await second.list("opportunities");
+      expect(firstOps).toHaveLength(5);
+      expect(secondOps).toHaveLength(5);
+      expect(
+        firstOps.every((op) => secondOps.every((other) => op.id !== other.id)),
+      ).toBe(true);
+      const firstRun = await enqueue(first, { action: "discover" });
+      const secondRun = await enqueue(second, { action: "discover" });
+      expect(firstRun.workspaceId).toBe(first.workspaceId);
+      expect(secondRun.workspaceId).toBe(second.workspaceId);
+      expect(firstRun.id).not.toBe(secondRun.id);
+      const duplicate = await enqueue(first, { action: "discover" });
+      expect(duplicate.id).toBe(firstRun.id);
+      expect(await first.list("runs")).toHaveLength(1);
+      expect(await second.list("runs")).toHaveLength(1);
+    } finally {
+      await cleanup(first);
+      await cleanup(second);
+    }
+  }, 20000);
+
+  it("refuses a worker task paired with a different workspace store", async () => {
+    const first = await makeStore(),
+      second = await makeStore();
+    try {
+      const { processRun } = await import("../src/server/service.js");
+      const now = new Date().toISOString();
+      await expect(
+        processRun(
+          first,
+          {
+            id: randomUUID(),
+            workspaceId: second.workspaceId,
+            action: "discover",
+            status: "running",
+            progress: 0,
+            message: "",
+            createdAt: now,
+            updatedAt: now,
+          },
+          async () => {},
+        ),
+      ).rejects.toThrow(/workspace/);
+      expect(await first.list("runs")).toEqual([]);
+      expect(await second.list("runs")).toEqual([]);
+    } finally {
+      await cleanup(first);
+      await cleanup(second);
+    }
+  }, 20000);
 });

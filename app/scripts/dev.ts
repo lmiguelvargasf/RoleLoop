@@ -15,15 +15,37 @@ let stopping = false;
 function stop(code = 0) {
   if (stopping) return;
   stopping = true;
-  for (const child of children) child.kill("SIGTERM");
-  setTimeout(() => process.exit(code), 600).unref();
-}
-function launch(script: string, args: string[] = []) {
-  const child = spawn(
-    process.execPath,
-    [resolve(appDir, "../node_modules", script), ...args],
-    { cwd: appDir, stdio: "inherit", env: process.env },
+  const finished = children.map(
+    (child) =>
+      new Promise<void>((done) => {
+        if (
+          !child.pid ||
+          child.exitCode !== null ||
+          child.signalCode !== null
+        ) {
+          done();
+          return;
+        }
+        child.once("exit", () => done());
+        child.kill("SIGTERM");
+      }),
   );
+  const timeout = setTimeout(() => {
+    for (const child of children)
+      if (child.exitCode === null) child.kill("SIGKILL");
+    process.exit(code);
+  }, 10000);
+  void Promise.all(finished).then(() => {
+    clearTimeout(timeout);
+    process.exit(code);
+  });
+}
+function launch(args: string[]) {
+  const child = spawn(process.execPath, args, {
+    cwd: appDir,
+    stdio: "inherit",
+    env: process.env,
+  });
   children.push(child);
   child.on("error", (error) => {
     console.error(error.message);
@@ -33,12 +55,19 @@ function launch(script: string, args: string[] = []) {
     if (!stopping) stop(code || 1);
   });
 }
-launch("tsx/dist/cli.mjs", [
+launch([
+  "--import",
+  "tsx",
   "src/server/index.ts",
   ...(production ? ["--production"] : []),
 ]);
-launch("tsx/dist/cli.mjs", ["src/server/worker.ts"]);
-if (!production) launch("vite/bin/vite.js", ["--host", "127.0.0.1"]);
+launch(["--import", "tsx", "src/server/worker.ts"]);
+if (!production)
+  launch([
+    resolve(appDir, "../node_modules/vite/bin/vite.js"),
+    "--host",
+    "127.0.0.1",
+  ]);
 for (const signal of ["SIGINT", "SIGTERM"] as const)
   process.on(signal, () => stop());
 console.log(

@@ -161,8 +161,9 @@ async function main() {
     await run(cli, [...prefix, "status", "-o", "env"], 20_000),
   );
   const serviceKey = status.SERVICE_ROLE_KEY;
+  const anonKey = status.ANON_KEY;
   const apiUrl = status.API_URL;
-  if (!serviceKey || apiUrl !== "http://127.0.0.1:54331")
+  if (!serviceKey || !anonKey || apiUrl !== "http://127.0.0.1:54331")
     throw new Error(
       "Supabase did not return the expected local URL and credentials. No cloud database is configured by this script.",
     );
@@ -177,6 +178,7 @@ async function main() {
     ...existing,
     SUPABASE_URL: apiUrl,
     SUPABASE_SERVICE_ROLE_KEY: serviceKey,
+    SUPABASE_ANON_KEY: anonKey,
     API_PORT: "4310",
     APP_URL: "http://127.0.0.1:5173",
     SUPABASE_STUDIO_URL: "http://127.0.0.1:54333",

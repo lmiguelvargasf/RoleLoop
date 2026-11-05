@@ -1,6 +1,6 @@
 # RoleLoop
 
-A local TypeScript workspace for two job-search flows: applications to advertised remote roles, and research-led outreach to startup founders. The app runs directly on Node.js; Docker runs only Supabase's local services.
+A local TypeScript app with private user workspaces for two job-search flows: applications to advertised remote roles, and research-led outreach to startup founders. The app runs directly on Node.js; Docker runs only Supabase's local services.
 
 ## Start locally
 
@@ -29,10 +29,29 @@ npm start           # serves built UI and API at http://127.0.0.1:4310
 
 `Ctrl+C` stops the native app processes. Supabase data remains in its Docker volumes; use `cd app && supabase stop` to stop database services. See [database setup notes](app/LOCAL_DATABASE.md), including the observed Docker Desktop port-binding limitation.
 
+## Accounts and workspace access
+
+Open the app and create an email/password account (at least 12 characters). Each account receives an empty private workspace. Email confirmation is disabled for local testing; password-reset links go to Mailpit.
+
+To become the first account administrator and claim the existing workspace, keep the app running and use a second terminal:
+
+```sh
+nvm use
+npm run account:setup
+```
+
+Open the one-time local link printed by the command, then create your account or sign in. It expires after 30 minutes. The existing data is preserved and remains inaccessible to new signups until this step. The setup key is consumed once; subsequent signups never become administrators automatically. On a clean installation, this makes your personal workspace the initial administrator's workspace.
+
+Under **Account & access**, owners can add an existing account as a manager by email or remove that access. Managers can operate an assigned workspace but cannot grant access themselves. Use the workspace selector to switch between your personal workspace and shared ones. Switching accounts or workspaces clears the previous screen and unsaved edits.
+
+The installation administrator can list accounts and create accounts with an initial password. Administrative status does not grant access to other users' workspaces; that requires an explicit owner-granted membership. Normal users can also self-register. To test isolation on the same computer, use separate browser profiles or an incognito window—tabs in one browser profile share a login session.
+
+Supabase Studio and Mailpit are shared local developer tools. RoleLoop account permissions do not restrict someone who can access those services directly or use Docker. This remains a trusted local testing environment, not an internet-facing deployment.
+
 ## Try both flows
 
 1. Click **Load samples** to add clearly fictional opportunities. Sample data is additive and never overwrites your saved profile or preferences.
-2. Open **My profile**. Replace the sample identity and experience with your own facts. Only verified evidence contributes to matching and tailored experience bullets.
+2. Open **My profile**. Add your identity and experience, or replace the legacy sample profile with your own facts. Only verified evidence contributes to matching and tailored experience bullets.
 3. Set salary, working country, time zone, date window, essential coverage and total match thresholds in **Search preferences**. A zero-day window means today. Month windows use calendar months. Dates are evaluated in your selected time zone.
 4. For the application flow, open the fictional **Northstar Tools** job. Inspect its evidence matrix, prepare a draft, review résumé/answers/cover letter, approve, and run a local test. Download the résumé PDF or text.
 5. For founder outreach, open **Orbit Notes** in **Startup prospects**, review its signals and contact, and prepare a founder email. Approve and run a local test, then inspect [Mailpit](http://127.0.0.1:54334).
@@ -40,7 +59,8 @@ npm start           # serves built UI and API at http://127.0.0.1:4310
 
 ## What is implemented
 
-- Persistent local Supabase workspace, opportunity records, drafts, artifacts, activity and database-backed task queue.
+- Supabase Auth login, signup, password reset, private workspaces, owner/manager memberships, account administration, and RLS-protected data and documents.
+- Persistent local Supabase opportunity records, drafts, artifacts, activity and database-backed task queues scoped to each workspace.
 - Public ATS-board imports, launch-feed startup discovery, manual opportunity entry and bounded public-website research.
 - Source deduplication with refreshed source facts and preservation of explicit user corrections.
 - Separate job requirement coverage and startup relevance indicators. An 85–90% job threshold is configurable; the app does not manufacture experience to reach it or claim an external ATS score.
@@ -52,11 +72,11 @@ npm start           # serves built UI and API at http://127.0.0.1:4310
 
 ## Testing boundary and current limits
 
-This version does **not** submit applications to employers or deliver external email. Its only SMTP destination is the local test inbox, with a `.test` recipient. Application tests create local receipts. Real delivery adapters, provider-specific form automation, authentication/CAPTCHA handling and follow-up tracking are future work.
+This version does **not** submit applications to employers or deliver external email. Its only SMTP destination is the local test inbox, with a `.test` recipient. Application tests create local receipts. Real delivery adapters, provider-specific form automation, employer-site authentication/CAPTCHA handling and follow-up tracking are future work.
 
 Show HN announcements are research leads, not proof of promising traction, US headquarters, open positions or founder identity. Company country, remote eligibility, compensation and contacts often need confirmation. Job-board imports read at most 100 listings per source per run; the launch feed reads at most 25. Requirement extraction is intentionally conservative and can miss unstructured requirements; review and edit the requirement list before trusting a match. The sidebar shows the latest 300 opportunities and drafts; activity shows the latest 60 events.
 
-The app uses a single local workspace without user authentication. The API/UI bind to loopback and reject cross-site mutation requests; service credentials never enter the browser bundle. The database's Docker-published ports may bind beyond localhost on Docker Desktop despite the requested network setting; `doctor` reports the observed state. Use a trusted development environment until this is addressed.
+The API/UI bind to loopback and require verified user sessions for workspace operations. Ordinary database requests use the signed-in user’s identity and row-level policies. Service credentials are reserved for trusted worker/admin operations and never enter the browser bundle. The database's Docker-published ports may bind beyond localhost on Docker Desktop despite the requested network setting; `doctor` reports the observed state. Use a trusted development environment until this is addressed.
 
 ## Project layout
 

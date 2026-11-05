@@ -34,32 +34,57 @@ export type Database = {
   }
   public: {
     Tables: {
+      app_admins: {
+        Row: {
+          created_at: string
+          user_id: string
+        }
+        Insert: {
+          created_at?: string
+          user_id: string
+        }
+        Update: {
+          created_at?: string
+          user_id?: string
+        }
+        Relationships: []
+      }
       drafts: {
         Row: {
           id: string
           opportunity_id: string
           payload: Json
           updated_at: string
+          workspace_id: string
         }
         Insert: {
           id: string
           opportunity_id: string
           payload: Json
           updated_at?: string
+          workspace_id: string
         }
         Update: {
           id?: string
           opportunity_id?: string
           payload?: Json
           updated_at?: string
+          workspace_id?: string
         }
         Relationships: [
           {
-            foreignKeyName: "drafts_opportunity_id_fkey"
-            columns: ["opportunity_id"]
+            foreignKeyName: "drafts_workspace_id_fkey"
+            columns: ["workspace_id"]
+            isOneToOne: false
+            referencedRelation: "workspace"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "drafts_workspace_opportunity_fkey"
+            columns: ["workspace_id", "opportunity_id"]
             isOneToOne: false
             referencedRelation: "opportunities"
-            referencedColumns: ["id"]
+            referencedColumns: ["workspace_id", "id"]
           },
         ]
       }
@@ -68,18 +93,29 @@ export type Database = {
           created_at: string
           id: string
           payload: Json
+          workspace_id: string
         }
         Insert: {
           created_at?: string
           id: string
           payload: Json
+          workspace_id: string
         }
         Update: {
           created_at?: string
           id?: string
           payload?: Json
+          workspace_id?: string
         }
-        Relationships: []
+        Relationships: [
+          {
+            foreignKeyName: "events_workspace_id_fkey"
+            columns: ["workspace_id"]
+            isOneToOne: false
+            referencedRelation: "workspace"
+            referencedColumns: ["id"]
+          },
+        ]
       }
       opportunities: {
         Row: {
@@ -88,6 +124,7 @@ export type Database = {
           payload: Json
           source_key: string
           updated_at: string
+          workspace_id: string
         }
         Insert: {
           id: string
@@ -95,6 +132,7 @@ export type Database = {
           payload: Json
           source_key: string
           updated_at?: string
+          workspace_id: string
         }
         Update: {
           id?: string
@@ -102,8 +140,17 @@ export type Database = {
           payload?: Json
           source_key?: string
           updated_at?: string
+          workspace_id?: string
         }
-        Relationships: []
+        Relationships: [
+          {
+            foreignKeyName: "opportunities_workspace_id_fkey"
+            columns: ["workspace_id"]
+            isOneToOne: false
+            referencedRelation: "workspace"
+            referencedColumns: ["id"]
+          },
+        ]
       }
       runs: {
         Row: {
@@ -112,6 +159,7 @@ export type Database = {
           payload: Json
           status: string
           updated_at: string
+          workspace_id: string
         }
         Insert: {
           created_at?: string
@@ -119,6 +167,7 @@ export type Database = {
           payload: Json
           status: string
           updated_at?: string
+          workspace_id: string
         }
         Update: {
           created_at?: string
@@ -126,8 +175,17 @@ export type Database = {
           payload?: Json
           status?: string
           updated_at?: string
+          workspace_id?: string
         }
-        Relationships: []
+        Relationships: [
+          {
+            foreignKeyName: "runs_workspace_id_fkey"
+            columns: ["workspace_id"]
+            isOneToOne: false
+            referencedRelation: "workspace"
+            referencedColumns: ["id"]
+          },
+        ]
       }
       runtime: {
         Row: {
@@ -150,20 +208,84 @@ export type Database = {
       workspace: {
         Row: {
           id: string
+          name: string
+          owner_user_id: string | null
           payload: Json
           updated_at: string
         }
         Insert: {
           id: string
+          name?: string
+          owner_user_id?: string | null
           payload: Json
           updated_at?: string
         }
         Update: {
           id?: string
+          name?: string
+          owner_user_id?: string | null
           payload?: Json
           updated_at?: string
         }
         Relationships: []
+      }
+      workspace_members: {
+        Row: {
+          created_at: string
+          role: string
+          user_id: string
+          workspace_id: string
+        }
+        Insert: {
+          created_at?: string
+          role: string
+          user_id: string
+          workspace_id: string
+        }
+        Update: {
+          created_at?: string
+          role?: string
+          user_id?: string
+          workspace_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "workspace_members_workspace_id_fkey"
+            columns: ["workspace_id"]
+            isOneToOne: false
+            referencedRelation: "workspace"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      workspace_runtime: {
+        Row: {
+          key: string
+          payload: Json
+          updated_at: string
+          workspace_id: string
+        }
+        Insert: {
+          key: string
+          payload: Json
+          updated_at?: string
+          workspace_id: string
+        }
+        Update: {
+          key?: string
+          payload?: Json
+          updated_at?: string
+          workspace_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "workspace_runtime_workspace_id_fkey"
+            columns: ["workspace_id"]
+            isOneToOne: false
+            referencedRelation: "workspace"
+            referencedColumns: ["id"]
+          },
+        ]
       }
     }
     Views: {
@@ -171,6 +293,22 @@ export type Database = {
     }
     Functions: {
       acquire_worker_lease: { Args: { owner: string }; Returns: boolean }
+      claim_initial_owner: {
+        Args: { owner_uuid: string; token_digest: string }
+        Returns: {
+          id: string
+          name: string
+          owner_user_id: string | null
+          payload: Json
+          updated_at: string
+        }[]
+        SetofOptions: {
+          from: "*"
+          to: "workspace"
+          isOneToOne: false
+          isSetofReturn: true
+        }
+      }
       claim_run: {
         Args: never
         Returns: {
@@ -179,6 +317,7 @@ export type Database = {
           payload: Json
           status: string
           updated_at: string
+          workspace_id: string
         }[]
         SetofOptions: {
           from: "*"
@@ -188,13 +327,14 @@ export type Database = {
         }
       }
       enqueue_run: {
-        Args: { run_payload: Json }
+        Args: { run_payload: Json; target_workspace: string }
         Returns: {
           created_at: string
           id: string
           payload: Json
           status: string
           updated_at: string
+          workspace_id: string
         }[]
         SetofOptions: {
           from: "*"
@@ -203,6 +343,35 @@ export type Database = {
           isSetofReturn: true
         }
       }
+      ensure_workspace: {
+        Args: { initial_payload: Json }
+        Returns: {
+          id: string
+          name: string
+          owner_user_id: string | null
+          payload: Json
+          updated_at: string
+        }[]
+        SetofOptions: {
+          from: "*"
+          to: "workspace"
+          isOneToOne: false
+          isSetofReturn: true
+        }
+      }
+      has_workspace_access: {
+        Args: { target_workspace: string }
+        Returns: boolean
+      }
+      manage_workspace_member: {
+        Args: {
+          member_user_id: string
+          operation: string
+          target_workspace: string
+        }
+        Returns: undefined
+      }
+      owns_workspace: { Args: { target_workspace: string }; Returns: boolean }
       release_worker_lease: { Args: { owner: string }; Returns: boolean }
       renew_worker_lease: { Args: { owner: string }; Returns: boolean }
     }
