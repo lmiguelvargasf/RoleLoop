@@ -8,7 +8,6 @@ import type { FastifyRequest } from "fastify";
 import { z } from "zod";
 import { settings } from "./config.js";
 import { db, createWorkspaceStore } from "./store.js";
-import { demoWorkspace } from "../domain/fixtures.js";
 import type {
   AccountContext,
   Workspace,
@@ -68,7 +67,6 @@ export function userName(user: User): string {
     : "";
 }
 export function emptyWorkspace(user: User): Workspace {
-  const defaults = demoWorkspace();
   return {
     profile: {
       name: userName(user),
@@ -83,11 +81,33 @@ export function emptyWorkspace(user: User): Workspace {
       isDemo: false,
     },
     preferences: {
-      ...defaults.preferences,
+      roles: ["Software Engineer", "Full Stack Engineer"],
+      minimumSalary: 90000,
+      targetSalary: 120000,
+      salaryPolicy: "overlap",
+      missingSalary: "review",
+      lookback: 30,
+      lookbackUnit: "days",
+      dateMode: "emphasize",
+      timezone: "America/Guayaquil",
+      minimumMatch: 85,
+      essentialMatch: 90,
       country: "",
+      companyCountry: "United States",
+      industries: ["Developer tools", "B2B software"],
       scheduleEnabled: false,
+      scheduleMinutes: 120,
+      dailyLimit: 10,
+      modelMode: "templates",
+      ollamaModel: "",
     },
-    sources: defaults.sources,
+    sources: [{
+      id: "hn-startups",
+      provider: "hackernews",
+      label: "Show HN · startup leads",
+      board: "",
+      enabled: true,
+    }],
   };
 }
 export async function ensurePersonalWorkspace(

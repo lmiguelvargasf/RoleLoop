@@ -99,6 +99,22 @@ integration(
       if (app) await app.close();
     }, 30000);
 
+    it("does not expose sample loading or local test actions", async () => {
+      for (const url of [
+        "/api/seed",
+        "/api/drafts/example/approve",
+        "/api/drafts/example/simulate",
+      ]) {
+        const response = await app.inject({
+          method: "POST",
+          url,
+          headers: headers(alice, alice.workspaceId),
+          payload: {},
+        });
+        expect(response.statusCode).toBe(404);
+      }
+    });
+
     it("requires authentication and leaves the legacy workspace unclaimed", async () => {
       const anonymous = await app.inject({
         url: "/api/bootstrap",
@@ -185,7 +201,7 @@ integration(
       const draftId = randomUUID();
       const { createDraft } = await import("../src/domain/templates.js");
       const { demoWorkspace, demoOpportunities } =
-        await import("../src/domain/fixtures.js");
+        await import("./fixtures.js");
       const { assessOpportunity } = await import("../src/domain/rules.js");
       const profile = demoWorkspace();
       const sample = { ...demoOpportunities()[0], id: op.id };

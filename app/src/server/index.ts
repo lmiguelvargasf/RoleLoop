@@ -14,7 +14,7 @@ import type { WorkspaceStore } from "./store.js";
 import * as auth from "./auth.js";
 import * as service from "./service.js";
 import { allowedOrigin } from "./guards.js";
-import { emailFile, resumePdf } from "./documents.js";
+import { resumePdf } from "./documents.js";
 
 declare module "fastify" {
   interface FastifyRequest {
@@ -64,7 +64,7 @@ export async function buildServer() {
     ) {
       req.identity = await auth.authenticate(req);
       if (
-        /^\/api\/(bootstrap|profile|preferences|sources|seed|opportunities|runs|drafts)(?:\/|$)/.test(
+        /^\/api\/(bootstrap|profile|preferences|sources|opportunities|runs|drafts)(?:\/|$)/.test(
           path,
         )
       ) {
@@ -197,14 +197,6 @@ export async function buildServer() {
     await requestStore(req).updateWorkspace({ sources });
     return sources;
   });
-  app.post("/api/seed", async (req) => {
-    const data = await service.seed(requestStore(req));
-    if (!identity(req).isAdmin) {
-      data.status.studioUrl = "";
-      data.status.mailpitUrl = "";
-    }
-    return data;
-  });
   const manual = z
     .object({
       kind: z.enum(["job", "startup"]),
@@ -291,45 +283,25 @@ export async function buildServer() {
   app.post("/api/runs", async (req) => {
     const run = service.RunInput.parse(req.body);
     if (run.action === "simulate")
-      throw Object.assign(new Error("Use the draft test endpoint."), {
+      throw Object.assign(new Error("Local test runs are unavailable."), {
         statusCode: 400,
       });
     return service.enqueue(requestStore(req), run);
   });
-  app.post<{ Params: { id: string } }>("/api/drafts/:id/approve", async (req) =>
-    service.approve(requestStore(req), req.params.id),
-  );
-  app.post<{ Params: { id: string } }>(
-    "/api/drafts/:id/simulate",
-    async (req) => {
-      const draft = await requestStore(req).get("drafts", req.params.id);
-      return service.enqueue(requestStore(req), {
-        action: "simulate",
-        opportunityId: draft.opportunityId,
-        draftId: draft.id,
-      });
-    },
-  );
   app.patch<{ Params: { id: string } }>("/api/drafts/:id", async (req) =>
     service.editDraft(requestStore(req), req.params.id, req.body),
   );
   app.get<{ Params: { id: string }; Querystring: { format?: string } }>(
     "/api/drafts/:id/download",
     async (req, reply) => {
-      const draft = await requestStore(req).get("drafts", req.params.id),
-        op = await requestStore(req).get("opportunities", draft.opportunityId),
-        workspace = await requestStore(req).getWorkspace();
+      const draft = await requestStore(req).get("drafts", req.params.id);
       const format = z
-        .enum(["pdf", "eml", "json", "txt"])
+        .enum(["pdf", "json", "txt"])
         .parse(req.query.format || "txt");
       const filename = `roleloop-${draft.id.replace(/[^a-zA-Z0-9-]/g, "")}.${format}`;
       reply.header("Content-Disposition", `attachment; filename="${filename}"`);
       if (format === "pdf")
         return reply.type("application/pdf").send(await resumePdf(draft));
-      if (format === "eml")
-        return reply
-          .type("message/rfc822")
-          .send(await emailFile(draft, op, workspace.profile));
       if (format === "json")
         return reply
           .type("application/json")

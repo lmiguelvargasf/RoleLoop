@@ -1,4 +1,4 @@
-import { createHash, randomUUID } from "node:crypto";
+import { randomUUID } from "node:crypto";
 import { z } from "zod";
 import {
   OpportunitySchema,
@@ -14,7 +14,6 @@ import {
   draftContentHash,
   localDay,
 } from "../domain/rules.js";
-import { demoOpportunities } from "../domain/fixtures.js";
 import { discover, research } from "../domain/connectors.js";
 import { getGlobalRuntime, type WorkspaceStore } from "./store.js";
 import { assertApproved, assertFresh } from "./guards.js";
@@ -77,24 +76,6 @@ export async function bootstrap(store: WorkspaceStore): Promise<Bootstrap> {
       mailpitUrl: settings.mailpitUrl,
     },
   };
-}
-export async function seed(store: WorkspaceStore) {
-  const workspace = await store.getWorkspace();
-  for (const sample of demoOpportunities()) {
-    const op = {
-      ...sample,
-      id:
-        store.workspaceId === "default"
-          ? sample.id
-          : `demo-${createHash("sha256").update(`${store.workspaceId}:${sample.id}`).digest("hex").slice(0, 32)}`,
-    };
-    const stored = await store.importOpportunity(op);
-    if (!stored.assessment) await analyze(store, stored, workspace);
-  }
-  await store.event(
-    "Added fictional sample opportunities for both flows. Your profile and preferences were preserved.",
-  );
-  return bootstrap(store);
 }
 export async function enqueue(
   store: WorkspaceStore,

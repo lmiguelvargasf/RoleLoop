@@ -72,7 +72,7 @@ type Perform = (
 const nav = [
   { id: "jobs", label: "Job opportunities", icon: Briefcase },
   { id: "startups", label: "Startup prospects", icon: Rocket },
-  { id: "drafts", label: "Drafts & test outbox", icon: FileText },
+  { id: "drafts", label: "Drafts", icon: FileText },
   { id: "profile", label: "My profile", icon: UserRound },
   { id: "settings", label: "Search preferences", icon: SlidersHorizontal },
   { id: "sources", label: "Discovery sources", icon: Radio },
@@ -439,7 +439,6 @@ export function App({
           </div>
           <div className="sidebar-links">
             <External url={data.status.studioUrl}>Studio</External>
-            <External url={data.status.mailpitUrl}>Test inbox</External>
           </div>
         </div>
       </aside>
@@ -634,7 +633,7 @@ function Opportunities({
         </span>
         <i />
         <span>
-          <span>04</span>Review & test
+          <span>04</span>Review
         </span>
       </div>
       <div className="list-toolbar">
@@ -659,7 +658,6 @@ function Opportunities({
             "ready",
             "drafted",
             "approved",
-            "tested",
             "archived",
           ].map((s) => (
             <option key={s} value={s}>
@@ -720,22 +718,9 @@ function Opportunities({
               detail={
                 query
                   ? "Try another search or change the stage filter."
-                  : "Load sample opportunities to explore the workflow, or connect a source for live discovery."
+                  : "Connect a source to discover opportunities, or add one manually."
               }
             >
-              <button
-                className="button"
-                disabled={busy}
-                onClick={() =>
-                  void perform(
-                    () => write("/seed"),
-                    "Sample opportunities loaded.",
-                  )
-                }
-              >
-                <Plus size={15} />
-                Load samples
-              </button>
               <button
                 className="button primary"
                 onClick={() => navigate("sources")}
@@ -999,7 +984,7 @@ function Opportunities({
                 <span>
                   {relatedDrafts.length} prepared{" "}
                   {relatedDrafts.length === 1 ? "draft" : "drafts"}
-                  <small>Open documents and test outbox</small>
+                  <small>Open documents and drafts</small>
                 </span>
                 <ArrowRight size={16} />
               </button>
@@ -1536,19 +1521,21 @@ function ProfileEditor({
                 onChange={(e) => setSkills(e.target.value)}
               />
             </Field>
-            <label className="checkbox-field wide">
-              <input
-                type="checkbox"
-                checked={profile.isDemo}
-                onChange={(e) => set("isDemo", e.target.checked)}
-              />
-              <span>
-                This is a fictional test profile
-                <small>
-                  Uncheck after replacing the sample information with your own.
-                </small>
-              </span>
-            </label>
+            {profile.isDemo && (
+              <label className="checkbox-field wide">
+                <input
+                  type="checkbox"
+                  checked={profile.isDemo}
+                  onChange={(e) => set("isDemo", e.target.checked)}
+                />
+                <span>
+                  This is a fictional test profile
+                  <small>
+                    Uncheck after replacing the sample information with your own.
+                  </small>
+                </span>
+              </label>
+            )}
           </div>
         </section>
         <section className="form-section">
@@ -2164,16 +2151,14 @@ function Drafts({
       <div className="page-heading">
         <div>
           <div className="eyebrow">REVIEW BEFORE THE NEXT STEP</div>
-          <h1>Drafts & test outbox</h1>
+          <h1>Drafts</h1>
           <p>
-            Review the exact words and documents. Every delivery here is a local
-            test.
+            Review and download your application documents and founder emails.
           </p>
         </div>
-        <External url={data.status.mailpitUrl}>Open test inbox</External>
       </div>
       <div className="segmented" aria-label="Draft status">
-        {["all", "draft", "approved", "tested"].map((s) => (
+        {["all", "draft", "approved"].map((s) => (
           <button
             key={s}
             onClick={() => setFilter(s)}
@@ -2239,7 +2224,7 @@ function Drafts({
             <div className="draft-placeholder">
               <FileText size={34} />
               <h3>Make every word count.</h3>
-              <p>Select a draft to review, edit, download or test it.</p>
+              <p>Select a draft to review, edit or download it.</p>
             </div>
           )
         )}
@@ -2390,8 +2375,7 @@ function DraftDetail({
             </Field>
           )}
           <p className="form-footnote">
-            Editing resets approval. Keep claims grounded in your verified
-            profile.
+            Keep claims grounded in your verified profile.
           </p>
           <div className="button-row">
             <button className="button" onClick={() => setEditing(false)}>
@@ -2404,7 +2388,7 @@ function DraftDetail({
                 if (
                   await perform(
                     () => write(`/drafts/${draft.id}`, content, "PATCH"),
-                    "Draft saved. Review it again before testing.",
+                    "Draft saved.",
                   )
                 )
                   setEditing(false);
@@ -2448,15 +2432,6 @@ function DraftDetail({
           )}
         </div>
       )}
-      {draft.testReceipt && (
-        <div className="test-receipt">
-          <CheckCircle2 size={18} />
-          <div>
-            <strong>Local test complete</strong>
-            <p>{draft.testReceipt}</p>
-          </div>
-        </div>
-      )}
       <div className="draft-actions">
         <div className="button-row">
           {draft.kind === "application" && (
@@ -2472,10 +2447,10 @@ function DraftDetail({
           <button
             className="button"
             disabled={busy}
-            onClick={() => download(draft.kind === "outreach" ? "eml" : "txt")}
+            onClick={() => download("txt")}
           >
             <Download size={15} />
-            {draft.kind === "outreach" ? "Email file" : "Text"}
+            Text
           </button>
           <button
             className="text-button"
@@ -2484,38 +2459,6 @@ function DraftDetail({
           >
             JSON
           </button>
-        </div>
-        <div className="button-row">
-          {draft.status === "draft" && (
-            <button
-              className="button primary"
-              disabled={busy || editing}
-              onClick={() =>
-                void perform(
-                  () => write(`/drafts/${draft.id}/approve`),
-                  "Draft approved for local testing.",
-                )
-              }
-            >
-              <Check size={15} />
-              Approve draft
-            </button>
-          )}
-          {draft.status === "approved" && (
-            <button
-              className="button primary"
-              disabled={busy || editing}
-              onClick={() =>
-                void perform(
-                  () => write(`/drafts/${draft.id}/simulate`),
-                  "Local test queued.",
-                )
-              }
-            >
-              <Play size={15} />
-              Run local test
-            </button>
-          )}
         </div>
       </div>
       <div className="evidence-count">
@@ -2541,7 +2484,7 @@ function ActivityPage({
         <div>
           <div className="eyebrow">THE WORK BEHIND YOUR WORKSPACE</div>
           <h1>Activity</h1>
-          <p>Discovery runs, decisions and local test results, in one place.</p>
+          <p>Discovery runs and decisions, in one place.</p>
         </div>
       </div>
       {data.runs.length > 0 && (

@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { describe, expect, it } from "vitest";
-import { demoOpportunities, demoWorkspace } from "../src/domain/fixtures.js";
+import { demoOpportunities, demoWorkspace } from "./fixtures.js";
 import { assessOpportunity } from "../src/domain/rules.js";
 import { createDraft } from "../src/domain/templates.js";
 import { assertApproved, assertFresh } from "../src/server/guards.js";
@@ -379,20 +379,11 @@ integration("workspace-scoped persistence", () => {
     }
   }, 20000);
 
-  it("namespaces demo IDs and keeps queue deduplication local to each workspace", async () => {
+  it("keeps queue deduplication local to each workspace", async () => {
     const first = await makeStore(true),
       second = await makeStore(true);
     try {
-      const { seed, enqueue } = await import("../src/server/service.js");
-      await seed(first);
-      await seed(second);
-      const firstOps = await first.list("opportunities"),
-        secondOps = await second.list("opportunities");
-      expect(firstOps).toHaveLength(5);
-      expect(secondOps).toHaveLength(5);
-      expect(
-        firstOps.every((op) => secondOps.every((other) => op.id !== other.id)),
-      ).toBe(true);
+      const { enqueue } = await import("../src/server/service.js");
       const firstRun = await enqueue(first, { action: "discover" });
       const secondRun = await enqueue(second, { action: "discover" });
       expect(firstRun.workspaceId).toBe(first.workspaceId);

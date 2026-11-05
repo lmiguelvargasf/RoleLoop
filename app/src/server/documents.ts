@@ -38,19 +38,6 @@ function mail(draft: Draft, op: Opportunity, profile: Profile) {
     headers: { "X-RoleLoop-Draft": draft.id, "X-RoleLoop-Mode": "local-test" },
   };
 }
-export async function emailFile(
-  draft: Draft,
-  op: Opportunity,
-  profile: Profile,
-): Promise<Buffer> {
-  const transport = nodemailer.createTransport({
-    streamTransport: true,
-    buffer: true,
-    newline: "windows",
-  });
-  const result = await transport.sendMail(mail(draft, op, profile));
-  return result.message as Buffer;
-}
 export async function sendToLocalInbox(
   draft: Draft,
   op: Opportunity,

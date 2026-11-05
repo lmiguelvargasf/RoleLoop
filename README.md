@@ -48,14 +48,12 @@ The installation administrator can list accounts and create accounts with an ini
 
 Supabase Studio and Mailpit are shared local developer tools. RoleLoop account permissions do not restrict someone who can access those services directly or use Docker. This remains a trusted local testing environment, not an internet-facing deployment.
 
-## Try both flows
+## Get started
 
-1. Click **Load samples** to add clearly fictional opportunities. Sample data is additive and never overwrites your saved profile or preferences.
-2. Open **My profile**. Add your identity and experience, or replace the legacy sample profile with your own facts. Only verified evidence contributes to matching and tailored experience bullets.
-3. Set salary, working country, time zone, date window, essential coverage and total match thresholds in **Search preferences**. A zero-day window means today. Month windows use calendar months. Dates are evaluated in your selected time zone.
-4. For the application flow, open the fictional **Northstar Tools** job. Inspect its evidence matrix, prepare a draft, review résumé/answers/cover letter, approve, and run a local test. Download the résumé PDF or text.
-5. For founder outreach, open **Orbit Notes** in **Startup prospects**, review its signals and contact, and prepare a founder email. Approve and run a local test, then inspect [Mailpit](http://127.0.0.1:54334).
-6. Add real public company board identifiers in **Discovery sources** (Ashby, Greenhouse, Lever), or use the Show HN startup launch feed. Research leads, confirm missing company/location/contact facts, and review the results.
+1. Open **My profile** and add your identity and verified experience.
+2. Set your salary, working country, time zone, date window and match thresholds in **Search preferences**.
+3. Add public company board identifiers in **Discovery sources**, use the Show HN startup feed, or add opportunities manually.
+4. Review opportunities, prepare your application or founder email, and download the drafts.
 
 ## What is implemented
 
@@ -66,13 +64,13 @@ Supabase Studio and Mailpit are shared local developer tools. RoleLoop account p
 - Separate job requirement coverage and startup relevance indicators. An 85–90% job threshold is configurable; the app does not manufacture experience to reach it or claim an external ATS score.
 - Salary floor/target, overlap/strict salary policy, undisclosed-pay handling, remote-country checks and inclusive posting-date windows. Unknown publication dates remain unknown. Older posts can be excluded or retained with lower freshness priority.
 - Evidence-based résumé ordering, application answers, cover letters and founder email drafts. Optional local Ollama ranks existing evidence; it does not invent free-form career claims. Templates work without a model or API key.
-- Explicit draft review; changes to profile, preferences, opportunity or text invalidate approval. Regeneration is required after source/profile/preference changes.
-- PDF/text/JSON export, test EML files, private Supabase artifact storage, mock application receipts and emails captured by localhost Mailpit.
+- Draft review and editing; regeneration is required after source, profile or preference changes.
+- PDF/text/JSON export and private Supabase artifact storage.
 - Optional scheduled discovery while the local worker is running, automatic analysis and drafting of qualifying opportunities, a daily generated-draft limit, atomic queue deduplication and a single-worker lease.
 
 ## Testing boundary and current limits
 
-This version does **not** submit applications to employers or deliver external email. Its only SMTP destination is the local test inbox, with a `.test` recipient. Application tests create local receipts. Real delivery adapters, provider-specific form automation, employer-site authentication/CAPTCHA handling and follow-up tracking are future work.
+This version does **not** submit applications to employers or deliver external email. Delivery actions are unavailable. Real delivery adapters, provider-specific form automation, employer-site authentication/CAPTCHA handling and follow-up tracking are future work.
 
 Show HN announcements are research leads, not proof of promising traction, US headquarters, open positions or founder identity. Company country, remote eligibility, compensation and contacts often need confirmation. Job-board imports read at most 100 listings per source per run; the launch feed reads at most 25. Requirement extraction is intentionally conservative and can miss unstructured requirements; review and edit the requirement list before trusting a match. The sidebar shows the latest 300 opportunities and drafts; activity shows the latest 60 events.
 
@@ -82,7 +80,7 @@ The API/UI bind to loopback and require verified user sessions for workspace ope
 
 ```text
 app/src/ui/          React interface and styles
-app/src/domain/      matching rules, truthful templates, fixtures, public sources
+app/src/domain/      matching rules, truthful templates, public sources
 app/src/server/      Fastify API, Supabase persistence, worker, exports and local model
 app/src/shared/      Zod contracts and generated database types
 app/scripts/         native development runner, setup and diagnostics

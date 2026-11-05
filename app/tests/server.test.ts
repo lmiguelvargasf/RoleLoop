@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { demoOpportunities, demoWorkspace } from "../src/domain/fixtures.js";
+import { demoOpportunities, demoWorkspace } from "./fixtures.js";
 import { assessOpportunity, draftContentHash } from "../src/domain/rules.js";
 import { createDraft } from "../src/domain/templates.js";
 import {

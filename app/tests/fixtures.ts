@@ -2,7 +2,7 @@ import {
   OpportunitySchema,
   type Opportunity,
   type Workspace,
-} from "../shared/types.js";
+} from "../src/shared/types.js";
 
 export function demoWorkspace(): Workspace {
   return {

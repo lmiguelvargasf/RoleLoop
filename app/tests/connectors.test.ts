@@ -7,7 +7,7 @@ import {
   remoteScope,
   validatePublicUrl,
 } from "../src/domain/connectors.js";
-import { demoWorkspace } from "../src/domain/fixtures.js";
+import { demoWorkspace } from "./fixtures.js";
 
 afterEach(() => vi.unstubAllGlobals());
 const prefs = demoWorkspace().preferences;
