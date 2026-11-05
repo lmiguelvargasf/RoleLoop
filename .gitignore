@@ -7,3 +7,16 @@ __pycache__/
 *.py[cod]
 build/
 dist/
+node_modules/
+.env
+.env.*
+!.env.example
+app/.local/
+app/supabase/.temp/
+app/supabase/.branches/
+.playwright-mcp/
+playwright-report/
+test-results/
+
+.playwright-cli/
+output/playwright/

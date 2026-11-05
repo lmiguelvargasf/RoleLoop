@@ -1,0 +1,19 @@
+{
+  "name": "roleloop-workspace",
+  "private": true,
+  "workspaces": [
+    "app"
+  ],
+  "scripts": {
+    "dev": "npm run dev --workspace app",
+    "setup": "npm run setup --workspace app",
+    "doctor": "npm run doctor --workspace app",
+    "build": "npm run build --workspace app",
+    "test": "npm run test --workspace app",
+    "typecheck": "npm run typecheck --workspace app",
+    "start": "npm run start --workspace app"
+  },
+  "engines": {
+    "node": ">=26.13.0 <27"
+  }
+}
