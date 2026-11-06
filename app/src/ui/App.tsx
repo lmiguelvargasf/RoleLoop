@@ -62,6 +62,7 @@ import { IndustryInterests } from "./IndustryInterests";
 import { AutomationPreferences } from "./AutomationPreferences";
 import { ProfileEditor } from "./ProfileEditor";
 import { EditorHeader } from "./EditorHeader";
+import { WorkspaceStatus, serverUnavailable } from "./WorkspaceStatus";
 import {
   industryPriorityBoost,
   preferredIndustryMatches,
@@ -236,7 +237,7 @@ export function App({
   accountNotice: string;
 }) {
   const [data, setData] = useState<Bootstrap | null>(null),
-    [failure, setFailure] = useState(""),
+    [failure, setFailure] = useState<Error | null>(null),
     [busy, setBusy] = useState(false),
     [page, setPage] = useState<Page>(() =>
       nav.some((n) => n.id === location.hash.slice(1))
@@ -259,7 +260,7 @@ export function App({
       const next = await api<Bootstrap>("/bootstrap");
       if (!mounted.current) return;
       setData(next);
-      setFailure("");
+      setFailure(null);
     } catch (e) {
       if (
         !mounted.current ||
@@ -267,9 +268,7 @@ export function App({
       )
         return;
       setFailure(
-        e instanceof Error
-          ? e.message
-          : "Unable to connect to the local service.",
+        e instanceof Error ? e : new Error("Unable to load your workspace."),
       );
     }
   }, []);
@@ -330,39 +329,7 @@ export function App({
     }
   };
   if (!data)
-    return (
-      <main className="connection-screen">
-        <div className="brand">
-          <span className="brand-mark" />
-          RoleLoop<span className="brand-period">.</span>
-        </div>
-        <div className="connection-content">
-          {failure ? (
-            <AlertTriangle size={32} />
-          ) : (
-            <LoaderCircle className="spin" size={32} />
-          )}
-          <h1>
-            {failure
-              ? "Let’s connect your workspace."
-              : "Opening your workspace…"}
-          </h1>
-          <p>{failure || "Connecting to your local database."}</p>
-          {failure && (
-            <>
-              <p className="muted">
-                Start the local services with <code>npm run setup</code>, then{" "}
-                <code>npm run dev</code>.
-              </p>
-              <button className="button primary" onClick={() => void refresh()}>
-                <RefreshCw size={16} />
-                Try again
-              </button>
-            </>
-          )}
-        </div>
-      </main>
-    );
+    return <WorkspaceStatus failure={failure} onRetry={() => void refresh()} />;
   const running = data.runs.filter(
     (r) => r.status === "queued" || r.status === "running",
   );
@@ -476,7 +443,10 @@ export function App({
         {failure && (
           <div className="notice error" role="alert">
             <AlertTriangle size={16} />
-            Connection interrupted: {failure}
+            {serverUnavailable(failure)
+              ? "Connection interrupted"
+              : "Workspace refresh failed"}
+            : {failure.message}
             <button onClick={() => void refresh()}>Retry</button>
           </div>
         )}

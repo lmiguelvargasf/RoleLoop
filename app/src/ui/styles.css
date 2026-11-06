@@ -4414,3 +4414,16 @@ textarea {
     min-height: 44px;
   }
 }
+
+.connection-details {
+  margin: 20px 0;
+  color: var(--muted);
+  font-size: 13px;
+}
+.connection-details summary {
+  cursor: pointer;
+}
+.connection-details p {
+  font-size: 13px;
+  overflow-wrap: anywhere;
+}

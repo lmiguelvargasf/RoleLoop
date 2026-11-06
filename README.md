@@ -27,6 +27,8 @@ npm run build       # TypeScript verification and production UI build
 npm start           # serves built UI and API at http://127.0.0.1:4310
 ```
 
+During development, the API and worker restart automatically when their code or imported shared schemas change. Restart `npm start` after updating production code.
+
 `Ctrl+C` stops the native app processes. Supabase data remains in its Docker volumes; use `cd app && supabase stop` to stop database services. See [database setup notes](app/LOCAL_DATABASE.md), including the observed Docker Desktop port-binding limitation.
 
 ## Accounts and workspace access

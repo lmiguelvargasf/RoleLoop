@@ -55,13 +55,14 @@ function launch(args: string[]) {
     if (!stopping) stop(code || 1);
   });
 }
+// API and worker share schemas; both must reload when those schemas change.
+const runtime = [...(production ? [] : ["--watch"]), "--import", "tsx"];
 launch([
-  "--import",
-  "tsx",
+  ...runtime,
   "src/server/index.ts",
   ...(production ? ["--production"] : []),
 ]);
-launch(["--import", "tsx", "src/server/worker.ts"]);
+launch([...runtime, "src/server/worker.ts"]);
 if (!production)
   launch([
     resolve(appDir, "../node_modules/vite/bin/vite.js"),
