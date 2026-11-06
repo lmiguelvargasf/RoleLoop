@@ -61,7 +61,10 @@ export const ProfileSchema = z.object({
       facts: CareerFactsSchema.nullable(),
       warnings: z.array(z.string()),
       error: z.string().nullable(),
+      errorCode: z.string().optional(),
       processedAt: z.string().nullable(),
+      startedAt: z.string().optional(),
+      expiresAt: z.string().optional(),
     })
     .nullable()
     .default(null),

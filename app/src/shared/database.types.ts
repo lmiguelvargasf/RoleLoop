@@ -296,6 +296,14 @@ export type Database = {
     }
     Functions: {
       acquire_worker_lease: { Args: { owner: string }; Returns: boolean }
+      update_workspace_profile_if_current: {
+        Args: {
+          target_workspace: string
+          expected_profile: Json
+          workspace_patch: Json
+        }
+        Returns: { id: string }[]
+      }
       claim_initial_owner: {
         Args: { owner_uuid: string; token_digest: string }
         Returns: {

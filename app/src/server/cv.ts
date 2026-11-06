@@ -6,14 +6,46 @@ import {
 } from "../shared/types.js";
 import { extractFacts, readResume } from "./resume-import.js";
 import type { WorkspaceStore } from "./store.js";
+import {
+  CV_EXTRACTION_TIMEOUT_MS,
+  CV_PROCESSING_GRACE_MS,
+  resumeProcessingActive,
+} from "../shared/resume-processing.js";
+
+function extractionFailure(error: unknown) {
+  const details =
+    error && typeof error === "object"
+      ? (error as { code?: unknown; name?: unknown; message?: unknown })
+      : {};
+  const timedOut =
+    details.code === "ai_timeout" ||
+    details.name === "TimeoutError" ||
+    (typeof details.message === "string" &&
+      /aborted due to timeout/i.test(details.message));
+  if (timedOut)
+    return {
+      errorCode: "ai_timeout",
+      error:
+        "The AI took too long to extract your resume. Your original is saved. Retry extraction; you do not need to upload it again.",
+    };
+  return {
+    error:
+      error instanceof Error
+        ? error.message
+        : "Resume extraction failed. Your original is saved. Try again.",
+    ...(typeof details.code === "string" ? { errorCode: details.code } : {}),
+  };
+}
 
 export async function processCV(
   store: WorkspaceStore,
   profile: Profile,
   text: string,
   userId: string,
+  parserWarnings: string[] = [],
 ) {
   if (!profile.source) throw new Error("Upload a master CV first.");
+  const startedAt = Date.now();
   const processing: Profile = {
     email: profile.email,
     source: profile.source,
@@ -23,9 +55,13 @@ export async function processCV(
       extractorVersion: CV_EXTRACTOR_VERSION,
       status: "processing",
       facts: null,
-      warnings: [],
+      warnings: parserWarnings,
       error: null,
       processedAt: null,
+      startedAt: new Date(startedAt).toISOString(),
+      expiresAt: new Date(
+        startedAt + CV_EXTRACTION_TIMEOUT_MS + CV_PROCESSING_GRACE_MS,
+      ).toISOString(),
     },
   };
   await store.updateWorkspace({ profile: processing }, profile);
@@ -36,17 +72,14 @@ export async function processCV(
       ...cache,
       status: "ready",
       facts: result.facts,
-      warnings: result.warnings,
+      warnings: [...new Set([...parserWarnings, ...result.warnings])],
       processedAt: new Date().toISOString(),
     };
   } catch (error) {
     cache = {
       ...cache,
       status: "failed",
-      error:
-        error instanceof Error
-          ? error.message
-          : "CV processing failed. Try again.",
+      ...extractionFailure(error),
       processedAt: new Date().toISOString(),
     };
   }
@@ -71,7 +104,7 @@ export async function uploadCV(
   userId: string,
 ) {
   // Reject unreadable files before replacing the active CV.
-  const { text, kind } = await readResume(name, buffer);
+  const { text, kind, parserWarnings } = await readResume(name, buffer);
   const previous = (await store.getWorkspace()).profile;
   const source: NonNullable<Profile["source"]> = {
     id: randomUUID(),
@@ -94,12 +127,13 @@ export async function uploadCV(
     { profile: { email: previous.email, source, cache: null } },
     previous,
   );
-  return processCV(store, activated.profile, text, userId);
+  return processCV(store, activated.profile, text, userId, parserWarnings);
 }
 
 export async function retryCV(store: WorkspaceStore, userId: string) {
   const profile = (await store.getWorkspace()).profile;
-  if (careerFacts(profile)) return profile;
+  if (careerFacts(profile) || resumeProcessingActive(profile.cache))
+    return profile;
   if (!profile.source)
     throw Object.assign(new Error("Upload a master CV first."), {
       statusCode: 400,
@@ -109,8 +143,11 @@ export async function retryCV(store: WorkspaceStore, userId: string) {
     profile.source.id,
     profile.source.kind,
   );
-  const { text } = await readResume(profile.source.name, buffer);
-  return processCV(store, profile, text, userId);
+  const { text, parserWarnings } = await readResume(
+    profile.source.name,
+    buffer,
+  );
+  return processCV(store, profile, text, userId, parserWarnings);
 }
 
 export async function clearCVFacts(

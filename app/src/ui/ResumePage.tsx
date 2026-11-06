@@ -12,6 +12,7 @@ import {
   ArrowUpRight,
 } from "lucide-react";
 import { careerFacts, type Profile } from "../shared/types";
+import { resumeProcessingActive } from "../shared/resume-processing";
 import { api, downloadFile, fileBlob, safeUrl } from "./api";
 import { ResumeFacts } from "./ResumeFacts";
 import "./resume.css";
@@ -50,8 +51,16 @@ export function ResumePage({ initial: profile, busy, perform }: Props) {
   }, [preview]);
   const facts = careerFacts(profile);
   const ready = Boolean(facts);
-  const processing = importing || profile.cache?.status === "processing";
-  const failed = profile.cache?.status === "failed";
+  const activeExtraction = resumeProcessingActive(profile.cache);
+  const interrupted =
+    profile.cache?.status === "processing" && !activeExtraction;
+  const processing = importing || activeExtraction;
+  const failed = profile.cache?.status === "failed" || interrupted;
+  const failureMessage = interrupted
+    ? "Processing was interrupted or exceeded its time limit. Your original resume is saved. Retry extraction to continue."
+    : profile.cache?.error === "The operation was aborted due to timeout"
+      ? "The AI service took too long to respond. Your original resume is saved. Retry extraction; you don’t need to upload it again."
+      : profile.cache?.error;
   const source = profile.source;
   const sourcePath = source
     ? `/profile/sources/${source.id}/${source.kind}`
@@ -106,7 +115,7 @@ export function ResumePage({ initial: profile, busy, perform }: Props) {
       {importing ? "Reading resume…" : label}
     </button>
   );
-  const processButton = source && !ready && !importing && (
+  const processButton = source && !ready && !processing && (
     <button
       type="button"
       className="button primary"
@@ -118,7 +127,7 @@ export function ResumePage({ initial: profile, busy, perform }: Props) {
       }
     >
       <RotateCcw size={15} aria-hidden="true" />
-      {failed || processing ? "Retry extraction" : "Extract career details"}
+      {failed ? "Retry extraction" : "Extract career details"}
     </button>
   );
   const portfolio = facts?.portfolio && safeUrl(facts.portfolio);
@@ -145,7 +154,7 @@ export function ResumePage({ initial: profile, busy, perform }: Props) {
             : ready
               ? "Ready for matching"
               : failed
-                ? "Extraction failed"
+                ? "Extraction didn’t finish"
                 : source
                   ? "No extracted details"
                   : "No resume yet"}
@@ -277,16 +286,16 @@ export function ResumePage({ initial: profile, busy, perform }: Props) {
             {processing
               ? "Reading your resume"
               : failed
-                ? "Your resume needs another look"
+                ? "Extraction didn’t finish"
                 : source
                   ? "Ready for a fresh extraction"
                   : "Add your resume"}
           </h2>
           <p>
             {processing
-              ? "Organizing your career details and checking each statement against the original."
+              ? "Organizing your career details and checking each statement against the original. This can take a few minutes."
               : failed
-                ? profile.cache?.error
+                ? failureMessage
                 : source
                   ? "Your original is saved. Extract its details again, or replace it with an updated resume."
                   : "Your experience, skills and qualifications, organized with the source behind every detail."}
@@ -301,8 +310,8 @@ export function ResumePage({ initial: profile, busy, perform }: Props) {
           )}
           {processing && (
             <span className="resume-upload-hint">
-              These facts will be available for matching and new drafts when
-              extraction finishes.
+              Your resume is saved. You can leave this page while extraction
+              finishes.
             </span>
           )}
         </div>

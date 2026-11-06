@@ -174,17 +174,28 @@ export function createWorkspaceStore({
         });
         workspace.profile.email = current.profile.email;
         const { email: _contact, ...storedProfile } = workspace.profile;
-        let query = client
-          .from("workspace")
-          .update({
-            payload: { ...workspace, profile: storedProfile },
-            updated_at: new Date().toISOString(),
-          })
-          .eq("id", workspaceId);
-        // Database comparison also covers other API processes and late extraction results.
-        if (expectedProfile)
-          query = query.eq("payload->profile", JSON.stringify(previousProfile));
-        const row = checked(await query.select("id").maybeSingle());
+        const workspacePatch = {
+          ...(Object.hasOwn(patch, "profile")
+            ? { profile: storedProfile }
+            : {}),
+          ...(Object.hasOwn(patch, "preferences")
+            ? { preferences: workspace.preferences }
+            : {}),
+          ...(Object.hasOwn(patch, "sources")
+            ? { sources: workspace.sources }
+            : {}),
+        };
+        // The atomic comparison covers other API processes and late extraction
+        // results. RPC parameters travel in the body, avoiding URL-size limits.
+        const row = checked(
+          await client
+            .rpc("update_workspace_profile_if_current", {
+              target_workspace: workspaceId,
+              expected_profile: expectedProfile ? previousProfile : null,
+              workspace_patch: workspacePatch,
+            })
+            .maybeSingle(),
+        );
         if (!row) {
           if (expectedProfile) throw changed();
           return missing();

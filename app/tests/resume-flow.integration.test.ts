@@ -17,20 +17,42 @@ const quote =
 const replacementQuote =
   "Developed Python services and PostgreSQL data models for a research team.";
 vi.mock("../src/server/ai.js", () => ({ structuredAI: vi.fn() }));
-const extracted = (text: string) => {
-  const entry = text.includes(replacementQuote) ? replacementQuote : quote;
-  if (!text.includes(entry))
-    throw new Error("Original document text was not extracted");
+const extracted = (lines: { id: number; text: string }[]) => {
+  const text = normalizeText(lines.map((line) => line.text).join("\n"));
+  const entry = text.includes(normalizeText(replacementQuote))
+    ? replacementQuote
+    : quote;
+  const ranges: { startLine: number; endLine: number; length: number }[] = [];
+  for (let start = 0; start < lines.length; start++) {
+    for (let end = start; end < Math.min(start + 5, lines.length); end++) {
+      const value = normalizeText(
+        lines
+          .slice(start, end + 1)
+          .map((line) => line.text)
+          .join("\n"),
+      );
+      if (value.includes(normalizeText(entry)))
+        ranges.push({
+          startLine: lines[start].id,
+          endLine: lines[end].id,
+          length: value.length,
+        });
+    }
+  }
+  const range = ranges.sort((a, b) => a.length - b.length)[0];
+  if (!range) throw new Error("Original document text was not extracted");
   return {
     name: "Alex Morgan",
     portfolio: "",
     uncertainties: ["Employment dates were not supplied."],
     entries: [
       {
-        sourceText: entry,
+        startLine: range.startLine,
+        endLine: range.endLine,
         statements: [
           {
-            text: entry,
+            startLine: range.startLine,
+            endLine: range.endLine,
             skills:
               entry === quote
                 ? ["TypeScript", "React"]
@@ -51,13 +73,13 @@ async function word(text = quote) {
     "[Content_Types].xml",
     '<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Default Extension="xml" ContentType="application/xml"/></Types>',
   );
-  const escaped = `Alex Morgan ${text}`.replace(
+  const escaped = text.replace(
     /[&<>]/g,
     (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;" })[c]!,
   );
   zip.file(
     "word/document.xml",
-    `<w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"><w:body><w:p><w:r><w:t>${escaped}</w:t></w:r></w:p></w:body></w:document>`,
+    `<w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"><w:body><w:p><w:r><w:t>Alex Morgan</w:t></w:r></w:p><w:p><w:r><w:t>${escaped}</w:t></w:r></w:p></w:body></w:document>`,
   );
   return zip.generateAsync({ type: "nodebuffer" });
 }
@@ -118,7 +140,9 @@ integration("CV upload to application generation", () => {
       async (_schema, name, _instructions, input) => {
         if (name !== "resume_import")
           throw new Error("Use deterministic matching for this test");
-        return extracted((input as { text: string }).text);
+        return extracted(
+          (input as { lines: { id: number; text: string }[] }).lines,
+        );
       },
     );
   }
@@ -181,7 +205,7 @@ integration("CV upload to application generation", () => {
       });
       const evidence = careerFacts(profile)!.evidence[0];
       expect(evidence.verified).toBe(true);
-      expect(normalizeText(evidence.text)).toBe(normalizeText(quote));
+      expect(normalizeText(evidence.text)).toContain(normalizeText(quote));
       const originalText = (await readResume(name, buffer)).text;
       expect(
         originalText.slice(evidence.source!.start, evidence.source!.end),
@@ -454,7 +478,12 @@ integration("CV upload to application generation", () => {
     await waiting;
     const newer = await upload(alice, await word(replacementQuote));
     expect(newer.statusCode, newer.body).toBe(200);
-    finish(extracted(quote));
+    finish(
+      extracted([
+        { id: 1, text: "Alex Morgan" },
+        { id: 2, text: quote },
+      ]),
+    );
     const late = await older;
     expect(late.statusCode, late.body).toBe(409);
     expect((await alice.store.getWorkspace()).profile).toEqual(

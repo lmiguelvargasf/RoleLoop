@@ -52,4 +52,35 @@ describe("resume evidence visibility", () => {
     expect(html).not.toContain("Career details");
     expect(html).not.toContain("Clear extracted details");
   });
+
+  it("does not offer duplicate extraction while the saved attempt is active", () => {
+    const profile = demoWorkspace().profile;
+    profile.cache!.status = "processing";
+    profile.cache!.startedAt = new Date().toISOString();
+    profile.cache!.expiresAt = new Date(Date.now() + 300_000).toISOString();
+    const html = render(profile);
+    expect(html).toContain("Reading your resume");
+    expect(html).not.toContain("Retry extraction");
+    expect(html).not.toContain("Alex Morgan");
+  });
+
+  it("offers recovery when a processing attempt has expired", () => {
+    const profile = demoWorkspace().profile;
+    profile.cache!.status = "processing";
+    profile.cache!.expiresAt = new Date(Date.now() - 1000).toISOString();
+    const html = render(profile);
+    expect(html).toContain("Extraction didn’t finish");
+    expect(html).toContain("Retry extraction");
+    expect(html).not.toContain("Reading your resume");
+  });
+
+  it("explains legacy timeouts without blaming the source document", () => {
+    const profile = demoWorkspace().profile;
+    profile.cache!.status = "failed";
+    profile.cache!.error = "The operation was aborted due to timeout";
+    const html = render(profile);
+    expect(html).toContain("The AI service took too long");
+    expect(html).toContain("original resume is saved");
+    expect(html).not.toContain("Your resume needs another look");
+  });
 });
