@@ -6,7 +6,7 @@ type FreshnessKey = "lookback" | "lookbackUnit" | "dateMode";
 
 const ages = [0, 7, 14, 30];
 const ageLabel = (days: number) =>
-  days === 0 ? "Today only" : `Up to ${days} ${days === 1 ? "day" : "days"} old`;
+  days === 0 ? "Today only" : `Past ${days} ${days === 1 ? "day" : "days"}`;
 
 export function FreshnessPreferences({
   preferences,
@@ -40,17 +40,17 @@ export function FreshnessPreferences({
   return (
     <section className="form-section">
       <div className="form-section-heading">
-        <h2>Opportunity age</h2>
-        <p>Choose how recent opportunities should be.</p>
+        <h2>Search dates</h2>
+        <p>Choose how far back to look.</p>
       </div>
       <div className="freshness-preferences">
         <div className="freshness-controls">
           <div className="freshness-age">
             <PolicySelect
-              label="Preferred age"
+              label="Look back"
               value={selectedAge}
               onChange={changeAge}
-              hint="Uses the job posting date or startup update date."
+              hint="Today is always included."
               options={[
                 ...(legacyMonths
                   ? [
@@ -59,7 +59,7 @@ export function FreshnessPreferences({
                         label:
                           lookback === 0
                             ? "Today only"
-                            : `Up to ${lookback} ${lookback === 1 ? "month" : "months"} old`,
+                            : `Past ${lookback} ${lookback === 1 ? "month" : "months"}`,
                       },
                     ]
                   : []),
@@ -69,7 +69,7 @@ export function FreshnessPreferences({
                 })),
                 {
                   value: "custom",
-                  label: "Custom age",
+                  label: "Custom number of days",
                 },
               ]}
             />
@@ -99,20 +99,19 @@ export function FreshnessPreferences({
             )}
           </div>
           <PolicySelect
-            label="Older opportunities"
+            label="Include older results?"
             value={dateMode}
             onChange={(value) => onChange("dateMode", value)}
             options={[
               {
                 value: "emphasize",
-                label: "Keep older opportunities",
-                description: "Give recent opportunities priority in your results.",
+                label: "Yes, but show recent results first",
+                description: "Older opportunities can still be a match.",
               },
               {
                 value: "strict",
-                label: "Exclude older opportunities",
-                description:
-                  "Mark opportunities beyond your selected age as excluded.",
+                label: "No, exclude older results",
+                description: "Older opportunities are marked Excluded.",
               },
             ]}
           />
