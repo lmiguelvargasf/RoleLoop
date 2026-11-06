@@ -1,4 +1,3 @@
-import { Clock3 } from "lucide-react";
 import type { Preferences } from "../shared/types";
 
 export function AutomationPreferences({
@@ -20,7 +19,7 @@ export function AutomationPreferences({
     >
       <div className="form-section-heading">
         <h2 id="automation-title">Automatic search</h2>
-        <p>Check connected job boards and startup feeds.</p>
+        <p>Runs while RoleLoop is open.</p>
       </div>
       <div className="form-grid">
         <label className="checkbox-field wide">
@@ -61,21 +60,6 @@ export function AutomationPreferences({
           />
           <small>Maximum new drafts per day.</small>
         </label>
-        <div className="automation-status" role="status">
-          <Clock3 size={15} aria-hidden="true" />
-          <div>
-            <strong>
-              {preferences.scheduleEnabled
-                ? "Automatic search is on"
-                : "Automatic search is off"}
-            </strong>
-            <span>
-              {preferences.scheduleEnabled
-                ? `Checks enabled sources every ${new Intl.NumberFormat().format(preferences.scheduleMinutes)} minutes while RoleLoop is open.`
-                : "Enable automatic search above to check for new jobs and startup leads."}
-            </span>
-          </div>
-        </div>
       </div>
     </section>
   );

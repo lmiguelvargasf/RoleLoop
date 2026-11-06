@@ -4345,33 +4345,6 @@ textarea {
     text-align: right;
   }
 }
-.automation-status {
-  display: flex;
-  align-items: flex-start;
-  gap: 10px;
-  grid-column: 1/-1;
-  padding: 14px 0 0;
-  border-top: 1px solid var(--line);
-  color: #627487;
-}
-.automation-status > svg {
-  flex-shrink: 0;
-  margin-top: 2px;
-}
-.automation-status > div {
-  display: flex;
-  flex-direction: column;
-  gap: 3px;
-}
-.automation-status strong {
-  color: #465c70;
-  font-size: 11px;
-  font-weight: 550;
-}
-.automation-status span {
-  font-size: 11px;
-  line-height: 1.6;
-}
 @media (prefers-reduced-motion: reduce) {
   .career-details > summary > svg,
   .career-entry > summary > svg {
@@ -4459,9 +4432,7 @@ textarea {
     min-height: 44px;
     font-size: 16px;
   }
-  .automation-preferences .field > span,
-  .automation-status strong,
-  .automation-status span {
+  .automation-preferences .field > span {
     font-size: 12px;
   }
 }
