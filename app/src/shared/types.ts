@@ -36,6 +36,8 @@ export const PreferencesSchema = z.object({
   country: z.string(),
   companyCountry: z.string().default("United States"),
   industries: z.array(z.string()),
+  industryPreference: z.enum(["any", "prefer"]).default("prefer"),
+  topIndustries: z.array(z.string()).default([]),
   scheduleEnabled: z.boolean().default(false),
   scheduleMinutes: z.number().int().min(15).max(1440).default(120),
   dailyLimit: z.number().int().min(1).max(100).default(10),

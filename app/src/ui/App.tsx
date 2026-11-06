@@ -56,6 +56,11 @@ import type {
 import { api, date, downloadFile, safeUrl, uid, words, write } from "./api";
 import { SalaryFields } from "./SalaryFields";
 import { TargetRolesInput } from "./TargetRolesInput";
+import { IndustryInterests } from "./IndustryInterests";
+import {
+  industryPriorityBoost,
+  preferredIndustryMatches,
+} from "../shared/industries";
 
 type Page =
   | "jobs"
@@ -688,6 +693,13 @@ function Opportunities({
                     {o.isDemo && <span className="demo-tag">SAMPLE</span>}
                   </span>
                   <strong>{o.title}</strong>
+                  {preferredIndustryMatches(o, data.preferences).length > 0 && (
+                    <span className="industry-priority-badge">
+                      {industryPriorityBoost(o, data.preferences) === 10
+                        ? "Top industry interest"
+                        : "Industry interest"}
+                    </span>
+                  )}
                   <span className="row-meta">
                     {o.location}
                     <span>·</span>
@@ -1683,8 +1695,8 @@ function PreferencesEditor({
   busy: boolean;
   ollamaAvailable: boolean;
 }) {
-  const [prefs, setPrefs] = useState(initial),
-    [industries, setIndustries] = useState(initial.industries.join(", "));
+  const [prefs, setPrefs] = useState(initial);
+  const dirty = JSON.stringify(prefs) !== JSON.stringify(initial);
   const set = <K extends keyof Preferences>(key: K, value: Preferences[K]) =>
     setPrefs((p) => ({ ...p, [key]: value }));
   return (
@@ -1700,15 +1712,7 @@ function PreferencesEditor({
         onSubmit={(e) => {
           e.preventDefault();
           void perform(
-            () =>
-              write(
-                "/preferences",
-                {
-                  ...prefs,
-                  industries: words(industries),
-                },
-                "PUT",
-              ),
+            () => write("/preferences", prefs, "PUT"),
             "Search preferences saved.",
           );
         }}
@@ -1743,14 +1747,20 @@ function PreferencesEditor({
                 onChange={(e) => set("companyCountry", e.target.value)}
               />
             </Field>
-            <Field label="Industries / interests" wide>
-              <input
-                value={industries}
-                onChange={(e) => setIndustries(e.target.value)}
-                placeholder="Developer tools, climate, infrastructure"
-              />
-            </Field>
           </div>
+        </section>
+        <section className="form-section industry-section">
+          <div className="form-section-heading">
+            <h2>Industries & interests</h2>
+            <p>Set industry preferences for jobs and startups.</p>
+          </div>
+          <IndustryInterests
+            industries={prefs.industries}
+            industryPreference={prefs.industryPreference}
+            topIndustries={prefs.topIndustries}
+            disabled={busy}
+            onChange={(values) => setPrefs((current) => ({ ...current, ...values }))}
+          />
         </section>
         <section className="form-section">
           <div className="form-section-heading">
@@ -1945,12 +1955,12 @@ function PreferencesEditor({
             </Field>
           </div>
         </section>
-        <div className="form-save">
-          <span className="muted">
-            <ShieldCheck size={15} />
-            Live sending remains disabled
+        <div className="form-save preferences-save">
+          <span className="muted" role="status">
+            {dirty ? <Pencil size={14} /> : <Check size={15} />}
+            {busy ? "Saving changes…" : dirty ? "Unsaved preferences" : "Preferences saved"}
           </span>
-          <button className="button primary" disabled={busy}>
+          <button className="button primary" disabled={busy || !dirty}>
             <Save size={16} />
             Save preferences
           </button>

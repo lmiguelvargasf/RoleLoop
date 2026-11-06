@@ -62,6 +62,8 @@ export function demoWorkspace(): Workspace {
       country: "Ecuador",
       companyCountry: "United States",
       industries: ["Developer tools", "B2B software"],
+      industryPreference: "prefer",
+      topIndustries: [],
       scheduleEnabled: false,
       scheduleMinutes: 120,
       dailyLimit: 10,

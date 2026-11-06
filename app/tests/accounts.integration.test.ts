@@ -175,12 +175,76 @@ integration(
         method: "PUT",
         url: "/api/preferences",
         headers: headers(actor, actor.workspaceId),
-        payload: { ...preferences, minimumSalary: 150000, targetSalary: 140000 },
+        payload: {
+          ...preferences,
+          minimumSalary: 150000,
+          targetSalary: 140000,
+        },
       });
       expect(invalid.statusCode).toBe(400);
       expect(invalid.json().error).toContain(
         "Target salary must be at least the minimum salary",
       );
+    });
+    it("persists industry preferences and changes priority in both discovery lists without filtering", async () => {
+      const actor = await account("Industry preferences test");
+      const own = await app.inject({
+        url: "/api/bootstrap",
+        headers: headers(actor, actor.workspaceId),
+      });
+      const preferences = own.json().preferences;
+      const industries = ["Climate", "Space technology"];
+      for (const kind of ["job", "startup"]) {
+        for (const preferred of [false, true]) {
+          const created = await app.inject({
+            method: "POST",
+            url: "/api/opportunities",
+            headers: headers(actor, actor.workspaceId),
+            payload: {
+              kind,
+              company: preferred ? "Climate team" : "Accounting team",
+              title: "Engineering opportunity",
+              description: preferred
+                ? "Climate risk software"
+                : "Accounting software",
+              url: `https://example.com/${kind}/${preferred ? "climate" : "accounting"}`,
+              publishedAt: new Date(
+                Date.now() - (preferred ? 2 : 1) * 86400000,
+              ).toISOString(),
+            },
+          });
+          expect(created.statusCode, created.body).toBe(200);
+        }
+      }
+      for (const industryPreference of ["prefer", "any", "prefer"]) {
+        const updated = await app.inject({
+          method: "PUT",
+          url: "/api/preferences",
+          headers: headers(actor, actor.workspaceId),
+          payload: { ...preferences, industries, industryPreference, topIndustries: ["Climate"] },
+        });
+        expect(updated.statusCode, updated.body).toBe(200);
+        const loaded = await app.inject({
+          url: "/api/bootstrap",
+          headers: headers(actor, actor.workspaceId),
+        });
+        expect(loaded.statusCode, loaded.body).toBe(200);
+        const state = loaded.json();
+        expect(state.preferences.industries).toEqual(industries);
+        expect(state.preferences.topIndustries).toEqual(["Climate"]);
+        expect(state.preferences.industryPreference).toBe(industryPreference);
+        for (const kind of ["job", "startup"]) {
+          const list = state.opportunities.filter(
+            (op: { kind: string }) => op.kind === kind,
+          );
+          expect(list).toHaveLength(2);
+          expect(list[0].company).toBe(
+            industryPreference === "prefer"
+              ? "Climate team"
+              : "Accounting team",
+          );
+        }
+      }
     });
     it("blocks cross-workspace reads, updates, exports and direct database access", async () => {
       const created = await app.inject({
@@ -222,15 +286,13 @@ integration(
         .eq("id", op.id);
       expect(direct.error).toBeNull();
       expect(direct.data).toEqual([]);
-      const insert = await bob.client
-        .from("opportunities")
-        .insert({
-          id: randomUUID(),
-          workspace_id: alice.workspaceId,
-          kind: "job",
-          source_key: randomUUID(),
-          payload: op,
-        });
+      const insert = await bob.client.from("opportunities").insert({
+        id: randomUUID(),
+        workspace_id: alice.workspaceId,
+        kind: "job",
+        source_key: randomUUID(),
+        payload: op,
+      });
       expect(insert.error).not.toBeNull();
       const queue = await bob.client.rpc("enqueue_run", {
         target_workspace: alice.workspaceId,
@@ -253,14 +315,12 @@ integration(
         ),
         id: draftId,
       };
-      const saved = await db
-        .from("drafts")
-        .insert({
-          id: draftId,
-          workspace_id: alice.workspaceId,
-          opportunity_id: op.id,
-          payload: draft,
-        });
+      const saved = await db.from("drafts").insert({
+        id: draftId,
+        workspace_id: alice.workspaceId,
+        opportunity_id: op.id,
+        payload: draft,
+      });
       expect(saved.error).toBeNull();
       const exportAttempt = await app.inject({
         url: `/api/drafts/${draftId}/download?format=json`,
@@ -304,13 +364,11 @@ integration(
         .update({ owner_user_id: bob.id })
         .eq("id", alice.workspaceId);
       expect(selfOwner.error).not.toBeNull();
-      const membership = await bob.client
-        .from("workspace_members")
-        .insert({
-          workspace_id: carol.workspaceId,
-          user_id: bob.id,
-          role: "owner",
-        });
+      const membership = await bob.client.from("workspace_members").insert({
+        workspace_id: carol.workspaceId,
+        user_id: bob.id,
+        role: "owner",
+      });
       expect(membership.error).not.toBeNull();
       const revoke = await app.inject({
         method: "DELETE",

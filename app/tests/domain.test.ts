@@ -148,7 +148,7 @@ describe("evidence and eligibility", () => {
       "Essential evidence coverage",
     );
   });
-  it("uses selected industry phrases as transparent startup relevance signals", () => {
+  it("reports preferred industries without changing startup skill relevance or blocking other industries", () => {
     const { profile, preferences } = setup();
     const startup = demoOpportunities(now)[3];
     startup.description += " We build developer-tools.";
@@ -164,11 +164,12 @@ describe("evidence and eligibility", () => {
       { ...preferences, industries: ["Healthcare"] },
       now,
     );
-    expect(matching.score).toBe(unrelated.score + 20);
+    expect(matching.score).toBe(unrelated.score);
     expect(matching.reasons.join(" ")).toContain(
       "not verified company classification",
     );
-    expect(unrelated.unknowns.join(" ")).toContain("selected industries");
+    expect(unrelated.unknowns.join(" ")).not.toContain("selected industries");
+    expect(unrelated.blockers).toEqual(matching.blockers);
     expect(matching.recommendation).toBe("review");
   });
   it("does not infer an industry from a substring or change job coverage for industry preferences", () => {
@@ -181,7 +182,7 @@ describe("evidence and eligibility", () => {
       { ...preferences, industries: ["AI"] },
       now,
     );
-    expect(a.reasons.join(" ")).toContain("No selected industry keyword");
+    expect(a.reasons.join(" ")).not.toContain("Preferred industry signal");
     expect(
       assessOpportunity(
         job,
