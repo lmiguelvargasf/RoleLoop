@@ -186,6 +186,7 @@ export function assessOpportunity(
   profile: Profile,
   prefs: Preferences,
   now = new Date(),
+  semanticMatches?: Assessment["matches"],
 ): Assessment {
   const blockers: string[] = [],
     unknowns: string[] = [],
@@ -351,6 +352,12 @@ export function assessOpportunity(
         : matched
           ? "partial"
           : "missing";
+    const semantic = semanticMatches?.find((m) => m.requirementId === req.id);
+    if (semantic) {
+      status = semantic.status;
+      ids.clear();
+      semantic.evidenceIds.forEach((id) => ids.add(id));
+    }
     const quantified =
       /\d+\+?\s*(?:years?|yrs?)|clearance|citizen|authorization|authorisation|license|licence|certif|degree/i.test(
         req.text,
@@ -358,7 +365,9 @@ export function assessOpportunity(
     if (quantified) {
       status = "missing";
       if (req.essential || req.hard)
-        unknowns.push(`Confirm this stated condition independently: ${req.text}`);
+        unknowns.push(
+          `Confirm this stated condition independently: ${req.text}`,
+        );
     }
     if (req.hard && status !== "matched")
       unknowns.push(`Mandatory requirement not confirmed: ${req.text}`);
@@ -370,13 +379,15 @@ export function assessOpportunity(
       status,
       explanation: quantified
         ? "Skill mentions cannot prove tenure, credentials, or legal eligibility."
-        : !req.skills.length
-          ? "No structured skill evidence is available; review this requirement."
-          : status === "matched"
-            ? "Supported by verified candidate evidence."
-            : status === "partial"
-              ? "Only some requested skills have verified evidence."
-              : "No verified evidence supports this requirement.",
+        : semantic
+          ? semantic.explanation
+          : !req.skills.length
+            ? "No structured skill evidence is available; review this requirement."
+            : status === "matched"
+              ? "Supported by verified candidate evidence."
+              : status === "partial"
+                ? "Only some requested skills have verified evidence."
+                : "No verified evidence supports this requirement.",
     };
   });
   const coverage = (items: typeof matches) =>

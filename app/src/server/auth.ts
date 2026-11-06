@@ -69,6 +69,8 @@ export function userName(user: User): string {
 export function emptyWorkspace(user: User): Workspace {
   return {
     profile: {
+      learning: "",
+      source: null,
       name: userName(user),
       email: user.email || "",
       headline: "",

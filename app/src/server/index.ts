@@ -14,6 +14,7 @@ import type { WorkspaceStore } from "./store.js";
 import * as auth from "./auth.js";
 import * as service from "./service.js";
 import { allowedOrigin } from "./guards.js";
+import { UploadSchema, extractResume } from "./resume-import.js";
 import { resumePdf } from "./documents.js";
 
 declare module "fastify" {
@@ -91,12 +92,10 @@ export async function buildServer() {
           .join("; "),
       });
     const err = error as Error & { statusCode?: number; code?: string };
-    reply
-      .code(err.statusCode || 500)
-      .send({
-        error: err.message || "Request failed",
-        ...(err.code === "WORKSPACE_ACCESS_DENIED" ? { code: err.code } : {}),
-      });
+    reply.code(err.statusCode || 500).send({
+      error: err.message || "Request failed",
+      ...(err.code === "WORKSPACE_ACCESS_DENIED" ? { code: err.code } : {}),
+    });
   });
   app.get("/api/health", async () => ({ ok: true, testMode: true }));
   app.get("/api/auth/config", async () => ({
@@ -147,10 +146,83 @@ export async function buildServer() {
     }
     return data;
   });
+  app.post("/api/profile/import", { bodyLimit: 2_900_000 }, async (req) => {
+    const input = UploadSchema.parse(req.body);
+    const buffer = Buffer.from(input.data, "base64");
+    const store = requestStore(req);
+    const workspace = await store.getWorkspace();
+    const result = await extractResume(
+      input.name,
+      buffer,
+      workspace.preferences,
+    );
+    const id = randomUUID();
+    const source = {
+      id,
+      name: input.name,
+      kind: result.kind,
+      importedAt: new Date().toISOString(),
+    };
+    const uploaded = await store.db.storage
+      .from("documents")
+      .upload(
+        `${store.workspaceId}/resumes/${id}/original.${result.kind}`,
+        buffer,
+        {
+          contentType:
+            result.kind === "pdf"
+              ? "application/pdf"
+              : "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+        },
+      );
+    if (uploaded.error)
+      throw new Error("The original résumé could not be saved. Try again.");
+    return {
+      profile: {
+        ...result.profile,
+        learning: workspace.profile.learning,
+        source,
+      },
+      warnings: result.warnings,
+    };
+  });
+  app.get("/api/profile/sources/:id/:kind", async (req, reply) => {
+    const { id, kind } = z
+      .object({ id: z.string().uuid(), kind: z.enum(["pdf", "docx"]) })
+      .parse(req.params);
+    const store = requestStore(req);
+    const result = await store.db.storage
+      .from("documents")
+      .download(`${store.workspaceId}/resumes/${id}/original.${kind}`);
+    if (result.error || !result.data)
+      throw auth.fail("This résumé was not found in your workspace.", 404);
+    return reply
+      .header(
+        "Content-Disposition",
+        `attachment; filename="original-resume.${kind}"`,
+      )
+      .type(
+        kind === "pdf"
+          ? "application/pdf"
+          : "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+      )
+      .send(Buffer.from(await result.data.arrayBuffer()));
+  });
   app.put("/api/profile", async (req) => {
     const profile = ProfileSchema.parse(req.body);
     const previous = (await requestStore(req).getWorkspace()).profile;
-    await requestStore(req).updateWorkspace({ profile });
+    const store = requestStore(req);
+    // Preserve the reviewed master used by future drafts as a private version.
+    const snapshot = await store.db.storage
+      .from("documents")
+      .upload(
+        `${store.workspaceId}/profile-versions/${randomUUID()}.json`,
+        JSON.stringify(profile),
+        { contentType: "application/json" },
+      );
+    if (snapshot.error)
+      throw new Error("Profile version could not be saved. Try again.");
+    await store.updateWorkspace({ profile });
     if (JSON.stringify(previous) !== JSON.stringify(profile)) {
       await service.invalidateDrafts(requestStore(req));
       await service.refreshAssessments(requestStore(req));

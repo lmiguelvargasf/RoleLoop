@@ -7,6 +7,8 @@ import {
 export function demoWorkspace(): Workspace {
   return {
     profile: {
+      learning: "",
+      source: null,
       name: "Alex Morgan",
       headline: "Software engineer · sample profile",
       email: "alex@example.com",

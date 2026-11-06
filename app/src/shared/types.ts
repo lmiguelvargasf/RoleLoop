@@ -8,6 +8,9 @@ export const EvidenceSchema = z.object({
   role: z.string().default(""),
   company: z.string().default(""),
   period: z.string().default(""),
+  category: z
+    .enum(["experience", "project", "education", "certification", "other"])
+    .optional(),
 });
 export const ProfileSchema = z.object({
   name: z.string().max(200),
@@ -17,6 +20,16 @@ export const ProfileSchema = z.object({
   portfolio: z.string().max(500),
   skills: z.array(z.string()),
   evidence: z.array(EvidenceSchema),
+  learning: z.string().max(2000).default(""),
+  source: z
+    .object({
+      id: z.string().uuid(),
+      name: z.string().max(200),
+      kind: z.enum(["pdf", "docx"]),
+      importedAt: z.string(),
+    })
+    .nullable()
+    .default(null),
   isDemo: z.boolean().default(false),
 });
 export const PreferencesSchema = z.object({
@@ -59,6 +72,9 @@ export const RequirementSchema = z.object({
   hard: z.boolean().default(false),
 });
 export const AssessmentSchema = z.object({
+  fitSummary: z.string().optional(),
+  learningGaps: z.array(z.string()).optional(),
+  relevantEvidenceIds: z.array(z.string()).optional(),
   score: z.number(),
   essentialScore: z.number(),
   recommendation: z.enum(["ready", "review", "excluded"]),

@@ -30,15 +30,19 @@ export function createDraft(
   const requested = new Set(
     op.requirements.flatMap((r) => r.skills.map(normalizeSkill)),
   );
+  const preferredIds = assessment.relevantEvidenceIds || [];
   const selected = [...eligible]
     .sort(
       (a, b) =>
+        (preferredIds.includes(b.id) ? 1 : 0) -
+          (preferredIds.includes(a.id) ? 1 : 0) ||
         b.skills.filter((s) => requested.has(normalizeSkill(s))).length -
-        a.skills.filter((s) => requested.has(normalizeSkill(s))).length,
+          a.skills.filter((s) => requested.has(normalizeSkill(s))).length,
     )
     .slice(0, 8);
   const related = selected.filter(
     (e) =>
+      preferredIds.includes(e.id) ||
       e.skills.some((s) => requested.has(normalizeSkill(s))) ||
       e.skills.some((s) =>
         op.description.toLowerCase().includes(s.toLowerCase()),
@@ -60,7 +64,7 @@ export function createDraft(
   const resume = [
     header,
     profile.summary ? "SUMMARY\n" + profile.summary : "",
-    "VERIFIED EXPERIENCE\n" +
+    "CAREER HIGHLIGHTS\n" +
       selected
         .map((e) =>
           [
@@ -72,6 +76,9 @@ export function createDraft(
         )
         .join("\n\n"),
     "SKILLS\n" + skills.join(" · "),
+    profile.learning?.trim()
+      ? "CURRENTLY LEARNING\n" + profile.learning.trim()
+      : "",
   ]
     .filter(Boolean)
     .join("\n\n");
@@ -152,6 +159,7 @@ export function createDraft(
         : []),
       ...assessment.blockers,
       ...assessment.unknowns,
+      ...(assessment.learningGaps || []).map((gap) => `Learning gap: ${gap}`),
       "Generated from evidence templates. Review wording and employer-specific questions.",
     ],
     status: "draft",

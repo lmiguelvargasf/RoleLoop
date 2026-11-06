@@ -50,10 +50,18 @@ Supabase Studio and Mailpit are shared local developer tools. RoleLoop account p
 
 ## Get started
 
-1. Open **My profile** and add your identity and verified experience.
+1. Open **My profile**, upload a text-based PDF or Word (.docx) CV up to 2 MB, and review the extracted overview and career details. Confirm and save to use those facts for matching and drafts. The original CV and reviewed profile versions are stored privately in the workspace. Replacing a CV creates a new version and replaces the career details only after confirmation. Existing profiles remain editable under Career details.
 2. Set your salary, working country, search dates and matching preference in **Search preferences**. Working country is used for remote eligibility and location details in drafts. Dates follow your computer’s timezone automatically.
 3. Add public company board identifiers in **Discovery sources**, use the Show HN startup feed, or add opportunities manually.
 4. Review opportunities, prepare your application or founder email, and download the drafts.
+
+## Résumé AI
+
+Set `OPENAI_API_KEY` in the server environment (or `app/.env.local`) for hosted extraction and experience-based matching. `OPENAI_MODEL` defaults to `gpt-4o-mini`. Requests use structured outputs with response storage disabled; the résumé text and confirmed career facts are sent to OpenAI when this provider is configured. Without a key, RoleLoop uses the configured Ollama model, or the first installed model. A running model is required for CV import. Existing template drafting remains available without AI.
+
+Import supports readable PDF and `.docx`, with a 2 MB file limit, a 30-page PDF limit and a 60,000-character text limit. Scanned or encrypted PDFs need to be exported as readable text first. AI extraction retains source quotations, flags uncertain details, and requires review before activation. Education, projects and certifications can be corrected inside the expandable career details.
+
+Opportunity evaluation can assess transferable experience with references to confirmed career entries. Salary, country and mandatory-condition checks still apply. If AI evaluation fails, the app marks the result for review and explains that it used skill tags. Currently learning is optional, appears in a separate résumé section, and never supplies demonstrated experience. Uploaded formatting is replaced by the app’s clean PDF layout.
 
 ## What is implemented
 

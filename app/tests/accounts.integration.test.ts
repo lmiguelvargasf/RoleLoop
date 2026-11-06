@@ -83,6 +83,17 @@ integration(
             .select("id")
             .eq("owner_user_id", id);
           for (const row of workspaces.data || []) {
+            const versions = await db.storage
+              .from("documents")
+              .list(`${row.id}/profile-versions`);
+            if (versions.data?.length)
+              await db.storage
+                .from("documents")
+                .remove(
+                  versions.data.map(
+                    (file) => `${row.id}/profile-versions/${file.name}`,
+                  ),
+                );
             await db.from("drafts").delete().eq("workspace_id", row.id);
             await db.from("opportunities").delete().eq("workspace_id", row.id);
             const removed = await db
@@ -244,9 +255,9 @@ integration(
           expect(assessment.recommendation).toBe(
             salaryFlexibility ? "review" : "excluded",
           );
-          expect(assessment.unknowns.join(" ").includes("consider benefits")).toBe(
-            salaryFlexibility,
-          );
+          expect(
+            assessment.unknowns.join(" ").includes("consider benefits"),
+          ).toBe(salaryFlexibility);
         }
       }
     });
@@ -285,7 +296,12 @@ integration(
           method: "PUT",
           url: "/api/preferences",
           headers: headers(actor, actor.workspaceId),
-          payload: { ...preferences, industries, industryPreference, topIndustries: ["Climate"] },
+          payload: {
+            ...preferences,
+            industries,
+            industryPreference,
+            topIndustries: ["Climate"],
+          },
         });
         expect(updated.statusCode, updated.body).toBe(200);
         const loaded = await app.inject({

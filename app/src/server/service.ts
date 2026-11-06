@@ -19,6 +19,7 @@ import { getGlobalRuntime, type WorkspaceStore } from "./store.js";
 import { assertApproved, assertFresh } from "./guards.js";
 import { generateDraft, ollamaAvailable } from "./model.js";
 import { resumePdf, sendToLocalInbox } from "./documents.js";
+import { assessWithAI } from "./fit.js";
 import { settings } from "./config.js";
 
 export const RunInput = z.object({
@@ -126,12 +127,11 @@ export async function analyze(
   store: WorkspaceStore,
   op: Opportunity,
   workspace: Workspace,
+  useAI = true,
 ) {
-  const assessment = assessOpportunity(
-    op,
-    workspace.profile,
-    workspace.preferences,
-  );
+  const assessment = useAI
+    ? await assessWithAI(op, workspace)
+    : assessOpportunity(op, workspace.profile, workspace.preferences);
   const progressed = ["drafted", "approved", "tested", "archived"].includes(
     op.stage,
   );
@@ -253,7 +253,7 @@ export async function invalidateDrafts(
 export async function refreshAssessments(store: WorkspaceStore) {
   const workspace = await store.getWorkspace();
   for (const op of await store.list("opportunities", 10000))
-    await analyze(store, op, workspace);
+    await analyze(store, op, workspace, false);
 }
 export async function processRun(
   store: WorkspaceStore,
@@ -291,8 +291,7 @@ export async function processRun(
             !(await store.list("drafts", 10000)).some(
               (d) => d.opportunityId === op.id,
             ) &&
-            (await draftCountToday(store)) <
-              workspace.preferences.dailyLimit
+            (await draftCountToday(store)) < workspace.preferences.dailyLimit
           )
             await prepare(store, op, workspace);
         }

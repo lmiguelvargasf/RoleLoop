@@ -59,6 +59,7 @@ import { FreshnessPreferences } from "./FreshnessPreferences";
 import { MatchingPreferences } from "./MatchingPreferences";
 import { TargetRolesInput } from "./TargetRolesInput";
 import { IndustryInterests } from "./IndustryInterests";
+import { ProfileEditor } from "./ProfileEditor";
 import { EditorHeader } from "./EditorHeader";
 import {
   industryPriorityBoost,
@@ -656,18 +657,13 @@ function Opportunities({
           onChange={(e) => setStage(e.target.value)}
         >
           <option value="all">Active opportunities</option>
-          {[
-            "new",
-            "review",
-            "ready",
-            "drafted",
-            "approved",
-            "archived",
-          ].map((s) => (
-            <option key={s} value={s}>
-              {statusLabels[s]}
-            </option>
-          ))}
+          {["new", "review", "ready", "drafted", "approved", "archived"].map(
+            (s) => (
+              <option key={s} value={s}>
+                {statusLabels[s]}
+              </option>
+            ),
+          )}
         </select>
         <span className="result-count">
           {list.length} {list.length === 1 ? "opportunity" : "opportunities"}
@@ -935,6 +931,19 @@ function Opportunities({
                   <NoticeList
                     title="Evaluation notes"
                     items={chosen.assessment.reasons}
+                    kind="neutral"
+                  />
+                )}
+                {chosen.assessment.fitSummary && (
+                  <div className="form-section">
+                    <h3>Your fit</h3>
+                    <p>{chosen.assessment.fitSummary}</p>
+                  </div>
+                )}
+                {!!chosen.assessment.learningGaps?.length && (
+                  <NoticeList
+                    title="Learning gaps to consider"
+                    items={chosen.assessment.learningGaps}
                     kind="neutral"
                   />
                 )}
@@ -1444,240 +1453,6 @@ function OpportunityForm({
   );
 }
 
-function ProfileEditor({
-  initial,
-  perform,
-  busy,
-}: {
-  initial: Profile;
-  perform: Perform;
-  busy: boolean;
-}) {
-  const [profile, setProfile] = useState<Profile>(initial),
-    [skills, setSkills] = useState(initial.skills.join(", "));
-  const editedProfile = { ...profile, skills: words(skills) };
-  const dirty = JSON.stringify(editedProfile) !== JSON.stringify(initial);
-  const set = <K extends keyof Profile>(key: K, value: Profile[K]) =>
-    setProfile((p) => ({ ...p, [key]: value }));
-  const updateEvidence = (id: string, key: string, value: unknown) =>
-    setProfile((p) => ({
-      ...p,
-      evidence: p.evidence.map((e) =>
-        e.id === id ? { ...e, [key]: value } : e,
-      ),
-    }));
-  return (
-    <section
-      className="page form-page editor-page profile-page"
-      aria-labelledby="profile-title"
-    >
-      <form
-        className="editor-form"
-        onSubmit={(e) => {
-          e.preventDefault();
-          void perform(
-            () => write("/profile", editedProfile, "PUT"),
-            "Profile saved. Re-evaluate existing opportunities to use these facts.",
-          );
-        }}
-      >
-        <EditorHeader
-          titleId="profile-title"
-          title="My profile"
-          description="Used for matching and application drafts."
-          dirty={dirty}
-          busy={busy}
-        />
-        <section className="form-section">
-          <div className="form-section-heading">
-            <h2>Personal details</h2>
-            <p>Contact details to include in your drafts.</p>
-          </div>
-          <div className="form-grid">
-            <Field label="Full name">
-              <input
-                required
-                value={profile.name}
-                onChange={(e) => set("name", e.target.value)}
-              />
-            </Field>
-            <Field label="Professional headline">
-              <input
-                value={profile.headline}
-                onChange={(e) => set("headline", e.target.value)}
-              />
-            </Field>
-            <Field label="Email">
-              <input
-                type="email"
-                value={profile.email}
-                onChange={(e) => set("email", e.target.value)}
-              />
-            </Field>
-            <Field label="Portfolio / professional website">
-              <input
-                value={profile.portfolio}
-                type="url"
-                onChange={(e) => set("portfolio", e.target.value)}
-              />
-            </Field>
-            <Field label="Professional summary" wide>
-              <textarea
-                rows={4}
-                value={profile.summary}
-                onChange={(e) => set("summary", e.target.value)}
-              />
-            </Field>
-            <Field
-              label="Skills"
-              hint="Separate skills with commas. Support your strongest skills with evidence below."
-              wide
-            >
-              <input
-                value={skills}
-                onChange={(e) => setSkills(e.target.value)}
-              />
-            </Field>
-            {profile.isDemo && (
-              <label className="checkbox-field wide">
-                <input
-                  type="checkbox"
-                  checked={profile.isDemo}
-                  onChange={(e) => set("isDemo", e.target.checked)}
-                />
-                <span>
-                  This is a fictional test profile
-                  <small>
-                    Uncheck after replacing the sample information with your own.
-                  </small>
-                </span>
-              </label>
-            )}
-          </div>
-        </section>
-        <section className="form-section">
-          <div className="form-section-heading row-heading">
-            <div>
-              <h2>Experience & evidence</h2>
-              <p>
-                Specific achievements, projects and responsibilities. Only
-                verified entries can support generated claims.
-              </p>
-            </div>
-            <button
-              className="button"
-              type="button"
-              onClick={() =>
-                set("evidence", [
-                  ...profile.evidence,
-                  {
-                    id: uid(),
-                    text: "",
-                    skills: [],
-                    verified: false,
-                    role: "",
-                    company: "",
-                    period: "",
-                  },
-                ])
-              }
-            >
-              <Plus size={16} />
-              Add evidence
-            </button>
-          </div>
-          {profile.evidence.map((evidence, i) => (
-            <div className="evidence-editor" key={evidence.id}>
-              <div className="evidence-heading">
-                <span className="eyebrow">
-                  EVIDENCE {String(i + 1).padStart(2, "0")}
-                </span>
-                <IconButton
-                  label={`Remove evidence ${i + 1}`}
-                  onClick={() =>
-                    set(
-                      "evidence",
-                      profile.evidence.filter((e) => e.id !== evidence.id),
-                    )
-                  }
-                >
-                  <Trash2 size={16} />
-                </IconButton>
-              </div>
-              <div className="form-grid">
-                <Field label="Role">
-                  <input
-                    value={evidence.role}
-                    onChange={(e) =>
-                      updateEvidence(evidence.id, "role", e.target.value)
-                    }
-                  />
-                </Field>
-                <Field label="Company / project">
-                  <input
-                    value={evidence.company}
-                    onChange={(e) =>
-                      updateEvidence(evidence.id, "company", e.target.value)
-                    }
-                  />
-                </Field>
-                <Field label="Period">
-                  <input
-                    value={evidence.period}
-                    onChange={(e) =>
-                      updateEvidence(evidence.id, "period", e.target.value)
-                    }
-                    placeholder="2022–2025"
-                  />
-                </Field>
-                <Field label="Related skills">
-                  <input
-                    defaultValue={evidence.skills.join(", ")}
-                    onChange={(e) =>
-                      updateEvidence(
-                        evidence.id,
-                        "skills",
-                        words(e.target.value),
-                      )
-                    }
-                  />
-                </Field>
-                <Field label="What you accomplished" wide>
-                  <textarea
-                    required
-                    rows={3}
-                    value={evidence.text}
-                    onChange={(e) =>
-                      updateEvidence(evidence.id, "text", e.target.value)
-                    }
-                    placeholder="Describe a real contribution and its outcome. Include metrics only when you can support them."
-                  />
-                </Field>
-                <label className="checkbox-field wide">
-                  <input
-                    type="checkbox"
-                    checked={evidence.verified}
-                    onChange={(e) =>
-                      updateEvidence(evidence.id, "verified", e.target.checked)
-                    }
-                  />
-                  <span>I confirm this statement is accurate.</span>
-                </label>
-              </div>
-            </div>
-          ))}
-          {profile.evidence.length === 0 && (
-            <div className="inline-empty">
-              Add your first achievement or project to enable evidence-based
-              drafting.
-            </div>
-          )}
-        </section>
-      </form>
-    </section>
-  );
-}
-
 function PreferencesEditor({
   initial,
   perform,
@@ -1760,7 +1535,9 @@ function PreferencesEditor({
             industryPreference={prefs.industryPreference}
             topIndustries={prefs.topIndustries}
             disabled={busy}
-            onChange={(values) => setPrefs((current) => ({ ...current, ...values }))}
+            onChange={(values) =>
+              setPrefs((current) => ({ ...current, ...values }))
+            }
           />
         </section>
         <section className="form-section">
