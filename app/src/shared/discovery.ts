@@ -209,13 +209,22 @@ export function addRecommendedSources(
       );
     let id = source.id;
     while (ids.has(id)) id += "-added";
-    next.push({ ...source, id });
+    next.push(normalizeSource({ ...source, id }));
     ids.add(id);
     identities.add(identity);
   }
   return next;
 }
 
+export function sourceKind(
+  source: Pick<Source, "provider">,
+): "company_board" | "job_feed" | "startup_feed" {
+  return source.provider === "hackernews"
+    ? "startup_feed"
+    : source.provider === "jobicy"
+      ? "job_feed"
+      : "company_board";
+}
 export function normalizeSource(source: Source): Source {
   let board = source.board.trim();
   let provider = source.provider;
@@ -241,7 +250,21 @@ export function normalizeSource(source: Source): Source {
     throw new Error(
       "Enter a company board identifier or supported careers URL.",
     );
-  return { ...source, provider, board };
+  const kind = sourceKind({ provider });
+  return {
+    ...source,
+    provider,
+    board,
+    kind,
+    ...(kind !== "company_board"
+      ? {
+          companyId: undefined,
+          companyName: undefined,
+          companyCountry: undefined,
+          countrySource: undefined,
+        }
+      : {}),
+  };
 }
 
 export function applicationCounts(
@@ -316,5 +339,22 @@ export const additionalJobBoards = [
     url: "https://www.linkedin.com/jobs/",
     description:
       "Broad employer coverage, saved searches and professional connections.",
+  },
+];
+
+export const startupLibrary: SourceResearch[] = [
+  {
+    source: {
+      id: "hn-startups",
+      provider: "hackernews",
+      label: "Show HN",
+      board: "",
+      enabled: true,
+    },
+    description:
+      "Product launches and new tools shared by their creators. Research potential contacts and company needs.",
+    coverage: "Research leads · no advertised vacancy implied",
+    careersUrl: "https://news.ycombinator.com/show",
+    checkedAt: "2026-11-06",
   },
 ];

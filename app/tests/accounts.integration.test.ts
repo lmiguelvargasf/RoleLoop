@@ -230,6 +230,75 @@ integration(
         expect(own.json().status.studioUrl).toBe("");
       }
     });
+    it("isolates normalized companies and connections and rejects foreign company links", async () => {
+      const actor = await account("Company graph test");
+      const { createWorkspaceStore } = await import("../src/server/store.js");
+      await createWorkspaceStore({
+        workspaceId: actor.workspaceId,
+        client: db,
+      }).updateWorkspace({
+        sources: [
+          {
+            id: "unique-company",
+            provider: "ashby",
+            label: "Unique graph company",
+            board: `company-${randomUUID()}`,
+            enabled: true,
+          },
+        ],
+      });
+      const own = await actor.client
+        .from("companies")
+        .select("id")
+        .eq("workspace_id", actor.workspaceId)
+        .eq("name", "Unique graph company");
+      expect(own.error).toBeNull();
+      expect(own.data!.length).toBeGreaterThan(0);
+      expect(
+        (
+          await bob.client
+            .from("companies")
+            .select("id")
+            .eq("workspace_id", actor.workspaceId)
+        ).data,
+      ).toEqual([]);
+      expect(
+        (
+          await bob.client
+            .from("discovery_sources")
+            .select("id")
+            .eq("workspace_id", actor.workspaceId)
+        ).data,
+      ).toEqual([]);
+      const attempted = await bob.client
+        .from("companies")
+        .update({ name: "Intrusion" })
+        .eq("workspace_id", actor.workspaceId);
+      expect(attempted.error).not.toBeNull();
+      const created = await app.inject({
+        method: "POST",
+        url: "/api/opportunities",
+        headers: headers(actor, actor.workspaceId),
+        payload: {
+          kind: "job",
+          company: "Known company",
+          companyId: own.data![0].id,
+          title: "Engineer",
+          description: "Requirements\nReact experience",
+          url: "https://example.com/role",
+        },
+      });
+      expect(created.statusCode, created.body).toBe(200);
+      expect(created.json().companyId).toBe(own.data![0].id);
+      const foreign = await db.from("opportunities").insert({
+        id: randomUUID(),
+        workspace_id: bob.workspaceId,
+        kind: "job",
+        source_key: `foreign:${randomUUID()}`,
+        payload: { company: "Foreign", companyId: own.data![0].id },
+      });
+      expect(foreign.error).not.toBeNull();
+    });
     it("reports source health after successful and failed discovery without publishing a worker task", async () => {
       const actor = await account("Source health test");
       const { createWorkspaceStore } = await import("../src/server/store.js");
@@ -248,18 +317,16 @@ integration(
         enabled: true,
       };
       await store.updateWorkspace({ sources: [source] });
-      const spy = vi
-        .spyOn(connectors, "discover")
-        .mockResolvedValue([
-          {
-            ...demoOpportunities()[0],
-            id: randomUUID(),
-            sourceId: source.id,
-            sourceKey: `test:${randomUUID()}`,
-            salaryMax: 1,
-            salaryMin: 1,
-          },
-        ]);
+      const spy = vi.spyOn(connectors, "discover").mockResolvedValue([
+        {
+          ...demoOpportunities()[0],
+          id: randomUUID(),
+          sourceId: source.id,
+          sourceKey: `test:${randomUUID()}`,
+          salaryMax: 1,
+          salaryMin: 1,
+        },
+      ]);
       const run = {
         id: randomUUID(),
         workspaceId: actor.workspaceId,

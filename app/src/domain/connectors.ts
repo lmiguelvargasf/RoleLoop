@@ -306,7 +306,8 @@ function base(
   return OpportunitySchema.parse({
     id: randomUUID(),
     kind: "job",
-    company: source.label,
+    company: source.companyName ?? source.label,
+    companyId: source.companyId,
     companyCountry: source.countrySource ? source.companyCountry : undefined,
     companyCountrySource: source.countrySource,
     source: source.provider,
@@ -593,4 +594,19 @@ async function discoverJobicy(source: Source): Promise<Opportunity[]> {
     cursors.add(cursor);
   }
   return [...jobs.values()];
+}
+
+/** Cached feed data is public; database IDs and relationships belong to a workspace. */
+export function freshFeedRecords(
+  records: Opportunity[],
+  sourceId: string,
+): Opportunity[] {
+  return records.map((record) =>
+    OpportunitySchema.parse({
+      ...record,
+      id: randomUUID(),
+      sourceId,
+      companyId: undefined,
+    }),
+  );
 }

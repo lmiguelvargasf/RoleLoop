@@ -4569,3 +4569,64 @@ summary.source-editor-top::before {
 .source-row-copy .source-error {
   color: var(--danger);
 }
+
+.discovery-tabs {
+  display: flex;
+  gap: 26px;
+  border-bottom: 1px solid var(--line);
+  margin-top: 28px;
+}
+.discovery-tabs button {
+  padding: 13px 0;
+  border: 0;
+  border-bottom: 2px solid transparent;
+  color: var(--muted);
+  background: transparent;
+  font-weight: 500;
+  transition:
+    color 0.15s ease,
+    border-color 0.15s ease;
+}
+.discovery-tabs button[aria-selected="true"] {
+  color: var(--accent);
+  border-bottom-color: var(--accent);
+}
+.discovery-purpose-note {
+  margin: 20px 0 0;
+  max-width: 790px;
+  color: var(--muted);
+  line-height: 1.7;
+}
+.discovery-source-group > h3 {
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--muted);
+  margin: 24px 0 0;
+  letter-spacing: 0.02em;
+}
+.discovery-connection {
+  margin: 5px 0;
+}
+.discovery-connection summary {
+  color: var(--muted);
+  font-size: 12px;
+  cursor: pointer;
+  padding: 8px 0;
+}
+.discovery-connection .field {
+  max-width: 350px;
+  margin-top: 10px;
+}
+@media (max-width: 580px) {
+  .discovery-tabs {
+    gap: 18px;
+  }
+  .discovery-tabs button {
+    font-size: 12px;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .discovery-tabs button {
+    transition: none;
+  }
+}

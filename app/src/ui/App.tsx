@@ -43,6 +43,7 @@ import {
 } from "lucide-react";
 import type {
   Activity,
+  Company,
   AccountContext,
   WorkspaceAccess,
   Bootstrap,
@@ -90,7 +91,7 @@ const nav = [
   { id: "drafts", label: "Drafts", icon: FileText },
   { id: "profile", label: "Resume", icon: FileUser },
   { id: "settings", label: "Search preferences", icon: SlidersHorizontal },
-  { id: "sources", label: "Discovery sources", icon: Radio },
+  { id: "sources", label: "Discovery", icon: Radio },
   { id: "activity", label: "Activity", icon: ActivityIcon },
   { id: "account", label: "Account & access", icon: Users },
 ] as const;
@@ -1117,6 +1118,7 @@ function Opportunities({
       </div>
       {(adding || editing) && (
         <OpportunityForm
+          companies={data.companies ?? []}
           kind={kind}
           existing={editing || undefined}
           close={() => {
@@ -1251,12 +1253,14 @@ function NoticeList({
 }
 
 function OpportunityForm({
+  companies,
   kind,
   existing,
   close,
   perform,
   busy,
 }: {
+  companies: Company[];
   kind: Opportunity["kind"];
   existing?: Opportunity;
   close: () => void;
@@ -1265,6 +1269,7 @@ function OpportunityForm({
 }) {
   const [form, setForm] = useState({
     company: existing?.company || "",
+    companyId: existing?.companyId || "",
     title: existing?.title || "",
     description: existing?.description || "",
     descriptionTruncated: existing?.descriptionTruncated ?? false,
@@ -1339,6 +1344,7 @@ function OpportunityForm({
     const payload = {
       ...form,
       companyCountrySource: form.companyCountrySource || undefined,
+      companyId: form.companyId || undefined,
       kind,
       salaryMin: form.salaryMin ? Number(form.salaryMin) : null,
       salaryMax: form.salaryMax ? Number(form.salaryMax) : null,
@@ -1373,9 +1379,27 @@ function OpportunityForm({
           <Field label="Company">
             <input
               required
+              list="known-companies"
               value={form.company}
-              onChange={(e) => update("company", e.target.value)}
+              onChange={(e) => {
+                const matches = companies.filter(
+                  (c) => c.name.toLowerCase() === e.target.value.toLowerCase(),
+                );
+                const company = matches.length === 1 ? matches[0] : undefined;
+                setForm((p) => ({
+                  ...p,
+                  company: e.target.value,
+                  companyId: company?.id ?? "",
+                  companyCountry: company?.country ?? "Unknown",
+                  companyCountrySource: company?.countrySource ?? "",
+                }));
+              }}
             />
+            <datalist id="known-companies">
+              {companies.map((c) => (
+                <option key={c.id} value={c.name} />
+              ))}
+            </datalist>
           </Field>
           <Field
             label={kind === "job" ? "Role title" : "Product or opportunity"}

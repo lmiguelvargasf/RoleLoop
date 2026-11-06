@@ -19,7 +19,10 @@ export function AutomationPreferences({
     >
       <div className="form-section-heading">
         <h2 id="automation-title">Automatic search</h2>
-        <p>Runs while RoleLoop is open.</p>
+        <p>
+          Searches enabled job sources while RoleLoop is running. Start startup
+          research separately.
+        </p>
       </div>
       <div className="form-grid">
         <label className="checkbox-field wide">

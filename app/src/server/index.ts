@@ -28,7 +28,7 @@ import {
   safeFetchText,
   remoteScope,
 } from "../domain/connectors.js";
-import { normalizeSource } from "../shared/discovery.js";
+import { normalizeSource, sourceIdentity } from "../shared/discovery.js";
 import { resumePdf } from "./documents.js";
 
 declare module "fastify" {
@@ -290,6 +290,13 @@ export async function buildServer() {
         statusCode: 400,
       });
     const normalized = sources.map(normalizeSource);
+    if (new Set(normalized.map(sourceIdentity)).size !== normalized.length)
+      throw Object.assign(
+        new Error(
+          "This company board or feed is already added. Edit its settings instead.",
+        ),
+        { statusCode: 400 },
+      );
     await requestStore(req).updateWorkspace({ sources: normalized });
     return normalized;
   });
@@ -304,6 +311,7 @@ export async function buildServer() {
     .passthrough();
   const editable = OpportunitySchema.pick({
     company: true,
+    companyId: true,
     title: true,
     description: true,
     descriptionTruncated: true,

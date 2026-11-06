@@ -18,7 +18,7 @@ import {
   preferencesFingerprint,
   opportunityFingerprint,
 } from "../domain/rules.js";
-import { discover, research } from "../domain/connectors.js";
+import { discover, research, freshFeedRecords } from "../domain/connectors.js";
 import {
   getGlobalRuntime,
   setGlobalRuntime,
@@ -29,13 +29,14 @@ import { generateDraft } from "./model.js";
 import { resumePdf, sendToLocalInbox } from "./documents.js";
 import { chatgptStatus } from "./chatgpt.js";
 import { assessWithAI } from "./fit.js";
-import { matchesTargetRole } from "../shared/discovery.js";
+import { matchesTargetRole, sourceKind } from "../shared/discovery.js";
 import { settings } from "./config.js";
 
 export const RunInput = z.object({
   action: z.enum(["discover", "analyze", "draft", "research", "simulate"]),
   opportunityId: z.string().optional(),
   sourceId: z.string().optional(),
+  discoveryScope: z.enum(["jobs", "startups"]).optional(),
   draftId: z.string().optional(),
 });
 export async function bootstrap(store: WorkspaceStore): Promise<Bootstrap> {
@@ -306,9 +307,17 @@ export async function processRun(
     throw new Error("Task workspace does not match its execution context.");
   const workspace = await store.getWorkspace();
   if (run.action === "discover") {
+    const scope = run.discoveryScope ?? (run.sourceId ? undefined : "jobs");
     const sources = workspace.sources.filter(
-      (s) => s.enabled && (!run.sourceId || s.id === run.sourceId),
+      (s) =>
+        s.enabled &&
+        (!run.sourceId || s.id === run.sourceId) &&
+        (!scope ||
+          (scope === "startups"
+            ? sourceKind(s) === "startup_feed"
+            : sourceKind(s) !== "startup_feed")),
     );
+
     if (!sources.length)
       throw new Error("Add and enable a source before running discovery.");
     const recordHealth = async (id: string, health: SourceHealth) => {
@@ -355,6 +364,7 @@ export async function processRun(
               ok: true,
             });
           }
+          opportunities = freshFeedRecords(opportunities, source.id);
           const keyword = source.board.trim().toLowerCase();
           if (keyword)
             opportunities = opportunities.filter((op) =>

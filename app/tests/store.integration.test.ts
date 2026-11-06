@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { demoOpportunities, demoWorkspace } from "./fixtures.js";
 import { assessOpportunity } from "../src/domain/rules.js";
 import { createDraft } from "../src/domain/templates.js";
@@ -82,6 +82,162 @@ async function cleanup(store: import("../src/server/store.js").WorkspaceStore) {
 }
 
 integration("local Supabase source refresh and lifecycle", () => {
+  it("normalizes companies and connections atomically and preserves jobs when a connection is removed", async () => {
+    const store = await makeStore();
+    try {
+      const companyId = "company:integration-acme";
+      const first = {
+        id: "acme-primary",
+        provider: "ashby" as const,
+        label: "Acme",
+        board: "acme",
+        enabled: true,
+        companyId,
+        companyName: "Acme",
+        companyCountry: "United States",
+      };
+      const second = {
+        ...first,
+        id: "acme-second",
+        provider: "lever" as const,
+      };
+      await store.updateWorkspace({ sources: [first, second] });
+      const workspace = await store.getWorkspace();
+      expect(workspace.companies).toHaveLength(1);
+      expect(workspace.sources.map((s) => s.kind)).toEqual([
+        "company_board",
+        "company_board",
+      ]);
+      const stored = await store.db
+        .from("workspace")
+        .select("payload")
+        .eq("id", store.workspaceId)
+        .single();
+      expect(stored.data!.payload).not.toHaveProperty("sources");
+      const op = await store.importOpportunity({
+        ...isolatedOpportunity(),
+        sourceId: first.id,
+        company: "Acme",
+        application: {
+          status: "applied",
+          appliedAt: new Date().toISOString(),
+          nextAction: "Follow up",
+          followUpOn: null,
+          notes: "Applied",
+        },
+      });
+      expect(op.companyId).toBe(companyId);
+      await store.updateWorkspace({
+        sources: [{ ...first, companyCountry: "Canada" }, second],
+      });
+      expect((await store.getWorkspace()).companies![0].country).toBe("Canada");
+      await expect(
+        store.updateWorkspace({
+          sources: [
+            { ...first, id: "duplicate-one", companyId: "company:rollback" },
+            { ...first, id: "duplicate-two", companyId: "company:rollback" },
+          ],
+        }),
+      ).rejects.toThrow();
+      expect((await store.getWorkspace()).sources).toHaveLength(2);
+      expect((await store.getWorkspace()).companies).toHaveLength(1);
+      await store.updateWorkspace({ sources: [second] });
+      const saved = await store.get("opportunities", op.id);
+      expect(saved.companyId).toBe(companyId);
+      expect(saved.application?.status).toBe("applied");
+      const reference = await store.db
+        .from("opportunities")
+        .select("discovery_source_id")
+        .eq("workspace_id", store.workspaceId)
+        .eq("id", op.id)
+        .single();
+      expect(reference.data!.discovery_source_id).toBeNull();
+    } finally {
+      await cleanup(store);
+    }
+  });
+  it("imports one shared feed snapshot into two workspaces without reusing database IDs", async () => {
+    const first = await makeStore(),
+      second = await makeStore();
+    const { freshFeedRecords } = await import("../src/domain/connectors.js");
+    try {
+      const cached = [
+        {
+          ...isolatedOpportunity(),
+          source: "jobicy",
+          sourceKey: "jobicy:shared-cache-regression",
+        },
+      ];
+      const a = await first.importOpportunity(
+        freshFeedRecords(cached, "first-feed")[0],
+      );
+      const b = await second.importOpportunity(
+        freshFeedRecords(cached, "second-feed")[0],
+      );
+      expect(a.id).not.toBe(b.id);
+      expect(a.sourceKey).toBe(b.sourceKey);
+      expect(
+        (
+          await first.importOpportunity(
+            freshFeedRecords(cached, "first-feed")[0],
+          )
+        ).id,
+      ).toBe(a.id);
+      expect(cached[0].id).not.toBe(a.id);
+    } finally {
+      await cleanup(first);
+      await cleanup(second);
+    }
+  });
+  it("keeps job discovery and startup research in separate execution scopes", async () => {
+    const store = await makeStore();
+    const connectors = await import("../src/domain/connectors.js");
+    const { processRun } = await import("../src/server/service.js");
+    const spy = vi.spyOn(connectors, "discover").mockResolvedValue([]);
+    try {
+      await store.updateWorkspace({
+        sources: [
+          {
+            id: "jobs",
+            provider: "ashby",
+            label: "Acme",
+            board: "acme",
+            enabled: true,
+          },
+          {
+            id: "startups",
+            provider: "hackernews",
+            label: "Show HN",
+            board: "",
+            enabled: true,
+          },
+        ],
+      });
+      const run = {
+        id: randomUUID(),
+        workspaceId: store.workspaceId,
+        action: "discover" as const,
+        status: "running" as const,
+        progress: 0,
+        message: "Isolated",
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+      };
+      await processRun(store, run, async () => {});
+      expect(spy.mock.calls.map(([source]) => source.id)).toEqual(["jobs"]);
+      spy.mockClear();
+      await processRun(
+        store,
+        { ...run, discoveryScope: "startups" },
+        async () => {},
+      );
+      expect(spy.mock.calls.map(([source]) => source.id)).toEqual(["startups"]);
+    } finally {
+      spy.mockRestore();
+      await cleanup(store);
+    }
+  });
+
   it("loads the removed missing-salary setting as review and refreshes cached ready jobs", async () => {
     const store = await makeStore();
     const workspace = demoWorkspace();

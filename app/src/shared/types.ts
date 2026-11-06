@@ -101,8 +101,19 @@ export const PreferencesSchema = z.object({
   scheduleMinutes: z.number().int().min(15).max(1440).default(120),
   dailyLimit: z.number().int().min(1).max(100).default(10),
 });
+export const CompanySchema = z.object({
+  id: z.string(),
+  name: z.string(),
+  country: z.string().default("Unknown"),
+  countrySource: z.string().nullable().default(null),
+  website: z.string().nullable().default(null),
+});
+export type Company = z.infer<typeof CompanySchema>;
 export const SourceSchema = z.object({
   id: z.string(),
+  kind: z.enum(["company_board", "job_feed", "startup_feed"]).optional(),
+  companyId: z.string().optional(),
+  companyName: z.string().optional(),
   provider: z.enum(["ashby", "greenhouse", "lever", "hackernews", "jobicy"]),
   label: z.string(),
   board: z.string(),
@@ -145,6 +156,7 @@ export const OpportunitySchema = z.object({
   id: z.string(),
   kind: z.enum(["job", "startup"]),
   company: z.string(),
+  companyId: z.string().optional(),
   title: z.string(),
   description: z.string().max(50000),
   descriptionTruncated: z.boolean().default(false),
@@ -259,6 +271,7 @@ export interface Run {
   action: RunAction;
   opportunityId?: string;
   sourceId?: string;
+  discoveryScope?: "jobs" | "startups";
   draftId?: string;
   status: "queued" | "running" | "completed" | "failed";
   progress: number;
@@ -277,6 +290,7 @@ export interface Workspace {
   profile: Profile;
   preferences: Preferences;
   sources: Source[];
+  companies?: Company[];
 }
 export interface WorkspaceAccess {
   id: string;

@@ -5,6 +5,7 @@ import { settings } from "./config.js";
 import { opportunityFingerprint } from "../domain/rules.js";
 import {
   ProfileSchema,
+  CompanySchema,
   PreferencesSchema,
   SourceSchema,
   OpportunitySchema,
@@ -60,6 +61,7 @@ type StoredRow = {
   payload: unknown;
   kind?: string;
   source_key?: string;
+  company_id?: string | null;
   opportunity_id?: string;
   status?: string;
   requested_by?: string | null;
@@ -68,7 +70,8 @@ type StoredRow = {
 };
 function columns(table: keyof Payloads) {
   const common = "id,workspace_id,payload";
-  if (table === "opportunities") return `${common},kind,source_key,updated_at`;
+  if (table === "opportunities")
+    return `${common},kind,source_key,company_id,updated_at`;
   if (table === "drafts") return `${common},opportunity_id,updated_at`;
   if (table === "runs")
     return `${common},status,requested_by,created_at,updated_at`;
@@ -90,6 +93,7 @@ function decode<T extends keyof Payloads>(
       id: row.id,
       kind: row.kind,
       sourceKey: row.source_key,
+      companyId: row.company_id ?? undefined,
     }) as Payloads[T];
   if (table === "drafts")
     return DraftSchema.parse({
@@ -133,7 +137,40 @@ export function createWorkspaceStore({
         .maybeSingle(),
     );
     if (!row) return missing();
-    const workspace = WorkspaceSchema.parse(row.payload);
+    const [sourceRows, companyRows] = await Promise.all([
+      client
+        .from("discovery_sources")
+        .select(
+          "id,kind,company_id,label,provider,board,enabled,companies(name,country,country_source)",
+        )
+        .eq("workspace_id", workspaceId)
+        .order("position"),
+      client
+        .from("companies")
+        .select("id,name,country,country_source,website")
+        .eq("workspace_id", workspaceId)
+        .order("name"),
+    ]);
+    const sources = (checked(sourceRows) ?? []).map((s: any) =>
+      SourceSchema.parse({
+        id: s.id,
+        kind: s.kind,
+        companyId: s.company_id ?? undefined,
+        companyName: s.companies?.name,
+        label: s.label,
+        provider: s.provider,
+        board: s.board,
+        enabled: s.enabled,
+        companyCountry: s.companies?.country,
+        countrySource: s.companies?.country_source ?? undefined,
+      }),
+    );
+    const workspace = {
+      ...WorkspaceSchema.parse({ ...(row.payload as object), sources }),
+      companies: (checked(companyRows) ?? []).map((c: any) =>
+        CompanySchema.parse({ ...c, countrySource: c.country_source }),
+      ),
+    };
     // A shared workspace uses its owner's contact, never the manager's login.
     // Email is resolved from Auth rather than duplicated in the profile JSON.
     if (row.owner_user_id) {

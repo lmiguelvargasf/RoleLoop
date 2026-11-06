@@ -49,6 +49,95 @@ export type Database = {
         }
         Relationships: []
       }
+      companies: {
+        Row: {
+          country: string
+          country_source: string | null
+          id: string
+          name: string
+          updated_at: string
+          website: string | null
+          workspace_id: string
+        }
+        Insert: {
+          country?: string
+          country_source?: string | null
+          id: string
+          name: string
+          updated_at?: string
+          website?: string | null
+          workspace_id: string
+        }
+        Update: {
+          country?: string
+          country_source?: string | null
+          id?: string
+          name?: string
+          updated_at?: string
+          website?: string | null
+          workspace_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "companies_workspace_id_fkey"
+            columns: ["workspace_id"]
+            isOneToOne: false
+            referencedRelation: "workspace"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      discovery_sources: {
+        Row: {
+          board: string
+          company_id: string | null
+          enabled: boolean
+          id: string
+          kind: string
+          label: string
+          position: number
+          provider: string
+          workspace_id: string
+        }
+        Insert: {
+          board: string
+          company_id?: string | null
+          enabled?: boolean
+          id: string
+          kind: string
+          label: string
+          position?: number
+          provider: string
+          workspace_id: string
+        }
+        Update: {
+          board?: string
+          company_id?: string | null
+          enabled?: boolean
+          id?: string
+          kind?: string
+          label?: string
+          position?: number
+          provider?: string
+          workspace_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "discovery_sources_workspace_id_company_id_fkey"
+            columns: ["workspace_id", "company_id"]
+            isOneToOne: false
+            referencedRelation: "companies"
+            referencedColumns: ["workspace_id", "id"]
+          },
+          {
+            foreignKeyName: "discovery_sources_workspace_id_fkey"
+            columns: ["workspace_id"]
+            isOneToOne: false
+            referencedRelation: "workspace"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       drafts: {
         Row: {
           id: string
@@ -119,6 +208,8 @@ export type Database = {
       }
       opportunities: {
         Row: {
+          company_id: string | null
+          discovery_source_id: string | null
           id: string
           kind: string
           payload: Json
@@ -127,6 +218,8 @@ export type Database = {
           workspace_id: string
         }
         Insert: {
+          company_id?: string | null
+          discovery_source_id?: string | null
           id: string
           kind: string
           payload: Json
@@ -135,6 +228,8 @@ export type Database = {
           workspace_id: string
         }
         Update: {
+          company_id?: string | null
+          discovery_source_id?: string | null
           id?: string
           kind?: string
           payload?: Json
@@ -149,6 +244,20 @@ export type Database = {
             isOneToOne: false
             referencedRelation: "workspace"
             referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "opportunity_company"
+            columns: ["workspace_id", "company_id"]
+            isOneToOne: false
+            referencedRelation: "companies"
+            referencedColumns: ["workspace_id", "id"]
+          },
+          {
+            foreignKeyName: "opportunity_discovery_source"
+            columns: ["workspace_id", "discovery_source_id"]
+            isOneToOne: false
+            referencedRelation: "discovery_sources"
+            referencedColumns: ["workspace_id", "id"]
           },
         ]
       }
@@ -296,14 +405,6 @@ export type Database = {
     }
     Functions: {
       acquire_worker_lease: { Args: { owner: string }; Returns: boolean }
-      update_workspace_profile_if_current: {
-        Args: {
-          target_workspace: string
-          expected_profile: Json
-          workspace_patch: Json
-        }
-        Returns: { id: string }[]
-      }
       claim_initial_owner: {
         Args: { owner_uuid: string; token_digest: string }
         Returns: {
@@ -387,6 +488,16 @@ export type Database = {
       owns_workspace: { Args: { target_workspace: string }; Returns: boolean }
       release_worker_lease: { Args: { owner: string }; Returns: boolean }
       renew_worker_lease: { Args: { owner: string }; Returns: boolean }
+      update_workspace_profile_if_current: {
+        Args: {
+          expected_profile: Json
+          target_workspace: string
+          workspace_patch: Json
+        }
+        Returns: {
+          id: string
+        }[]
+      }
     }
     Enums: {
       [_ in never]: never
