@@ -16,10 +16,7 @@ vi.mock("../src/server/ai.js", () => ({
         throw new Error("Original document text was not extracted");
       return {
         name: "Alex Morgan",
-        headline: "Engineer",
-        email: "",
         portfolio: "",
-        summary: "Engineer",
         skills: ["TypeScript", "React"],
         uncertainties: ["Confirm employment dates."],
         entries: [
@@ -72,6 +69,7 @@ integration(
       workspaces.push(workspaceId);
       return {
         workspaceId,
+        email,
         headers: { ...headers, "x-workspace-id": workspaceId },
       };
     }
@@ -110,6 +108,7 @@ integration(
         });
         expect(response.statusCode, response.body).toBe(200);
         const imported = response.json();
+        expect(imported.profile.email).toBe(alice.email);
         const source = imported.profile.source;
         objects.push(
           `${alice.workspaceId}/resumes/${source.id}/original.${source.kind}`,
@@ -143,6 +142,10 @@ integration(
         expect(escaped.statusCode).toBe(403);
         const profile = {
           ...imported.profile,
+          email: "forged@example.test",
+          headline: "Old",
+          summary: "Old",
+          learning: "Old",
           evidence: imported.profile.evidence.map((e: object) => ({
             ...e,
             verified: true,
@@ -155,6 +158,21 @@ integration(
           payload: profile,
         });
         expect(saved.statusCode, saved.body).toBe(200);
+        expect(saved.json().email).toBe(alice.email);
+        expect(saved.json()).not.toHaveProperty("headline");
+        const stored = await db
+          .from("workspace")
+          .select("payload")
+          .eq("id", alice.workspaceId)
+          .single();
+        for (const field of [
+          "email",
+          "headline",
+          "summary",
+          "learning",
+          "skills",
+        ])
+          expect(stored.data!.payload.profile).not.toHaveProperty(field);
         const snapshot = await db.storage
           .from("documents")
           .list(`${alice.workspaceId}/profile-versions`);

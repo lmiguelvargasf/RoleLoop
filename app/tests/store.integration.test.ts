@@ -246,6 +246,65 @@ integration("local Supabase source refresh and lifecycle", () => {
 });
 
 integration("workspace-scoped persistence", () => {
+  it("keeps contact synced to the owner account and rejects retired profile fields on every database write", async () => {
+    const store = await makeStore(true);
+    try {
+      const row = await store.db
+        .from("workspace")
+        .select("owner_user_id,payload")
+        .eq("id", store.workspaceId)
+        .single();
+      expect(row.error).toBeNull();
+      const ownerId = row.data!.owner_user_id;
+      const account = await store.db.auth.admin.getUserById(ownerId);
+      const current = await store.getWorkspace();
+      expect(current.profile.email).toBe(account.data.user!.email);
+      expect(row.data!.payload.profile).not.toHaveProperty("email");
+      const legacy = {
+        ...current.profile,
+        email: "forged@example.test",
+        headline: "Old",
+        summary: "Old",
+        learning: "Old",
+        skills: ["Unused"],
+      };
+      const direct = await store.db
+        .from("workspace")
+        .update({ payload: { ...current, profile: legacy } })
+        .eq("id", store.workspaceId)
+        .select("payload")
+        .single();
+      expect(direct.error).toBeNull();
+      for (const field of [
+        "email",
+        "headline",
+        "summary",
+        "learning",
+        "skills",
+      ])
+        expect(direct.data!.payload.profile).not.toHaveProperty(field);
+      expect(direct.data!.payload.profile.evidence).toEqual(
+        current.profile.evidence,
+      );
+      const nextEmail = `changed-${randomUUID()}@example.test`;
+      const updated = await store.db.auth.admin.updateUserById(ownerId, {
+        email: nextEmail,
+      });
+      expect(updated.error).toBeNull();
+      expect((await store.getWorkspace()).profile.email).toBe(nextEmail);
+      const saved = await store.updateWorkspace({ profile: legacy });
+      expect(saved.profile.email).toBe(nextEmail);
+      const stored = await store.db
+        .from("workspace")
+        .select("payload")
+        .eq("id", store.workspaceId)
+        .single();
+      expect(stored.data!.payload.profile).not.toHaveProperty("email");
+    } finally {
+      await cleanup(store);
+    }
+  });
+
   it("accepts SQL-valid colon and 200-character IDs while rejecting path traversal", async () => {
     const store = await makeStore();
     try {
@@ -271,14 +330,12 @@ integration("workspace-scoped persistence", () => {
       ).rejects.toThrow(/identifier/);
       const now = new Date().toISOString();
       const runId = `running:${randomUUID()}`;
-      const direct = await store.db
-        .from("runs")
-        .insert({
-          id: runId,
-          workspace_id: store.workspaceId,
-          status: "running",
-          payload: {},
-        });
+      const direct = await store.db.from("runs").insert({
+        id: runId,
+        workspace_id: store.workspaceId,
+        status: "running",
+        payload: {},
+      });
       if (direct.error) throw new Error(direct.error.message);
       const recovered = (await store.list("runs"))[0];
       expect(recovered.id).toBe(runId);

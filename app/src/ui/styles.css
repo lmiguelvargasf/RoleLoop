@@ -4436,3 +4436,239 @@ textarea {
     font-size: 12px;
   }
 }
+
+/* The profile is a document workspace; extracted facts live in an on-demand review. */
+.profile-library {
+  max-width: 1000px;
+}
+.profile-name-row {
+  padding: 28px 0;
+}
+.profile-name-row .field {
+  max-width: 420px;
+}
+.cv-library {
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: var(--paper);
+  overflow: hidden;
+}
+.cv-library-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 22px 24px 0;
+}
+.cv-library-heading h2 {
+  font-size: 16px;
+  letter-spacing: -0.2px;
+}
+.cv-state {
+  color: #627487;
+  font-size: 11px;
+}
+.cv-state.is-ready {
+  color: #20766b;
+}
+.cv-library-document {
+  display: flex;
+  align-items: center;
+  gap: 20px;
+  padding: 28px 24px;
+  min-width: 0;
+}
+.cv-file-mark {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  width: 64px;
+  height: 80px;
+  border: 1px solid #dce5ed;
+  border-radius: 6px;
+  background: #f6f8fb;
+  flex-shrink: 0;
+  color: #5e768a;
+}
+.cv-file-mark span {
+  font-size: 9px;
+  letter-spacing: 1px;
+}
+.cv-file-details {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.cv-file-details strong {
+  font-size: 14px;
+  font-weight: 550;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.cv-file-details > span {
+  font-size: 11px;
+  color: #627487;
+}
+.cv-file-actions {
+  display: flex;
+  gap: 8px;
+  flex-shrink: 0;
+}
+.cv-library-knowledge {
+  border-top: 1px solid var(--line);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 24px;
+  padding: 20px 24px;
+  background: #fbfcfd;
+}
+.cv-knowledge-label {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  font-size: 12px;
+  font-weight: 550;
+  color: #37596b;
+}
+.cv-library-knowledge p {
+  color: #627487;
+  font-size: 11px;
+  margin-top: 5px;
+  max-width: 52ch;
+}
+.cv-library-knowledge .button {
+  flex-shrink: 0;
+}
+.cv-review-actions {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin: 24px 0;
+}
+.cv-review-actions > span {
+  flex: 1;
+  color: #627487;
+  font-size: 12px;
+}
+.cv-review-dialog {
+  width: min(780px, calc(100% - 32px));
+  max-height: 85vh;
+  border: 1px solid #dce5ed;
+  border-radius: 12px;
+  padding: 0;
+  color: var(--ink);
+  background: #fff;
+  box-shadow: 0 20px 70px #18293b26;
+}
+.cv-review-dialog::backdrop {
+  background: #18293b55;
+}
+.cv-review-dialog[open] {
+  display: flex;
+  flex-direction: column;
+}
+.cv-review-dialog .icon-button {
+  min-width: 44px;
+  min-height: 44px;
+  flex-shrink: 0;
+}
+.cv-review-dialog > header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 20px;
+  padding: 22px 24px;
+  border-bottom: 1px solid var(--line);
+}
+.cv-review-dialog header h2 {
+  font-size: 19px;
+}
+.cv-review-dialog header p,
+.cv-review-context {
+  font-size: 12px;
+  color: #627487;
+  margin-top: 6px;
+}
+.cv-review-body {
+  overflow: auto;
+  padding: 20px 24px;
+  overscroll-behavior: contain;
+}
+.cv-review-search {
+  margin: 20px 0;
+}
+.cv-review-dialog > footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 20px;
+  padding: 16px 24px;
+  border-top: 1px solid var(--line);
+}
+.cv-review-footer-actions {
+  display: flex;
+  gap: 8px;
+  margin-left: auto;
+}
+.cv-review-dialog .career-entry {
+  margin-top: 8px;
+}
+.cv-review-dialog .career-entry summary > span {
+  font-size: 13px;
+}
+@media (max-width: 700px) {
+  .cv-library-document {
+    flex-wrap: wrap;
+    padding: 22px 18px;
+    gap: 16px;
+  }
+  .cv-library-heading {
+    padding: 20px 18px 0;
+  }
+  .cv-file-details {
+    flex-basis: calc(100% - 80px);
+  }
+  .cv-file-actions {
+    width: 100%;
+  }
+  .cv-library-knowledge {
+    align-items: flex-start;
+    flex-direction: column;
+    padding: 18px;
+    gap: 16px;
+  }
+  .cv-review-actions {
+    flex-wrap: wrap;
+  }
+  .cv-review-actions > span {
+    flex-basis: 100%;
+  }
+  .profile-library input:not([type="checkbox"]),
+  .cv-review-dialog input:not([type="checkbox"]),
+  .cv-review-dialog textarea {
+    font-size: 16px;
+    min-height: 44px;
+  }
+  .cv-review-dialog > header,
+  .cv-review-body,
+  .cv-review-dialog > footer {
+    padding: 18px;
+  }
+  .cv-review-dialog > footer {
+    flex-wrap: wrap;
+  }
+  .cv-library .button,
+  .cv-review-dialog .button,
+  .cv-review-dialog .checkbox-field {
+    min-height: 44px;
+  }
+  .cv-review-dialog .form-grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}

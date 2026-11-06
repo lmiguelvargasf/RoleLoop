@@ -223,7 +223,7 @@ export async function buildServer() {
     return {
       profile: {
         ...result.profile,
-        learning: workspace.profile.learning,
+        email: workspace.profile.email,
         source,
       },
       warnings: result.warnings,
@@ -252,8 +252,11 @@ export async function buildServer() {
       .send(Buffer.from(await result.data.arrayBuffer()));
   });
   app.put("/api/profile", async (req) => {
-    const profile = ProfileSchema.parse(req.body);
     const previous = (await requestStore(req).getWorkspace()).profile;
+    const profile = ProfileSchema.parse({
+      ...ProfileSchema.parse(req.body),
+      email: previous.email,
+    });
     const store = requestStore(req);
     // Preserve the reviewed master used by future drafts as a private version.
     const snapshot = await store.db.storage

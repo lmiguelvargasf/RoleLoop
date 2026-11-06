@@ -50,7 +50,7 @@ Supabase Studio and Mailpit are shared local developer tools. RoleLoop account p
 
 ## Get started
 
-1. Open **My profile**, upload a text-based PDF or Word (.docx) CV up to 2 MB, and review the extracted overview and career details. Confirm and save to use those facts for matching and drafts. The original CV and reviewed profile versions are stored privately in the workspace. Replacing a CV creates a new version and replaces the career details only after confirmation. Existing profiles remain editable under Career details.
+1. Open **My profile**, upload a text-based PDF or Word (.docx) CV up to 2 MB, and review the extracted career facts. Confirm and save to use those facts for matching and drafts. The original CV and reviewed profile versions are stored privately in the workspace. Replacing a CV creates a new version and replaces the career details only after confirmation. Use **Review information** to search and correct facts when needed; the main page only asks for your name and CV.
 2. Set your salary, working country, search dates and matching preference in **Search preferences**. Working country is used for remote eligibility and location details in drafts. Dates follow your computer’s timezone automatically.
 3. Add public company board identifiers in **Discovery sources**, use the Show HN startup feed, or add opportunities manually.
 4. Review opportunities, prepare your application or founder email, and download the drafts.
@@ -65,9 +65,9 @@ Alternatively, configure `OPENAI_API_KEY` on the server and choose **Use API bil
 
 This connection follows [Sign in with ChatGPT](https://developers.openai.com/siwc/token-sharing-open-source) for personal local projects and eligible open-source tools. Offering it in a paid or remotely hosted product requires OpenAI approval.
 
-Import supports readable PDF and `.docx`, with a 2 MB file limit, a 30-page PDF limit and a 60,000-character text limit. Scanned or encrypted PDFs need to be exported as readable text first. AI extraction retains source quotations, flags uncertain details, and requires review before activation. Education, projects and certifications can be corrected inside the expandable career details.
+Import supports readable PDF and `.docx`, with a 2 MB file limit, a 30-page PDF limit and a 60,000-character text limit. Scanned or encrypted PDFs need to be exported as readable text first. AI extraction retains source quotations, flags uncertain details, and requires review before activation. Education, projects and certifications can be corrected under **Review information**.
 
-Opportunity evaluation can assess transferable experience with references to confirmed career entries. Salary, country and mandatory-condition checks still apply. If AI evaluation fails, the app marks the result for review and explains that it used skill tags. Currently learning is optional, appears in a separate résumé section, and never supplies demonstrated experience. Uploaded formatting is replaced by the app’s clean PDF layout.
+Opportunity evaluation can assess transferable experience with references to confirmed career entries. Salary, country and mandatory-condition checks still apply. If AI evaluation fails, the app marks the result for review and explains that it used skill tags. Headlines and summaries are composed per opportunity from confirmed facts. The workspace owner’s account supplies the contact email; it is not duplicated in the profile database. Retired headline, summary, learning and aggregate skill fields are removed from stored profiles. Skills remain attached to the experience that supports them. Uploaded formatting is replaced by the app’s clean PDF layout.
 
 ## What is implemented
 

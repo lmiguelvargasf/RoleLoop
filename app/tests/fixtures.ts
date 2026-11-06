@@ -7,15 +7,10 @@ import {
 export function demoWorkspace(): Workspace {
   return {
     profile: {
-      learning: "",
       source: null,
       name: "Alex Morgan",
-      headline: "Software engineer · sample profile",
       email: "alex@example.com",
-      summary:
-        "Demo candidate profile for testing the application. Replace these sample facts with your verified experience.",
       portfolio: "https://example.com/alex",
-      skills: ["TypeScript", "React", "Node.js", "PostgreSQL", "Testing"],
       isDemo: true,
       evidence: [
         {

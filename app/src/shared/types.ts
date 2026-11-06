@@ -14,13 +14,10 @@ export const EvidenceSchema = z.object({
 });
 export const ProfileSchema = z.object({
   name: z.string().max(200),
-  headline: z.string().max(300),
-  email: z.string().max(200),
-  summary: z.string().max(5000),
+  // Resolved from the owner account by the server; not persisted in profile JSON.
+  email: z.string().max(200).default(""),
   portfolio: z.string().max(500),
-  skills: z.array(z.string()),
   evidence: z.array(EvidenceSchema),
-  learning: z.string().max(2000).default(""),
   source: z
     .object({
       id: z.string().uuid(),

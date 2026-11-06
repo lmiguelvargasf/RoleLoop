@@ -503,6 +503,7 @@ integration(
         headers: headers(bob, alice.workspaceId),
       });
       expect(access.statusCode, access.body).toBe(200);
+      expect(access.json().profile.email).toBe(alice.email);
       const forbidden = await app.inject({
         method: "POST",
         url: `/api/workspaces/${alice.workspaceId}/members`,

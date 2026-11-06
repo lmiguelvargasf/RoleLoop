@@ -18,10 +18,7 @@ afterEach(() => {
 });
 const extracted = () => ({
   name: "Alex",
-  headline: "Engineer",
-  email: "",
   portfolio: "",
-  summary: "Engineer",
   skills: ["TypeScript"],
   uncertainties: [],
   entries: [
@@ -136,10 +133,15 @@ it("requires existing evidence IDs and complete requirement coverage", () => {
   fit.matches[0].evidenceIds = [];
   expect(() => validateFit(fit, job, workspace)).toThrow("no supporting");
 });
-it("keeps learning outside demonstrated skills and matching", () => {
+it("ignores retired positioning and learning fields in matching and drafts", () => {
   const workspace = demoWorkspace(),
     job = demoOpportunities()[0];
-  workspace.profile.learning = "Learning Vue in a personal project";
+  const legacy = {
+    ...workspace.profile,
+    headline: "Outdated headline",
+    summary: "Outdated summary",
+    learning: "Learning Vue in a personal project",
+  };
   job.requirements[0].skills = ["Vue"];
   const assessment = assessOpportunity(
     job,
@@ -147,13 +149,11 @@ it("keeps learning outside demonstrated skills and matching", () => {
     workspace.preferences,
   );
   expect(assessment.matches[0].status).toBe("missing");
-  const draft = createDraft(
-    job,
-    workspace.profile,
-    workspace.preferences,
-    assessment,
-  );
-  expect(draft.resume).toContain("CURRENTLY LEARNING\nLearning Vue");
+  const draft = createDraft(job, legacy, workspace.preferences, assessment);
+  expect(draft.resume).not.toContain("CURRENTLY LEARNING");
+  expect(draft.resume).not.toContain("Outdated");
+  expect(draft.resume).toContain(`Application: ${job.title}`);
+  expect(draft.resume).toContain(workspace.profile.evidence[0].text);
   expect(
     draft.resume.split("SKILLS\n")[1].split("CURRENTLY LEARNING")[0],
   ).not.toContain("Vue");
@@ -193,4 +193,18 @@ it("keeps drafts from retired generators readable without changing their text", 
   expect(loaded.generator).toBe("legacy");
   expect(loaded.resume).toBe(draft.resume);
   expect(loaded.contentHash).toBe(draft.contentHash);
+});
+
+it("strips retired profile fields while retaining supported experience", async () => {
+  const { ProfileSchema } = await import("../src/shared/types.js");
+  const profile = demoWorkspace().profile;
+  expect(
+    ProfileSchema.parse({
+      ...profile,
+      headline: "Old",
+      summary: "Old",
+      learning: "Old",
+      skills: ["Unused"],
+    }),
+  ).toEqual(profile);
 });

@@ -127,12 +127,24 @@ export function createWorkspaceStore({
     const row = checked(
       await client
         .from("workspace")
-        .select("payload")
+        .select("payload,owner_user_id")
         .eq("id", workspaceId)
         .maybeSingle(),
     );
     if (!row) return missing();
-    return WorkspaceSchema.parse(row.payload);
+    const workspace = WorkspaceSchema.parse(row.payload);
+    // A shared workspace uses its owner's contact, never the manager's login.
+    // Email is resolved from Auth rather than duplicated in the profile JSON.
+    if (row.owner_user_id) {
+      const { data, error } = await db.auth.admin.getUserById(
+        row.owner_user_id,
+      );
+      if (error) throw new Error(`Account contact: ${error.message}`);
+      workspace.profile.email = data.user.email || "";
+    } else {
+      workspace.profile.email = "";
+    }
+    return workspace;
   }
   async function updateWorkspace(
     patch: Partial<Workspace>,
@@ -140,15 +152,18 @@ export function createWorkspaceStore({
     const next = (workspaceWrites.get(workspaceId) || Promise.resolve())
       .catch(() => {})
       .then(async () => {
+        const current = await getWorkspace();
         const workspace = WorkspaceSchema.parse({
-          ...(await getWorkspace()),
+          ...current,
           ...patch,
         });
+        workspace.profile.email = current.profile.email;
+        const { email: _contact, ...storedProfile } = workspace.profile;
         const row = checked(
           await client
             .from("workspace")
             .update({
-              payload: workspace,
+              payload: { ...workspace, profile: storedProfile },
               updated_at: new Date().toISOString(),
             })
             .eq("id", workspaceId)

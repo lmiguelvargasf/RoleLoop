@@ -1,11 +1,12 @@
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import {
   FileText,
   Upload,
   Download,
-  Check,
   LoaderCircle,
   ChevronRight,
+  X,
+  CheckCircle2,
 } from "lucide-react";
 import type { Profile } from "../shared/types";
 import { api, downloadFile, words, write } from "./api";
@@ -23,10 +24,19 @@ export function ProfileEditor({ initial, busy, perform }: Props) {
   const [warnings, setWarnings] = useState<string[]>([]);
   const [error, setError] = useState("");
   const [reviewed, setReviewed] = useState(false);
+  const dialog = useRef<HTMLDialogElement>(null);
+  const nameInput = useRef<HTMLInputElement>(null);
+  const [query, setQuery] = useState("");
+  useEffect(() => {
+    if (pending) dialog.current?.showModal();
+  }, [pending]);
   const fileInput = useRef<HTMLInputElement>(null);
   const dirty = JSON.stringify(profile) !== JSON.stringify(initial);
-  const set = <K extends keyof Profile>(key: K, value: Profile[K]) =>
+  const set = <K extends keyof Profile>(key: K, value: Profile[K]) => {
     setProfile((p) => ({ ...p, [key]: value }));
+    setError("");
+    if (pending) setReviewed(false);
+  };
   async function upload(file?: File) {
     if (!file) return;
     setError("");
@@ -61,19 +71,41 @@ export function ProfileEditor({ initial, busy, perform }: Props) {
       if (fileInput.current) fileInput.current.value = "";
     }
   }
+  const ready = profile.evidence.some((item) => item.verified);
+  const hasInformation = profile.evidence.length > 0;
+  const filtered = profile.evidence.filter((item) =>
+    `${item.role} ${item.company} ${item.text} ${item.skills.join(" ")}`
+      .toLowerCase()
+      .includes(query.toLowerCase()),
+  );
   return (
     <section
-      className="page form-page editor-page profile-page"
+      className="page form-page profile-library"
       aria-labelledby="profile-title"
     >
       <form
+        id="profile-form"
         className="editor-form"
+        noValidate
         onSubmit={async (e) => {
           e.preventDefault();
-          if (pending && !reviewed) {
+          setError("");
+          if (!profile.name.trim()) {
+            setError("Enter your full name before saving.");
+            dialog.current?.close();
+            nameInput.current?.focus();
+            return;
+          }
+          if (profile.evidence.some((item) => !item.text.trim())) {
             setError(
-              "Review your imported details and confirm them before saving.",
+              "Each career entry needs details. Update or remove empty entries.",
             );
+            dialog.current?.showModal();
+            return;
+          }
+          if (pending && !reviewed) {
+            dialog.current?.showModal();
+            setError("Review the imported information before saving.");
             return;
           }
           const next = pending
@@ -85,15 +117,28 @@ export function ProfileEditor({ initial, busy, perform }: Props) {
                 })),
               }
             : profile;
-          const saved = await perform(
-            () => write("/profile", next, "PUT"),
-            "Profile saved. Opportunities will use your updated experience.",
-          );
-          if (saved) {
-            setProfile(next);
+          let saved = next;
+          if (
+            await perform(async () => {
+              try {
+                saved = await write<Profile>("/profile", next, "PUT");
+                return saved;
+              } catch (err) {
+                setError((err as Error).message);
+                throw err;
+              }
+            }, "Profile saved.")
+          ) {
+            setProfile(saved);
             setPending(false);
             setWarnings([]);
             setError("");
+            dialog.current?.close();
+          } else {
+            setError(
+              (current) =>
+                current || "Your changes could not be saved. Try again.",
+            );
           }
         }}
       >
@@ -103,50 +148,50 @@ export function ProfileEditor({ initial, busy, perform }: Props) {
           dirty={dirty}
           busy={busy || importing}
         />
-        <section
-          className="form-section profile-source"
-          aria-labelledby="resume-source-title"
-        >
-          <div className="form-section-heading">
-            <h2 id="resume-source-title">Master résumé</h2>
-            <p>Upload a CV to update your career details.</p>
-          </div>
-          <div className="resume-document" aria-busy={importing}>
-            <FileText
-              size={22}
-              className="resume-document-icon"
-              aria-hidden="true"
+        <div className="profile-name-row">
+          <label className="field">
+            <span>Full name</span>
+            <input
+              ref={nameInput}
+              name="name"
+              autoComplete="name"
+              required
+              value={profile.name}
+              onChange={(e) => set("name", e.target.value)}
             />
-            <div className="resume-document-copy">
-              <span
-                className="resume-document-name"
-                title={profile.source?.name}
-              >
-                {profile.source?.name || "No CV attached"}
-              </span>
-              <span className="resume-document-meta" role="status">
-                {importing
-                  ? "Reading CV…"
-                  : pending
-                    ? "Review required before saving"
-                    : profile.source
-                      ? `Imported ${new Intl.DateTimeFormat(undefined, { month: "short", day: "numeric", year: "numeric" }).format(new Date(profile.source.importedAt))}`
-                      : "PDF or Word · Up to 2 MB"}
+          </label>
+        </div>
+        <section className="cv-library" aria-labelledby="master-cv-title">
+          <div className="cv-library-heading">
+            <h2 id="master-cv-title">Master CV</h2>
+            <span className={`cv-state${ready && !pending ? " is-ready" : ""}`}>
+              {pending || (hasInformation && !ready)
+                ? "Review needed"
+                : ready
+                  ? "Ready to use"
+                  : "Upload needed"}
+            </span>
+          </div>
+          <div className="cv-library-document">
+            <div className="cv-file-mark" aria-hidden="true">
+              <FileText size={30} />
+              <span>{profile.source?.kind.toUpperCase() || "CV"}</span>
+            </div>
+            <div className="cv-file-details">
+              <strong title={profile.source?.name}>
+                {profile.source?.name || "No original file attached"}
+              </strong>
+              <span>
+                {profile.source
+                  ? `Added ${new Intl.DateTimeFormat(undefined, { month: "short", day: "numeric", year: "numeric" }).format(new Date(profile.source.importedAt))}`
+                  : "PDF or Word · Up to 2 MB"}
               </span>
             </div>
-            <div className="resume-document-actions">
-              <input
-                ref={fileInput}
-                type="file"
-                accept=".pdf,.docx"
-                hidden
-                aria-label="Upload résumé"
-                onChange={(e) => void upload(e.target.files?.[0])}
-              />
+            <div className="cv-file-actions">
               {profile.source && (
                 <button
-                  className="button"
                   type="button"
+                  className="button"
                   disabled={busy || importing}
                   onClick={() =>
                     void perform(() =>
@@ -161,9 +206,17 @@ export function ProfileEditor({ initial, busy, perform }: Props) {
                   Download
                 </button>
               )}
+              <input
+                hidden
+                ref={fileInput}
+                type="file"
+                accept=".pdf,.docx"
+                aria-label="Upload CV"
+                onChange={(e) => void upload(e.target.files?.[0])}
+              />
               <button
-                className="button"
                 type="button"
+                className="button primary"
                 disabled={busy || importing}
                 onClick={() => fileInput.current?.click()}
               >
@@ -173,12 +226,46 @@ export function ProfileEditor({ initial, busy, perform }: Props) {
                   <Upload size={15} aria-hidden="true" />
                 )}
                 {importing
-                  ? "Reading…"
+                  ? "Reading CV…"
                   : profile.source
                     ? "Replace CV"
                     : "Upload CV"}
               </button>
             </div>
+          </div>
+          <div className="cv-library-knowledge">
+            <div>
+              <span className="cv-knowledge-label">
+                {ready ? (
+                  <CheckCircle2 size={15} aria-hidden="true" />
+                ) : (
+                  <FileText size={15} aria-hidden="true" />
+                )}
+                {pending
+                  ? "Check your imported information"
+                  : ready
+                    ? "Career information available"
+                    : hasInformation
+                      ? "Review career information"
+                      : "No career information yet"}
+              </span>
+              <p>
+                {ready && !pending
+                  ? "Used to match opportunities and select relevant experience for each application."
+                  : hasInformation
+                    ? "Confirm the facts you want available for matching and drafts."
+                    : "Upload your CV to create the career information used for matching and drafts."}
+              </p>
+            </div>
+            <button
+              type="button"
+              className="button"
+              disabled={!profile.evidence.length || importing}
+              onClick={() => dialog.current?.showModal()}
+            >
+              Review information
+              <ChevronRight size={15} aria-hidden="true" />
+            </button>
           </div>
         </section>
         {error && (
@@ -187,19 +274,191 @@ export function ProfileEditor({ initial, busy, perform }: Props) {
           </p>
         )}
         {pending && (
-          <aside className="resume-import-review" aria-label="Import review">
-            <strong>Review before using this profile</strong>
-            <p>
-              Importing replaces the saved career details when you save. Check
-              names, dates, achievements and anything flagged below.
+          <div className="cv-review-actions">
+            <span>
+              Review the imported information, then confirm to update your
+              profile.
+            </span>
+            <button
+              type="button"
+              className="button"
+              onClick={() => {
+                setProfile(initial);
+                setPending(false);
+                setReviewed(false);
+                setWarnings([]);
+                setError("");
+                dialog.current?.close();
+              }}
+            >
+              Discard import
+            </button>
+            <button className="button primary" disabled={busy || !reviewed}>
+              Confirm and save
+            </button>
+          </div>
+        )}
+      </form>
+      <dialog
+        ref={dialog}
+        className="cv-review-dialog"
+        aria-labelledby="cv-review-title"
+      >
+        <header>
+          <div>
+            <h2 id="cv-review-title">Extracted information</h2>
+            <p>Check the facts used for matching and application drafts.</p>
+          </div>
+          <button
+            type="button"
+            className="icon-button"
+            aria-label="Close review"
+            onClick={() => dialog.current?.close()}
+          >
+            <X size={20} />
+          </button>
+        </header>
+        <div className="cv-review-body">
+          {error && (
+            <p className="resume-import-error" role="alert">
+              {error}
             </p>
-            {warnings.length > 0 && (
+          )}
+          <label className="field">
+            <span>Portfolio / website</span>
+            <input
+              type="url"
+              value={profile.portfolio}
+              onChange={(e) => set("portfolio", e.target.value)}
+              placeholder="https://"
+            />
+          </label>
+          {warnings.length > 0 && (
+            <div className="resume-import-review" role="status">
+              <strong>Check these details</strong>
               <ul>
                 {warnings.map((w, i) => (
                   <li key={i}>{w}</li>
                 ))}
               </ul>
-            )}
+            </div>
+          )}
+          <label className="field cv-review-search">
+            <span>Find information</span>
+            <input
+              type="search"
+              value={query}
+              onChange={(e) => setQuery(e.target.value)}
+              placeholder="Search experience, projects or education"
+            />
+          </label>
+          {filtered.map((entry, index) => (
+            <details className="career-entry" key={entry.id}>
+              <summary>
+                <ChevronRight size={14} aria-hidden="true" />
+                <span>
+                  {entry.role || entry.category || "Experience"}
+                  {entry.company ? ` · ${entry.company}` : ""}
+                </span>
+                <small>{entry.period || `Entry ${index + 1}`}</small>
+              </summary>
+              <div className="form-grid">
+                {(
+                  [
+                    ["role", "Role / qualification"],
+                    ["company", "Company / institution"],
+                    ["period", "Period"],
+                  ] as const
+                ).map(([key, label]) => (
+                  <label className="field" key={key}>
+                    <span>{label}</span>
+                    <input
+                      value={entry[key]}
+                      onChange={(e) =>
+                        set(
+                          "evidence",
+                          profile.evidence.map((item) =>
+                            item.id === entry.id
+                              ? { ...item, [key]: e.target.value }
+                              : item,
+                          ),
+                        )
+                      }
+                    />
+                  </label>
+                ))}
+                <label className="field">
+                  <span>Related skills</span>
+                  <input
+                    defaultValue={entry.skills.join(", ")}
+                    onChange={(e) =>
+                      set(
+                        "evidence",
+                        profile.evidence.map((item) =>
+                          item.id === entry.id
+                            ? { ...item, skills: words(e.target.value) }
+                            : item,
+                        ),
+                      )
+                    }
+                  />
+                </label>
+                <label className="field wide">
+                  <span>Details</span>
+                  <textarea
+                    required
+                    rows={3}
+                    value={entry.text}
+                    onChange={(e) =>
+                      set(
+                        "evidence",
+                        profile.evidence.map((item) =>
+                          item.id === entry.id
+                            ? { ...item, text: e.target.value }
+                            : item,
+                        ),
+                      )
+                    }
+                  />
+                </label>
+                <button
+                  type="button"
+                  className="button"
+                  onClick={() =>
+                    set(
+                      "evidence",
+                      profile.evidence.filter((item) => item.id !== entry.id),
+                    )
+                  }
+                >
+                  Remove entry
+                </button>
+                {!pending && (
+                  <label className="checkbox-field">
+                    <input
+                      type="checkbox"
+                      checked={entry.verified}
+                      onChange={(e) =>
+                        set(
+                          "evidence",
+                          profile.evidence.map((item) =>
+                            item.id === entry.id
+                              ? { ...item, verified: e.target.checked }
+                              : item,
+                          ),
+                        )
+                      }
+                    />
+                    <span>Accurate and available for drafts</span>
+                  </label>
+                )}
+              </div>
+            </details>
+          ))}
+          {!filtered.length && <p>No information matches your search.</p>}
+        </div>
+        <footer>
+          {pending && (
             <label className="checkbox-field">
               <input
                 type="checkbox"
@@ -207,232 +466,29 @@ export function ProfileEditor({ initial, busy, perform }: Props) {
                 onChange={(e) => setReviewed(e.target.checked)}
               />
               <span>
-                I reviewed the imported details and confirm they are accurate.
+                I reviewed this information and confirm it is accurate.
               </span>
             </label>
+          )}
+          <div className="cv-review-footer-actions">
             <button
-              className="button"
               type="button"
-              onClick={() => {
-                setProfile(initial);
-                setPending(false);
-                setWarnings([]);
-                setError("");
-              }}
+              className="button"
+              onClick={() => dialog.current?.close()}
             >
-              Discard import
+              Done
             </button>
-          </aside>
-        )}
-        <section className="form-section">
-          <div className="form-section-heading">
-            <h2>Personal details</h2>
-            <p>Shown on your application documents.</p>
-          </div>
-          <div className="form-grid">
-            {(
-              [
-                ["name", "Full name"],
-                ["headline", "Professional headline"],
-                ["email", "Email"],
-                ["portfolio", "Portfolio / website"],
-              ] as const
-            ).map(([key, label]) => (
-              <label className="field" key={key}>
-                <span>{label}</span>
-                <input
-                  name={key}
-                  autoComplete={
-                    key === "name"
-                      ? "name"
-                      : key === "email"
-                        ? "email"
-                        : key === "portfolio"
-                          ? "url"
-                          : "organization-title"
-                  }
-                  spellCheck={key !== "email" && key !== "portfolio"}
-                  required={key === "name"}
-                  type={
-                    key === "email"
-                      ? "email"
-                      : key === "portfolio"
-                        ? "url"
-                        : "text"
-                  }
-                  value={profile[key]}
-                  onChange={(e) => set(key, e.target.value)}
-                />
-              </label>
-            ))}
-            <label className="field wide">
-              <span>Summary</span>
-              <textarea
-                rows={4}
-                name="summary"
-                value={profile.summary}
-                onChange={(e) => set("summary", e.target.value)}
-              />
-            </label>
-            <label className="field wide">
-              <span>
-                Currently learning <small>Optional</small>
-              </span>
-              <input
-                name="learning"
-                value={profile.learning}
-                onChange={(e) => set("learning", e.target.value)}
-                placeholder="e.g. Vue through a personal project"
-              />
-              <small>Listed as learning in generated résumés.</small>
-            </label>
-          </div>
-        </section>
-        <details
-          className="form-section career-details"
-          open={pending || undefined}
-        >
-          <summary>
-            <ChevronRight size={16} aria-hidden="true" />
-            <span>Career details</span>
-            <small>
-              {profile.evidence.length}{" "}
-              {profile.evidence.length === 1 ? "entry" : "entries"} ·{" "}
-              {profile.skills.length} skills
-            </small>
-          </summary>
-          <div className="career-details-content">
-            <p className="career-details-intro">
-              The facts behind your matches and drafts. Expand an entry to make
-              a correction.
-            </p>
-            <label className="field">
-              <span>Skills from your CV</span>
-              <input
-                value={profile.skills.join(", ")}
-                onChange={(e) => set("skills", words(e.target.value))}
-              />
-            </label>
-            {profile.evidence.map((entry, index) => (
-              <details className="career-entry" key={entry.id}>
-                <summary>
-                  <ChevronRight size={14} aria-hidden="true" />
-                  <span>
-                    {entry.role || entry.category || "Experience"}
-                    {entry.company ? ` · ${entry.company}` : ""}
-                  </span>
-                  <small>{entry.period || `Entry ${index + 1}`}</small>
-                </summary>
-                <div className="form-grid">
-                  {(
-                    [
-                      ["role", "Role / qualification"],
-                      ["company", "Company / institution"],
-                      ["period", "Period"],
-                    ] as const
-                  ).map(([key, label]) => (
-                    <label className="field" key={key}>
-                      <span>{label}</span>
-                      <input
-                        value={entry[key]}
-                        onChange={(e) =>
-                          set(
-                            "evidence",
-                            profile.evidence.map((item) =>
-                              item.id === entry.id
-                                ? { ...item, [key]: e.target.value }
-                                : item,
-                            ),
-                          )
-                        }
-                      />
-                    </label>
-                  ))}
-                  <label className="field">
-                    <span>Related skills</span>
-                    <input
-                      defaultValue={entry.skills.join(", ")}
-                      onChange={(e) =>
-                        set(
-                          "evidence",
-                          profile.evidence.map((item) =>
-                            item.id === entry.id
-                              ? { ...item, skills: words(e.target.value) }
-                              : item,
-                          ),
-                        )
-                      }
-                    />
-                  </label>
-                  <label className="field wide">
-                    <span>Details</span>
-                    <textarea
-                      required
-                      rows={3}
-                      value={entry.text}
-                      onChange={(e) =>
-                        set(
-                          "evidence",
-                          profile.evidence.map((item) =>
-                            item.id === entry.id
-                              ? { ...item, text: e.target.value }
-                              : item,
-                          ),
-                        )
-                      }
-                    />
-                  </label>
-                  <button
-                    type="button"
-                    className="button"
-                    onClick={() =>
-                      set(
-                        "evidence",
-                        profile.evidence.filter((item) => item.id !== entry.id),
-                      )
-                    }
-                  >
-                    Remove entry
-                  </button>
-                  {!pending && (
-                    <label className="checkbox-field">
-                      <input
-                        type="checkbox"
-                        checked={entry.verified}
-                        onChange={(e) =>
-                          set(
-                            "evidence",
-                            profile.evidence.map((item) =>
-                              item.id === entry.id
-                                ? { ...item, verified: e.target.checked }
-                                : item,
-                            ),
-                          )
-                        }
-                      />
-                      <span>Accurate and available for drafts</span>
-                    </label>
-                  )}
-                </div>
-              </details>
-            ))}
-            {!profile.evidence.length && (
-              <p>Upload a CV to fill in your career history.</p>
-            )}
-          </div>
-        </details>
-        {dirty && (
-          <div className="resume-save-footer">
             <button
+              type="submit"
+              form="profile-form"
               className="button primary"
-              disabled={busy || importing || (pending && !reviewed)}
+              disabled={busy || importing || !dirty || (pending && !reviewed)}
             >
-              <Check size={16} />
-              {pending ? "Confirm and save profile" : "Save changes"}
+              {pending ? "Confirm and save" : "Save changes"}
             </button>
           </div>
-        )}
-      </form>
+        </footer>
+      </dialog>
     </section>
   );
 }

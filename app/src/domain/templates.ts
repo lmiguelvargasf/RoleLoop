@@ -54,7 +54,9 @@ export function createDraft(
   const workingCountry = prefs.country.trim();
   const header = [
     profile.name,
-    profile.headline,
+    op.kind === "job"
+      ? `Application: ${op.title}`
+      : `Profile for ${op.company}`,
     [workingCountry, profile.email, profile.portfolio]
       .filter(Boolean)
       .join(" · "),
@@ -63,7 +65,7 @@ export function createDraft(
     .join("\n");
   const resume = [
     header,
-    profile.summary ? "SUMMARY\n" + profile.summary : "",
+    "SUMMARY\n" + facts.slice(0, 2).join(" "),
     "CAREER HIGHLIGHTS\n" +
       selected
         .map((e) =>
@@ -76,9 +78,6 @@ export function createDraft(
         )
         .join("\n\n"),
     "SKILLS\n" + skills.join(" · "),
-    profile.learning?.trim()
-      ? "CURRENTLY LEARNING\n" + profile.learning.trim()
-      : "",
   ]
     .filter(Boolean)
     .join("\n\n");

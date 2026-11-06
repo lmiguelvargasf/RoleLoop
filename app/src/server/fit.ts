@@ -78,7 +78,6 @@ export async function assessWithAI(
           requirements: op.requirements,
         },
         evidence: workspace.profile.evidence.filter((e) => e.verified),
-        currentlyLearning: workspace.profile.learning,
       },
       userId,
     );
