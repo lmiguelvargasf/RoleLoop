@@ -75,6 +75,16 @@ export async function api<T>(path: string, options?: RequestInit): Promise<T> {
     );
   return result;
 }
+export async function fileBlob(path: string) {
+  const captured = context;
+  const blob = await (await request(path)).blob();
+  if (captured !== context)
+    throw new DOMException(
+      "The active account or workspace changed.",
+      "AbortError",
+    );
+  return blob;
+}
 export async function downloadFile(path: string, fallbackName: string) {
   const captured = context;
   const response = await request(path);

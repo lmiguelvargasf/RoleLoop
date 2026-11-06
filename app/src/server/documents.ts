@@ -2,6 +2,7 @@ import { chromium } from "playwright";
 import nodemailer from "nodemailer";
 import type { Draft, Opportunity, Profile } from "../shared/types.js";
 import { settings } from "./config.js";
+import { careerFacts } from "../shared/types.js";
 const escape = (s: string) =>
   s.replace(
     /[&<>"']/g,
@@ -26,7 +27,7 @@ export async function resumePdf(draft: Draft): Promise<Buffer> {
 function mail(draft: Draft, op: Opportunity, profile: Profile) {
   return {
     from: {
-      name: profile.name || "RoleLoop tester",
+      name: careerFacts(profile)?.name || "RoleLoop tester",
       address: "candidate@roleloop.test",
     },
     to: {

@@ -12,6 +12,7 @@ import {
   type Activity,
   type Draft,
   type Opportunity,
+  type Profile,
   type Run,
   type Workspace,
 } from "../shared/types.js";
@@ -148,29 +149,46 @@ export function createWorkspaceStore({
   }
   async function updateWorkspace(
     patch: Partial<Workspace>,
+    expectedProfile?: Profile,
   ): Promise<Workspace> {
     const next = (workspaceWrites.get(workspaceId) || Promise.resolve())
       .catch(() => {})
       .then(async () => {
         const current = await getWorkspace();
+        const changed = () =>
+          Object.assign(
+            new Error(
+              "The master CV changed during processing. Use the current CV.",
+            ),
+            { statusCode: 409 },
+          );
+        const { email: _previousContact, ...previousProfile } = current.profile;
+        if (expectedProfile) {
+          const { email: _expectedContact, ...expected } = expectedProfile;
+          if (JSON.stringify(expected) !== JSON.stringify(previousProfile))
+            throw changed();
+        }
         const workspace = WorkspaceSchema.parse({
           ...current,
           ...patch,
         });
         workspace.profile.email = current.profile.email;
         const { email: _contact, ...storedProfile } = workspace.profile;
-        const row = checked(
-          await client
-            .from("workspace")
-            .update({
-              payload: { ...workspace, profile: storedProfile },
-              updated_at: new Date().toISOString(),
-            })
-            .eq("id", workspaceId)
-            .select("id")
-            .maybeSingle(),
-        );
-        if (!row) return missing();
+        let query = client
+          .from("workspace")
+          .update({
+            payload: { ...workspace, profile: storedProfile },
+            updated_at: new Date().toISOString(),
+          })
+          .eq("id", workspaceId);
+        // Database comparison also covers other API processes and late extraction results.
+        if (expectedProfile)
+          query = query.eq("payload->profile", JSON.stringify(previousProfile));
+        const row = checked(await query.select("id").maybeSingle());
+        if (!row) {
+          if (expectedProfile) throw changed();
+          return missing();
+        }
         return workspace;
       });
     workspaceWrites.set(workspaceId, next);

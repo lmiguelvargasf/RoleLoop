@@ -3,7 +3,7 @@ import { z } from "zod";
 import { extractText, getDocumentProxy } from "unpdf";
 import mammoth from "mammoth";
 import { structuredAI } from "./ai.js";
-import { ProfileSchema } from "../shared/types.js";
+import { CareerFactsSchema } from "../shared/types.js";
 
 export const UploadSchema = z.object({
   name: z.string().min(1).max(200),
@@ -44,6 +44,16 @@ export function validateExtraction(
   const warnings = [...result.uncertainties];
   const exact = (value: string) =>
     !value || source.includes(normalizeText(value));
+  const supportedSkill = (skill: string, quotation: string) => {
+    const value = normalizeText(skill).replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+    return (
+      Boolean(value) &&
+      new RegExp(
+        `(?:^|[^\\p{L}\\p{N}+#])${value}(?=$|[^\\p{L}\\p{N}+#])`,
+        "u",
+      ).test(normalizeText(quotation))
+    );
+  };
   const entries = result.entries
     .filter((e) => {
       if (!e.text.trim() || !exact(e.text)) {
@@ -57,7 +67,10 @@ export function validateExtraction(
     .map((e) => ({
       ...e,
       id: randomUUID(),
-      verified: false,
+      verified: true,
+      skills: [
+        ...new Set(e.skills.filter((skill) => supportedSkill(skill, e.text))),
+      ],
       role: exact(e.role) ? e.role : "",
       company: exact(e.company) ? e.company : "",
       period: exact(e.period) ? e.period : "",
@@ -69,26 +82,28 @@ export function validateExtraction(
       ),
       { statusCode: 422 },
     );
-  const profile = ProfileSchema.parse({
+  if (!result.name.trim() || !exact(result.name))
+    throw Object.assign(
+      new Error(
+        "Your name could not be read reliably from this CV. Update and replace the CV before generating applications.",
+      ),
+      { statusCode: 422 },
+    );
+  const facts = CareerFactsSchema.parse({
     ...result,
     name: exact(result.name) ? result.name : "",
     portfolio: exact(result.portfolio) ? result.portfolio : "",
     evidence: entries,
-    isDemo: false,
   });
-  return { profile, warnings: [...new Set(warnings)] };
+  return { facts, warnings: [...new Set(warnings)] };
 }
-export async function extractResume(
-  name: string,
-  buffer: Buffer,
-  userId?: string,
-) {
+export async function readResume(name: string, buffer: Buffer) {
   if (!buffer.length || buffer.length > 2 * 1024 * 1024)
     throw Object.assign(
       new Error("Choose a PDF or Word document smaller than 2 MB."),
       { statusCode: 400 },
     );
-  const kind = name.toLowerCase().endsWith(".pdf")
+  const kind: "pdf" | "docx" | null = name.toLowerCase().endsWith(".pdf")
     ? "pdf"
     : name.toLowerCase().endsWith(".docx")
       ? "docx"
@@ -135,6 +150,10 @@ export async function extractResume(
       ),
       { statusCode: 422 },
     );
+  return { text, kind };
+}
+
+export async function extractFacts(text: string, userId?: string) {
   const result = await structuredAI(
     Extracted,
     "resume_import",
@@ -142,7 +161,7 @@ export async function extractResume(
     { text },
     userId,
   );
-  return { ...validateExtraction(result, text), kind };
+  return validateExtraction(result, text);
 }
 
 // Inspect ZIP directory sizes before decompressing a Word document.
@@ -169,4 +188,13 @@ export function validateWordArchive(buffer: Buffer) {
       buffer.readUInt16LE(offset + 30) +
       buffer.readUInt16LE(offset + 32);
   }
+}
+
+export async function extractResume(
+  name: string,
+  buffer: Buffer,
+  userId?: string,
+) {
+  const { text, kind } = await readResume(name, buffer);
+  return { ...(await extractFacts(text, userId)), kind };
 }

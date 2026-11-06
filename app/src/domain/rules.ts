@@ -1,5 +1,6 @@
 import { createHash } from "node:crypto";
 import { salaryReviewMinimum } from "../shared/salary.js";
+import { careerFacts } from "../shared/types.js";
 import {
   industryPriorityBoost,
   preferredIndustryMatches,
@@ -191,7 +192,8 @@ export function assessOpportunity(
   const blockers: string[] = [],
     unknowns: string[] = [],
     reasons: string[] = [];
-  const evidence = profile.evidence.filter((e) => e.verified);
+  const evidence =
+    careerFacts(profile)?.evidence.filter((e) => e.verified) || [];
   const industryMatches = preferredIndustryMatches(op, prefs);
   if (industryMatches.length)
     reasons.push(
@@ -440,7 +442,9 @@ export function assessOpportunity(
       );
   }
   if (!evidence.length)
-    unknowns.push("Add verified experience before preparing an application.");
+    unknowns.push(
+      "Upload a master CV and finish processing before preparing an application.",
+    );
   return {
     score,
     essentialScore,

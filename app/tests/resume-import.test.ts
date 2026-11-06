@@ -32,15 +32,15 @@ const extracted = () => ({
     },
   ],
 });
-it("keeps only source quotations, unconfirmed until reviewed", () => {
+it("keeps only source quotations, available only when traced to the source", () => {
   const result = extracted();
   result.entries.push({ ...result.entries[0], text: "Invented claim" });
   const parsed = validateExtraction(
     result,
     "Alex Engineer Studio 2022 Built TypeScript services.",
   );
-  expect(parsed.profile.evidence).toHaveLength(1);
-  expect(parsed.profile.evidence[0].verified).toBe(false);
+  expect(parsed.facts.evidence).toHaveLength(1);
+  expect(parsed.facts.evidence[0].verified).toBe(true);
   expect(parsed.warnings.join(" ")).toContain("could not be traced");
   expect(() => validateExtraction(result, "Unrelated source")).toThrow(
     "No career details",
@@ -114,11 +114,11 @@ it("requires existing evidence IDs and complete requirement coverage", () => {
     job = demoOpportunities()[0];
   const fit = {
     summary: "Fit",
-    relevantEvidenceIds: [workspace.profile.evidence[0].id],
+    relevantEvidenceIds: [workspace.profile.cache!.facts!.evidence[0].id],
     learningGaps: [],
     matches: job.requirements.map((r) => ({
       requirementId: r.id,
-      evidenceIds: [workspace.profile.evidence[0].id],
+      evidenceIds: [workspace.profile.cache!.facts!.evidence[0].id],
       status: "partial" as const,
       explanation: "Transferable experience",
     })),
@@ -153,7 +153,9 @@ it("ignores retired positioning and learning fields in matching and drafts", () 
   expect(draft.resume).not.toContain("CURRENTLY LEARNING");
   expect(draft.resume).not.toContain("Outdated");
   expect(draft.resume).toContain(`Application: ${job.title}`);
-  expect(draft.resume).toContain(workspace.profile.evidence[0].text);
+  expect(draft.resume).toContain(
+    workspace.profile.cache!.facts!.evidence[0].text,
+  );
   expect(
     draft.resume.split("SKILLS\n")[1].split("CURRENTLY LEARNING")[0],
   ).not.toContain("Vue");
@@ -207,4 +209,105 @@ it("strips retired profile fields while retaining supported experience", async (
       skills: ["Unused"],
     }),
   ).toEqual(profile);
+});
+
+it("discards unsupported skills and metadata instead of promoting them into career facts", () => {
+  const result = extracted();
+  result.entries[0].skills.push("Kubernetes");
+  result.entries[0].role = "Chief technology officer";
+  result.entries[0].company = "Invented company";
+  result.entries[0].period = "2010–2026";
+  const { facts } = validateExtraction(
+    result,
+    "Alex Built TypeScript services.",
+  );
+  expect(facts).toMatchObject({
+    name: "Alex",
+    evidence: [{ skills: ["TypeScript"], role: "", company: "", period: "" }],
+  });
+});
+
+it.each(["source", "extractor", "processing", "failed", "missing"])(
+  "ignores %s cache mismatches in matching and generation",
+  (caseName) => {
+    const workspace = demoWorkspace(),
+      job = demoOpportunities()[0];
+    if (caseName === "source")
+      workspace.profile.cache!.sourceId =
+        "33333333-3333-4333-8333-333333333333";
+    if (caseName === "extractor") workspace.profile.cache!.extractorVersion = 0;
+    if (caseName === "processing")
+      workspace.profile.cache!.status = "processing";
+    if (caseName === "failed") workspace.profile.cache!.status = "failed";
+    if (caseName === "missing") workspace.profile.cache = null;
+    const assessment = assessOpportunity(
+      job,
+      workspace.profile,
+      workspace.preferences,
+    );
+    expect(
+      assessment.matches.every((match) => match.status === "missing"),
+    ).toBe(true);
+    expect(() =>
+      createDraft(job, workspace.profile, workspace.preferences, assessment),
+    ).toThrow("finish processing");
+  },
+);
+
+it("selects different source facts for different role requirements", () => {
+  const workspace = demoWorkspace();
+  const frontend = demoOpportunities()[0];
+  frontend.title = "Frontend Engineer";
+  frontend.description = "Build React interfaces";
+  frontend.requirements = [
+    {
+      id: "react",
+      text: "React",
+      skills: ["React"],
+      essential: true,
+      hard: false,
+    },
+  ];
+  const backend = {
+    ...frontend,
+    title: "Backend Engineer",
+    company: "Service Co",
+    description: "Build Node.js services",
+    requirements: [{ ...frontend.requirements[0], skills: ["Node.js"] }],
+  };
+  const draft = (op: typeof frontend) =>
+    createDraft(
+      op,
+      workspace.profile,
+      workspace.preferences,
+      assessOpportunity(op, workspace.profile, workspace.preferences),
+    );
+  expect(draft(frontend).evidenceIds).toEqual(["demo-e1"]);
+  expect(draft(backend).evidenceIds).toEqual(["demo-e2"]);
+  expect(draft(frontend).resume).not.toContain(
+    workspace.profile.cache!.facts!.evidence[1].text,
+  );
+  expect(draft(backend).resume).not.toContain(
+    workspace.profile.cache!.facts!.evidence[0].text,
+  );
+});
+
+it("does not treat partial skill names as supported capabilities", () => {
+  const result = extracted();
+  result.entries[0].text = "Built JavaScript services and C++ tooling.";
+  result.entries[0].skills = ["JavaScript", "Java", "C", "C++"];
+  const { facts } = validateExtraction(
+    result,
+    `Alex ${result.entries[0].text}`,
+  );
+  expect(facts.evidence[0].skills).toEqual(["JavaScript", "C++"]);
+});
+
+it("reports an unreadable name instead of activating an unusable career cache", () => {
+  expect(() =>
+    validateExtraction(
+      { ...extracted(), name: "Invented name" },
+      "Alex Built TypeScript services.",
+    ),
+  ).toThrow("name could not be read");
 });

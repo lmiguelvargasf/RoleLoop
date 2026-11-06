@@ -70,11 +70,8 @@ export function emptyWorkspace(user: User): Workspace {
   return {
     profile: {
       source: null,
-      name: userName(user),
       email: user.email || "",
-      portfolio: "",
-      evidence: [],
-      isDemo: false,
+      cache: null,
     },
     preferences: {
       roles: ["Software Engineer", "Full Stack Engineer"],

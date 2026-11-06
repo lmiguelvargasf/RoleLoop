@@ -114,7 +114,7 @@ describe("evidence and eligibility", () => {
     const result = assessOpportunity(job, profile, preferences, now);
     expect(result.score).toBe(100);
     expect(result.recommendation).toBe("ready");
-    profile.evidence.forEach((e) => (e.verified = false));
+    profile.cache!.facts!.evidence.forEach((e) => (e.verified = false));
     expect(assessOpportunity(job, profile, preferences, now).score).toBe(0);
   });
   it("does not let a high match override a US-only restriction", () => {
@@ -529,7 +529,7 @@ describe("truthful drafts and change fingerprints", () => {
   );
   it("omits unverified experience and keeps supplied achievements exact", () => {
     const { profile, preferences, job } = setup();
-    profile.evidence.push({
+    profile.cache!.facts!.evidence.push({
       id: "fabricated",
       text: "Increased revenue by 900 percent",
       skills: ["React"],
@@ -545,7 +545,7 @@ describe("truthful drafts and change fingerprints", () => {
       assessOpportunity(job, profile, preferences, now),
     );
     expect(draft.resume).not.toContain("900 percent");
-    expect(draft.resume).toContain(profile.evidence[0].text);
+    expect(draft.resume).toContain(profile.cache!.facts!.evidence[0].text);
     expect(draft.evidenceIds).not.toContain("fabricated");
     expect(draft.generator).toBe("templates");
     expect(draft.warnings.join(" ")).toContain("Sample data");
@@ -554,7 +554,7 @@ describe("truthful drafts and change fingerprints", () => {
     const { profile, job } = setup();
     const p = profileFingerprint(profile),
       o = opportunityFingerprint(job);
-    profile.name = "Changed";
+    profile.cache!.facts!.name = "Changed";
     job.description += " A new condition.";
     expect(profileFingerprint(profile)).not.toBe(p);
     expect(opportunityFingerprint(job)).not.toBe(o);
@@ -592,7 +592,7 @@ describe("truthful drafts and change fingerprints", () => {
   });
   it("refuses drafting without verified evidence", () => {
     const { profile, preferences, job } = setup();
-    profile.evidence = [];
+    profile.cache!.facts!.evidence = [];
     expect(() =>
       createDraft(
         job,

@@ -70,7 +70,7 @@ describe("required qualifications as the matching minimum", () => {
     expect(assessOpportunity(job, profile, relaxed, now).recommendation)
       .toBe("excluded");
     job.remoteScope = "worldwide";
-    profile.evidence.forEach((evidence) => { evidence.verified = false; });
+    profile.cache!.facts!.evidence.forEach((evidence) => { evidence.verified = false; });
     expect(assessOpportunity(job, profile, relaxed, now).recommendation)
       .toBe("review");
   });

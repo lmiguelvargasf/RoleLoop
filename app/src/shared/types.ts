@@ -12,23 +12,48 @@ export const EvidenceSchema = z.object({
     .enum(["experience", "project", "education", "certification", "other"])
     .optional(),
 });
-export const ProfileSchema = z.object({
+export const CareerFactsSchema = z.object({
   name: z.string().max(200),
-  // Resolved from the owner account by the server; not persisted in profile JSON.
-  email: z.string().max(200).default(""),
   portfolio: z.string().max(500),
   evidence: z.array(EvidenceSchema),
+});
+export const CV_EXTRACTOR_VERSION = 1;
+export const ProfileSchema = z.object({
+  // Resolved from the workspace owner's account; never persisted here.
+  email: z.string().max(200).default(""),
   source: z
     .object({
       id: z.string().uuid(),
       name: z.string().max(200),
       kind: z.enum(["pdf", "docx"]),
       importedAt: z.string(),
+      sha256: z.string().length(64).optional(),
     })
     .nullable()
     .default(null),
-  isDemo: z.boolean().default(false),
+  cache: z
+    .object({
+      id: z.string().uuid(),
+      sourceId: z.string().uuid(),
+      extractorVersion: z.number().int(),
+      status: z.enum(["processing", "ready", "failed"]),
+      facts: CareerFactsSchema.nullable(),
+      warnings: z.array(z.string()),
+      error: z.string().nullable(),
+      processedAt: z.string().nullable(),
+    })
+    .nullable()
+    .default(null),
 });
+// All consumers use this gate, including templates and offline matching.
+export function careerFacts(profile: z.infer<typeof ProfileSchema>) {
+  const cache = profile.cache;
+  return cache?.status === "ready" &&
+    cache.sourceId === profile.source?.id &&
+    cache.extractorVersion === CV_EXTRACTOR_VERSION
+    ? cache.facts
+    : null;
+}
 export const PreferencesSchema = z.object({
   roles: z.array(z.string()),
   minimumSalary: z.number().min(0),
@@ -170,7 +195,11 @@ export type Assessment = z.infer<typeof AssessmentSchema>;
 export type Draft = z.infer<typeof DraftSchema>;
 export type Requirement = z.infer<typeof RequirementSchema>;
 export type RunAction =
-  "discover" | "analyze" | "draft" | "simulate" | "research";
+  | "discover"
+  | "analyze"
+  | "draft"
+  | "simulate"
+  | "research";
 export interface Run {
   requestedBy?: string;
   id: string;

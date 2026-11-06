@@ -1,4 +1,5 @@
 import { randomUUID } from "node:crypto";
+import { careerFacts } from "../shared/types.js";
 import type {
   Assessment,
   Draft,
@@ -20,18 +21,34 @@ export function createDraft(
   prefs: Preferences,
   assessment: Assessment,
 ): Draft {
-  if (!profile.name.trim())
-    throw new Error("Add your name to the profile before drafting.");
-  const eligible = profile.evidence.filter((e) => e.verified);
+  const career = careerFacts(profile);
+  if (!career)
+    throw new Error(
+      "Upload a master CV and finish processing before drafting.",
+    );
+  if (!career.name.trim())
+    throw new Error(
+      "Your name could not be read from the master CV. Update and replace the CV before drafting.",
+    );
+  const eligible = career.evidence.filter((e) => e.verified);
   if (!eligible.length)
     throw new Error(
-      "Add at least one verified experience item before drafting.",
+      "No verified career facts are available. Update and replace your master CV before drafting.",
     );
   const requested = new Set(
     op.requirements.flatMap((r) => r.skills.map(normalizeSkill)),
   );
   const preferredIds = assessment.relevantEvidenceIds || [];
-  const selected = [...eligible]
+  const relevant = eligible.filter(
+    (e) =>
+      preferredIds.includes(e.id) ||
+      e.skills.some(
+        (s) =>
+          requested.has(normalizeSkill(s)) ||
+          op.description.toLowerCase().includes(s.toLowerCase()),
+      ),
+  );
+  const selected = [...(relevant.length ? relevant : eligible)]
     .sort(
       (a, b) =>
         (preferredIds.includes(b.id) ? 1 : 0) -
@@ -53,11 +70,11 @@ export function createDraft(
   const skills = [...new Set(selected.flatMap((e) => e.skills))];
   const workingCountry = prefs.country.trim();
   const header = [
-    profile.name,
+    career.name,
     op.kind === "job"
-      ? `Application: ${op.title}`
-      : `Profile for ${op.company}`,
-    [workingCountry, profile.email, profile.portfolio]
+      ? `Application: ${op.title} at ${op.company}`
+      : `Profile: ${op.title} at ${op.company}`,
+    [workingCountry, profile.email, career.portfolio]
       .filter(Boolean)
       .join(" · "),
   ]
@@ -65,7 +82,8 @@ export function createDraft(
     .join("\n");
   const resume = [
     header,
-    "SUMMARY\n" + facts.slice(0, 2).join(" "),
+    `SUMMARY\nRelevant experience for ${op.title} at ${op.company}: ` +
+      facts.slice(0, 2).join(" "),
     "CAREER HIGHLIGHTS\n" +
       selected
         .map((e) =>
@@ -81,7 +99,7 @@ export function createDraft(
   ]
     .filter(Boolean)
     .join("\n\n");
-  const signature = [profile.name, profile.email, profile.portfolio]
+  const signature = [career.name, profile.email, career.portfolio]
     .filter(Boolean)
     .join("\n");
   const companyHook = op.signals[0]
@@ -89,8 +107,8 @@ export function createDraft(
     : `I am interested in learning more about the engineering work at ${op.company}.`;
   const subject =
     op.kind === "startup"
-      ? `Engineering opportunities at ${op.company} — ${profile.name}`
-      : `Application: ${op.title} — ${profile.name}`;
+      ? `Engineering opportunities at ${op.company} — ${career.name}`
+      : `Application: ${op.title} — ${career.name}`;
   const salutation = op.contactName ? `Hi ${op.contactName},` : "Hello,";
   const body =
     op.kind === "startup"
@@ -99,7 +117,7 @@ export function createDraft(
           companyHook,
           `My relevant experience includes:\n${facts.map((f) => "- " + f).join("\n")}`,
           `I would welcome a conversation about whether this experience could help your team. Are you considering remote engineering collaborators${workingCountry ? ` based in ${workingCountry}` : ""}?`,
-          profile.portfolio ? `Relevant work: ${profile.portfolio}` : "",
+          career.portfolio ? `Relevant work: ${career.portfolio}` : "",
           `Best,\n${signature}`,
         ]
           .filter(Boolean)
@@ -120,7 +138,7 @@ export function createDraft(
     `Dear ${op.company} hiring team,`,
     `I am interested in the ${op.title} position. My experience relevant to your team includes:\n\n${facts.map((f) => "- " + f).join("\n")}`,
     `I would welcome the opportunity to discuss how this work relates to your priorities.`,
-    `Sincerely,\n${profile.name}`,
+    `Sincerely,\n${career.name}`,
   ].join("\n\n");
   const answers = [
     {
@@ -151,7 +169,7 @@ export function createDraft(
     answers: op.kind === "job" ? answers : [],
     evidenceIds: selected.map((e) => e.id),
     warnings: [
-      ...(profile.isDemo || op.isDemo
+      ...(op.isDemo
         ? [
             "Sample data: replace the demo profile and opportunity before real use.",
           ]

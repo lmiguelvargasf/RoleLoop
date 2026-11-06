@@ -480,18 +480,7 @@ export function App({
             <button onClick={() => void refresh()}>Retry</button>
           </div>
         )}
-        {data.profile.isDemo && (
-          <div className="demo-ribbon">
-            <span>
-              <strong>Sample workspace</strong> You’re testing with a fictional
-              profile and clearly marked examples.
-            </span>
-            <button onClick={() => navigate("profile")}>
-              Add your experience
-              <ArrowRight size={14} />
-            </button>
-          </div>
-        )}
+
         {running.length > 0 && (
           <div className="run-strip" aria-live="polite">
             <LoaderCircle size={15} className="spin" />

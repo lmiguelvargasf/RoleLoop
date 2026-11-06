@@ -13,6 +13,7 @@ import {
   draftContentHash,
   localDay,
   orderOpportunities,
+  profileFingerprint,
 } from "../domain/rules.js";
 import { discover, research } from "../domain/connectors.js";
 import { getGlobalRuntime, type WorkspaceStore } from "./store.js";
@@ -39,15 +40,18 @@ export async function bootstrap(store: WorkspaceStore): Promise<Bootstrap> {
       store.list("events", 60),
       getGlobalRuntime<{ at: string }>("worker"),
     ]);
-  // Refresh ready jobs saved under the removed missing-salary inclusion policy.
+  // Refresh cached assessments after a CV change or a retired salary policy.
   const currentOpportunities = await Promise.all(
     opportunities.map((op) =>
-      workspace.preferences.missingSalary === "review" &&
-      op.kind === "job" &&
-      op.salaryMin === null &&
-      op.salaryMax === null &&
-      op.assessment?.recommendation === "ready"
-        ? analyze(store, op, workspace)
+      (op.assessment &&
+        op.assessment.profileFingerprint !==
+          profileFingerprint(workspace.profile)) ||
+      (workspace.preferences.missingSalary === "review" &&
+        op.kind === "job" &&
+        op.salaryMin === null &&
+        op.salaryMax === null &&
+        op.assessment?.recommendation === "ready")
+        ? analyze(store, op, workspace, false)
         : op,
     ),
   );
@@ -142,9 +146,15 @@ export async function analyze(
   workspace: Workspace,
   useAI = true,
 ) {
-  const assessment = useAI
+  let assessment = useAI
     ? await assessWithAI(op, workspace, store.actorUserId)
     : assessOpportunity(op, workspace.profile, workspace.preferences);
+  const current = await store.getWorkspace();
+  if (
+    profileFingerprint(current.profile) !==
+    profileFingerprint(workspace.profile)
+  )
+    assessment = assessOpportunity(op, current.profile, current.preferences);
   const progressed = ["drafted", "approved", "tested", "archived"].includes(
     op.stage,
   );
@@ -180,6 +190,7 @@ async function prepare(
       "Daily draft limit reached. Adjust the limit in Settings or wait until tomorrow.",
     );
   const draft = await generateDraft(assessed, workspace, assessed.assessment!);
+  assertFresh(draft, assessed, await store.getWorkspace());
   await store.save("drafts", draft);
   await store.save("opportunities", {
     ...assessed,

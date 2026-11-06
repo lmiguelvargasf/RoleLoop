@@ -3,6 +3,7 @@ import { structuredAI } from "./ai.js";
 import { assessOpportunity } from "../domain/rules.js";
 import type { Assessment, Opportunity, Workspace } from "../shared/types.js";
 import { settings } from "./config.js";
+import { careerFacts } from "../shared/types.js";
 
 const Fit = z.object({
   summary: z.string(),
@@ -23,7 +24,9 @@ export function validateFit(
   workspace: Workspace,
 ) {
   const ids = new Set(
-    workspace.profile.evidence.filter((e) => e.verified).map((e) => e.id),
+    (careerFacts(workspace.profile)?.evidence || [])
+      .filter((e) => e.verified)
+      .map((e) => e.id),
   );
   const seen = new Set<string>();
   const matches: Assessment["matches"] = result.matches.map((m) => {
@@ -63,7 +66,9 @@ export async function assessWithAI(
 ): Promise<Assessment> {
   const base = assessOpportunity(op, workspace.profile, workspace.preferences);
   if (!userId && !settings.openaiKey && !workspace.profile.source) return base;
-  if (!workspace.profile.evidence.some((e) => e.verified)) return base;
+  const evidence =
+    careerFacts(workspace.profile)?.evidence.filter((e) => e.verified) || [];
+  if (!evidence.length) return base;
   try {
     const raw = await structuredAI(
       Fit,
@@ -77,7 +82,7 @@ export async function assessWithAI(
           description: op.description,
           requirements: op.requirements,
         },
-        evidence: workspace.profile.evidence.filter((e) => e.verified),
+        evidence,
       },
       userId,
     );

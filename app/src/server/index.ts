@@ -7,15 +7,15 @@ import { appDir, settings } from "./config.js";
 import {
   OpportunitySchema,
   PreferencesSchema,
-  ProfileSchema,
   SourceSchema,
 } from "../shared/types.js";
 import type { WorkspaceStore } from "./store.js";
 import * as auth from "./auth.js";
 import * as service from "./service.js";
 import { allowedOrigin } from "./guards.js";
-import { UploadSchema, extractResume } from "./resume-import.js";
+import { UploadSchema, readResume } from "./resume-import.js";
 import * as chatgpt from "./chatgpt.js";
+import { uploadCV, retryCV, originalCV, cvContentType } from "./cv.js";
 import { resumePdf } from "./documents.js";
 
 declare module "fastify" {
@@ -191,92 +191,53 @@ export async function buildServer() {
   });
   app.post("/api/profile/import", { bodyLimit: 2_900_000 }, async (req) => {
     const input = UploadSchema.parse(req.body);
-    const buffer = Buffer.from(input.data, "base64");
-    const store = requestStore(req);
-    const workspace = await store.getWorkspace();
-    const result = await extractResume(
-      input.name,
-      buffer,
-      identity(req).user.id,
-    );
-    const id = randomUUID();
-    const source = {
-      id,
-      name: input.name,
-      kind: result.kind,
-      importedAt: new Date().toISOString(),
-    };
-    const uploaded = await store.db.storage
-      .from("documents")
-      .upload(
-        `${store.workspaceId}/resumes/${id}/original.${result.kind}`,
-        buffer,
-        {
-          contentType:
-            result.kind === "pdf"
-              ? "application/pdf"
-              : "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-        },
-      );
-    if (uploaded.error)
-      throw new Error("The original résumé could not be saved. Try again.");
     return {
-      profile: {
-        ...result.profile,
-        email: workspace.profile.email,
-        source,
-      },
-      warnings: result.warnings,
+      profile: await uploadCV(
+        requestStore(req),
+        input.name,
+        Buffer.from(input.data, "base64"),
+        identity(req).user.id,
+      ),
     };
   });
+  app.post("/api/profile/process", async (req) => ({
+    profile: await retryCV(requestStore(req), identity(req).user.id),
+  }));
+  // Retired clients cannot save career facts independently of the master CV.
+  app.put("/api/profile", async (_req, reply) =>
+    reply
+      .code(405)
+      .send({
+        error: "Replace the master CV to update your career information.",
+      }),
+  );
   app.get("/api/profile/sources/:id/:kind", async (req, reply) => {
     const { id, kind } = z
       .object({ id: z.string().uuid(), kind: z.enum(["pdf", "docx"]) })
       .parse(req.params);
-    const store = requestStore(req);
-    const result = await store.db.storage
-      .from("documents")
-      .download(`${store.workspaceId}/resumes/${id}/original.${kind}`);
-    if (result.error || !result.data)
-      throw auth.fail("This résumé was not found in your workspace.", 404);
+    const { preview } = z
+      .object({ preview: z.enum(["1"]).optional() })
+      .parse(req.query);
+    const buffer = await originalCV(requestStore(req), id, kind);
+    if (preview && kind === "docx") {
+      const { text } = await readResume("original.docx", buffer);
+      const escaped = text.replace(
+        /[&<>]/g,
+        (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;" })[c]!,
+      );
+      return reply
+        .type("text/html; charset=utf-8")
+        .send(
+          `<!doctype html><meta charset="utf-8"><title>CV preview</title><style>body{font:16px/1.6 system-ui;padding:24px;white-space:pre-wrap;overflow-wrap:anywhere}</style>${escaped}`,
+        );
+    }
     return reply
       .header(
         "Content-Disposition",
-        `attachment; filename="original-resume.${kind}"`,
+        `${preview ? "inline" : "attachment"}; filename="original-cv.${kind}"`,
       )
-      .type(
-        kind === "pdf"
-          ? "application/pdf"
-          : "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-      )
-      .send(Buffer.from(await result.data.arrayBuffer()));
-  });
-  app.put("/api/profile", async (req) => {
-    const previous = (await requestStore(req).getWorkspace()).profile;
-    const profile = ProfileSchema.parse({
-      ...ProfileSchema.parse(req.body),
-      email: previous.email,
-    });
-    const store = requestStore(req);
-    // Preserve the reviewed master used by future drafts as a private version.
-    const snapshot = await store.db.storage
-      .from("documents")
-      .upload(
-        `${store.workspaceId}/profile-versions/${randomUUID()}.json`,
-        JSON.stringify(profile),
-        { contentType: "application/json" },
-      );
-    if (snapshot.error)
-      throw new Error("Profile version could not be saved. Try again.");
-    await store.updateWorkspace({ profile });
-    if (JSON.stringify(previous) !== JSON.stringify(profile)) {
-      await service.invalidateDrafts(requestStore(req));
-      await service.refreshAssessments(requestStore(req));
-    }
-    await requestStore(req).event(
-      "Profile saved. Existing draft approvals were cleared.",
-    );
-    return profile;
+      .type(cvContentType(kind))
+      .send(buffer);
   });
   app.put("/api/preferences", async (req) => {
     const preferences = PreferencesSchema.parse(req.body);

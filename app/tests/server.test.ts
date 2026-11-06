@@ -58,7 +58,7 @@ describe("draft approval API guards", () => {
   it("rejects approval after the candidate revokes an evidence verification", () => {
     const { draft, opportunity, workspace } = fixture();
     draft.status = "approved";
-    workspace.profile.evidence[0].verified = false;
+    workspace.profile.cache!.facts!.evidence[0].verified = false;
     expectConflict(() => assertFresh(draft, opportunity, workspace), /changed/);
     expectConflict(
       () => assertApproved(draft, opportunity, workspace),

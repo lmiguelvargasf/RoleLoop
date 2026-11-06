@@ -35,6 +35,7 @@ integration("database-enforced workspace isolation", () => {
       ],
       {
         input: `begin;
+          alter table public.workspace disable trigger clean_workspace_profile;
           insert into public.workspace (id, payload) values
             ('integration-country-saved', '{"profile":{"name":"Candidate","country":"Ecuador","location":"Quito"},"preferences":{"country":"Canada","minimumSalary":90000}}'),
             ('integration-country-empty', '{"profile":{"country":"Ecuador","location":"Quito"},"preferences":{"country":""}}'),
@@ -66,6 +67,72 @@ integration("database-enforced workspace isolation", () => {
     );
     expect(output).toContain(
       "Working country migration assertions passed; test data rolled back.",
+    );
+  }, 25000);
+
+  it("removes editable profile fields and invalid caches without changing application history", () => {
+    const migration = readFileSync(
+      fileURLToPath(
+        new URL(
+          "../supabase/migrations/20261106000100_cv_first_profile.sql",
+          import.meta.url,
+        ),
+      ),
+      "utf8",
+    );
+    const output = execFileSync(
+      "docker",
+      [
+        "exec",
+        "-i",
+        "supabase_db_roleloop-ts",
+        "psql",
+        "-X",
+        "-q",
+        "-v",
+        "ON_ERROR_STOP=1",
+        "-U",
+        "postgres",
+        "-d",
+        "postgres",
+      ],
+      {
+        input: `begin;
+        alter table public.workspace disable trigger clean_workspace_profile;
+        insert into public.workspace (id, payload) values ('integration-cv-migration', '{"profile":{"source":{"id":"11111111-1111-4111-8111-111111111111","name":"original.pdf","kind":"pdf","importedAt":"2026-11-05"},"name":"Manual name","portfolio":"Manual link","evidence":[{"text":"Manual fact"}],"headline":"Old","summary":"Old","skills":[],"email":"old@example.test","isDemo":false},"preferences":{"country":"Ecuador"},"sources":[]}');
+        alter table public.workspace enable trigger clean_workspace_profile;
+        create temp table cv_history_before as
+          select 'draft' as kind, id, to_jsonb(drafts) as record from public.drafts
+          union all select 'event', id, to_jsonb(events) from public.events
+          union all select 'object', id::text, to_jsonb(objects) from storage.objects;
+        ${migration}
+        do $$ begin
+          if (select payload->'profile' from public.workspace where id='integration-cv-migration')
+            is distinct from '{"source":{"id":"11111111-1111-4111-8111-111111111111","name":"original.pdf","kind":"pdf","importedAt":"2026-11-05"},"cache":null}'::jsonb
+          then raise exception 'Legacy career fields were not removed'; end if;
+          if (select payload->'preferences' from public.workspace where id='integration-cv-migration') is distinct from '{"country":"Ecuador"}'::jsonb
+          then raise exception 'Preferences changed'; end if;
+          if exists (
+            (select * from cv_history_before) except (
+              select 'draft', id, to_jsonb(drafts) from public.drafts
+              union all select 'event', id, to_jsonb(events) from public.events
+              union all select 'object', id::text, to_jsonb(objects) from storage.objects
+            )
+          ) then raise exception 'Historical documents or activity changed'; end if;
+        end $$;
+        update public.workspace set payload=jsonb_set(payload, '{profile,cache}', '{"sourceId":"22222222-2222-4222-8222-222222222222","extractorVersion":1,"facts":{"name":"Stale"}}') where id='integration-cv-migration';
+        do $$ begin
+          if (select payload#>'{profile,cache}' from public.workspace where id='integration-cv-migration') is distinct from 'null'::jsonb
+          then raise exception 'Mismatched cache survived'; end if;
+        end $$;
+        rollback;
+        select 'CV migration assertions passed; test data rolled back.';`,
+        encoding: "utf8",
+        timeout: 20000,
+      },
+    );
+    expect(output).toContain(
+      "CV migration assertions passed; test data rolled back.",
     );
   }, 25000);
 

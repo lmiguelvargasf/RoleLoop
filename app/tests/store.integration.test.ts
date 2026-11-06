@@ -283,8 +283,8 @@ integration("workspace-scoped persistence", () => {
         "skills",
       ])
         expect(direct.data!.payload.profile).not.toHaveProperty(field);
-      expect(direct.data!.payload.profile.evidence).toEqual(
-        current.profile.evidence,
+      expect(direct.data!.payload.profile.cache!.facts!.evidence).toEqual(
+        current.profile.cache!.facts!.evidence,
       );
       const nextEmail = `changed-${randomUUID()}@example.test`;
       const updated = await store.db.auth.admin.updateUserById(ownerId, {
@@ -446,11 +446,16 @@ integration("workspace-scoped persistence", () => {
       expect((await first.get("opportunities", opportunity.id)).company).toBe(
         opportunity.company,
       );
-      expect((await first.getWorkspace()).profile.name).toBe("Alex Morgan");
-      const updated = { ...demoWorkspace().profile, name: "Private candidate" };
+      expect((await first.getWorkspace()).profile.cache!.facts!.name).toBe(
+        "Alex Morgan",
+      );
+      const updated = demoWorkspace().profile;
+      updated.cache!.facts!.name = "Private candidate";
       await second.updateWorkspace({ profile: updated });
-      expect((await first.getWorkspace()).profile.name).toBe("Alex Morgan");
-      expect((await second.getWorkspace()).profile.name).toBe(
+      expect((await first.getWorkspace()).profile.cache!.facts!.name).toBe(
+        "Alex Morgan",
+      );
+      expect((await second.getWorkspace()).profile.cache!.facts!.name).toBe(
         "Private candidate",
       );
     } finally {
