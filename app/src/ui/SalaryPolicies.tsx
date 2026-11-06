@@ -167,9 +167,11 @@ export function SalaryPolicies({
   const { minimumSalary, salaryPolicy, salaryFlexibility, missingSalary } =
     preferences;
   const reviewMinimum = salaryReviewMinimum(minimumSalary);
-  const threshold = currency.format(
-    salaryFlexibility ? reviewMinimum : minimumSalary,
-  );
+  const minimum = salaryFlexibility ? reviewMinimum : minimumSalary;
+  const threshold = currency.format(minimum);
+  const exampleLower = Math.floor((minimum * 0.9) / 10000) * 10000;
+  const exampleUpper = Math.ceil((minimum * 1.1) / 10000) * 10000;
+  const exampleRange = `${currency.format(exampleLower)}–${currency.format(exampleUpper)}`;
 
   return (
     <div className="salary-policies">
@@ -180,13 +182,19 @@ export function SalaryPolicies({
         options={[
           {
             value: "overlap",
-            label: "Can reach my minimum",
-            description: `Highest advertised pay must reach ${threshold}/year. Negotiation may be needed.`,
+            label: `Highest pay: ${threshold} or more`,
+            description:
+              minimum > 0
+                ? `Keep ${exampleRange}/year for review: you could negotiate ${threshold} or more.`
+                : "Keep jobs when the highest salary in their range meets your minimum.",
           },
           {
             value: "strict",
-            label: "Must start at my minimum",
-            description: `Starting pay must reach ${threshold}/year. Ranges starting lower are excluded.`,
+            label: `Starting pay: ${threshold} or more`,
+            description:
+              minimum > 0
+                ? `Exclude ${exampleRange}/year: its starting pay is below ${threshold}.`
+                : "Only keep jobs when the lowest salary in their range meets your minimum.",
           },
         ]}
       />
@@ -197,18 +205,21 @@ export function SalaryPolicies({
         options={[
           {
             value: "review",
-            label: "Keep for review",
-            description: "Keep the job and flag its salary for you to check.",
+            label: "Keep and flag for review",
+            description:
+              "Mark the job as Needs review so you can check the pay before proceeding.",
           },
           {
             value: "include",
-            label: "Include in results",
-            description: "Missing pay won't require review. Other checks still apply.",
+            label: "Keep without a salary check",
+            description:
+              "The job can be Ready to draft even if pay is unknown, as long as other checks pass.",
           },
           {
             value: "exclude",
-            label: "Exclude these jobs",
-            description: "Only consider job listings that disclose their salary.",
+            label: "Exclude jobs with no salary",
+            description:
+              "Mark jobs with no listed salary as excluded from your matches.",
           },
         ]}
       />
@@ -217,7 +228,8 @@ export function SalaryPolicies({
           <span>
             <strong>Allow 10% below my minimum</strong>
             <span id={`${id}-flexibility-description`}>
-              Weigh benefits and perks. These roles always need review.
+              Keep slightly lower-paying jobs for review so you can compare
+              benefits.
             </span>
           </span>
           <input
@@ -233,7 +245,8 @@ export function SalaryPolicies({
         </label>
         {salaryFlexibility && (
           <p className="salary-flexibility-summary" role="status">
-            Review from <strong>{currency.format(reviewMinimum)}/year</strong>
+            Review pay down to{" "}
+            <strong>{currency.format(reviewMinimum)}/year</strong>
             <span> · {currency.format(reviewMinimum / 12)}/month</span>
           </p>
         )}
