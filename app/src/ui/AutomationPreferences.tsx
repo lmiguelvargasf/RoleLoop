@@ -1,4 +1,4 @@
-import { Clock3, RefreshCw } from "lucide-react";
+import { Clock3 } from "lucide-react";
 import type { Preferences } from "../shared/types";
 
 export function AutomationPreferences({
@@ -19,8 +19,8 @@ export function AutomationPreferences({
       aria-labelledby="automation-title"
     >
       <div className="form-section-heading">
-        <h2 id="automation-title">Local automation</h2>
-        <p>Schedules run while RoleLoop is open.</p>
+        <h2 id="automation-title">Automatic search</h2>
+        <p>Check connected job boards and startup feeds.</p>
       </div>
       <div className="form-grid">
         <label className="checkbox-field wide">
@@ -30,11 +30,11 @@ export function AutomationPreferences({
             disabled={busy}
             onChange={(e) => onChange("scheduleEnabled", e.target.checked)}
           />
-          <span>Refresh discovery sources automatically</span>
+          <span>Check for new opportunities automatically</span>
         </label>
         <label className="field">
           <span>
-            Refresh interval <small>minutes</small>
+            Check every <small>minutes</small>
           </span>
           <input
             type="number"
@@ -59,23 +59,20 @@ export function AutomationPreferences({
             value={preferences.dailyLimit}
             onChange={(e) => onChange("dailyLimit", +e.target.value)}
           />
+          <small>Maximum new drafts per day.</small>
         </label>
         <div className="automation-status" role="status">
-          {preferences.scheduleEnabled ? (
-            <Clock3 size={15} aria-hidden="true" />
-          ) : (
-            <RefreshCw size={15} aria-hidden="true" />
-          )}
+          <Clock3 size={15} aria-hidden="true" />
           <div>
             <strong>
               {preferences.scheduleEnabled
-                ? "Automatic refresh"
-                : "Manual refresh"}
+                ? "Automatic search is on"
+                : "Automatic search is off"}
             </strong>
             <span>
               {preferences.scheduleEnabled
-                ? `Every ${new Intl.NumberFormat().format(preferences.scheduleMinutes)} minutes across enabled sources.`
-                : "Run discovery manually from Discovery sources."}
+                ? `Checks enabled sources every ${new Intl.NumberFormat().format(preferences.scheduleMinutes)} minutes while RoleLoop is open.`
+                : "Enable automatic search above to check for new jobs and startup leads."}
             </span>
           </div>
         </div>
