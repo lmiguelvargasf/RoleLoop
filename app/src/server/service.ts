@@ -38,9 +38,24 @@ export async function bootstrap(store: WorkspaceStore): Promise<Bootstrap> {
       getGlobalRuntime<{ at: string }>("worker"),
       ollamaAvailable(),
     ]);
+  // Refresh ready jobs saved under the removed missing-salary inclusion policy.
+  const currentOpportunities = await Promise.all(
+    opportunities.map((op) =>
+      workspace.preferences.missingSalary === "review" &&
+      op.kind === "job" &&
+      op.salaryMin === null &&
+      op.salaryMax === null &&
+      op.assessment?.recommendation === "ready"
+        ? analyze(store, op, workspace)
+        : op,
+    ),
+  );
   return {
     ...workspace,
-    opportunities: orderOpportunities(opportunities, workspace.preferences),
+    opportunities: orderOpportunities(
+      currentOpportunities,
+      workspace.preferences,
+    ),
     drafts,
     runs,
     events,

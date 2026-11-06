@@ -304,7 +304,6 @@ describe("salary policies", () => {
     job.salaryMin = job.salaryMax = null;
     for (const [missingSalary, recommendation] of [
       ["review", "review"],
-      ["include", "ready"],
       ["exclude", "excluded"],
     ] as const) {
       const result = assessOpportunity(
@@ -316,6 +315,18 @@ describe("salary policies", () => {
       expect(result.recommendation).toBe(recommendation);
       expect(result.unknowns.join(" ")).not.toContain("10% salary flexibility");
     }
+  });
+  it("converts the removed missing-salary option to review and requires a pay check", () => {
+    const { profile, preferences, job } = setup();
+    job.salaryMin = job.salaryMax = null;
+    const normalized = PreferencesSchema.parse({
+      ...preferences,
+      missingSalary: "include",
+    });
+    expect(normalized.missingSalary).toBe("review");
+    const result = assessOpportunity(job, profile, normalized, now);
+    expect(result.recommendation).toBe("review");
+    expect(result.unknowns).toContain("Salary is undisclosed.");
   });
   it("does not let salary flexibility bypass other exclusion rules", () => {
     const { profile, preferences, job } = setup();

@@ -182,7 +182,7 @@ export function SalaryPolicies({
             value: "overlap",
             label: "Allow a lower starting salary",
             description:
-              `The range must still reach ${threshold}/year${allowance}. Starting below your minimum means review.`,
+              `Keep jobs whose range reaches ${threshold}/year${allowance}. If the range also includes less than your minimum, mark the job Needs review so you can confirm the pay.`,
           },
           {
             value: "strict",
@@ -199,15 +199,9 @@ export function SalaryPolicies({
         options={[
           {
             value: "review",
-            label: "Keep and flag for review",
+            label: "Keep for review",
             description:
               "Mark the job as Needs review so you can check the pay before proceeding.",
-          },
-          {
-            value: "include",
-            label: "Keep without a salary check",
-            description:
-              "The job can be Ready to draft even if pay is unknown, as long as other checks pass.",
           },
           {
             value: "exclude",

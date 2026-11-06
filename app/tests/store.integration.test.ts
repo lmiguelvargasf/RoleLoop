@@ -82,6 +82,51 @@ async function cleanup(store: import("../src/server/store.js").WorkspaceStore) {
 }
 
 integration("local Supabase source refresh and lifecycle", () => {
+  it("loads the removed missing-salary setting as review and refreshes cached ready jobs", async () => {
+    const store = await makeStore();
+    const workspace = demoWorkspace();
+    const op = isolatedOpportunity();
+    op.salaryMin = op.salaryMax = null;
+    op.stage = "ready";
+    op.assessment = {
+      ...assessOpportunity(op, workspace.profile, workspace.preferences),
+      recommendation: "ready",
+      unknowns: [],
+      reasons: ["Undisclosed salary retained by your search policy."],
+    };
+    try {
+      const legacy = await store.db
+        .from("workspace")
+        .update({
+          payload: {
+            ...workspace,
+            preferences: { ...workspace.preferences, missingSalary: "include" },
+          },
+        })
+        .eq("id", store.workspaceId);
+      expect(legacy.error).toBeNull();
+      await store.save("opportunities", op);
+      const { bootstrap } = await import("../src/server/service.js");
+      const state = await bootstrap(store);
+      expect(state.preferences.missingSalary).toBe("review");
+      expect(state.opportunities[0].stage).toBe("review");
+      expect(state.opportunities[0].assessment?.recommendation).toBe("review");
+      expect(state.opportunities[0].assessment?.unknowns).toContain(
+        "Salary is undisclosed.",
+      );
+      expect((await store.get("opportunities", op.id)).stage).toBe("review");
+      await store.updateWorkspace({ preferences: state.preferences });
+      const saved = await store.db
+        .from("workspace")
+        .select("payload")
+        .eq("id", store.workspaceId)
+        .single();
+      expect(saved.error).toBeNull();
+      expect(saved.data?.payload.preferences.missingSalary).toBe("review");
+    } finally {
+      await cleanup(store);
+    }
+  });
   it("refreshes source facts, keeps human corrections, and invalidates stale approvals", async () => {
     const store = await makeStore();
     const workspace = demoWorkspace();

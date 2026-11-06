@@ -245,9 +245,7 @@ export function assessOpportunity(
         blockers.push(
           "Salary is undisclosed and your policy excludes undisclosed salaries.",
         );
-      else if (prefs.missingSalary === "review")
-        unknowns.push("Salary is undisclosed.");
-      else reasons.push("Undisclosed salary retained by your search policy.");
+      else unknowns.push("Salary is undisclosed.");
     } else if (op.salaryCurrency.toUpperCase() !== "USD")
       unknowns.push(
         `Salary is in ${op.salaryCurrency}; no exchange rate has been assumed.`,
