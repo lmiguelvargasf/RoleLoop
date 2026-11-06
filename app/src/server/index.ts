@@ -162,16 +162,6 @@ export async function buildServer() {
   });
   app.put("/api/preferences", async (req) => {
     const preferences = PreferencesSchema.parse(req.body);
-    try {
-      new Intl.DateTimeFormat("en", {
-        timeZone: preferences.timezone,
-      }).format();
-    } catch {
-      throw Object.assign(
-        new Error("Enter a valid IANA timezone, such as America/Guayaquil."),
-        { statusCode: 400 },
-      );
-    }
     if (
       preferences.targetSalary !== null &&
       preferences.targetSalary < preferences.minimumSalary

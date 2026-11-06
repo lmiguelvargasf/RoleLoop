@@ -146,11 +146,10 @@ export async function analyze(
     updatedAt: new Date().toISOString(),
   });
 }
-async function draftCountToday(store: WorkspaceStore, workspace: Workspace) {
-  const day = localDay(new Date(), workspace.preferences.timezone);
+async function draftCountToday(store: WorkspaceStore) {
+  const day = localDay(new Date());
   return (await store.list("drafts", 10000)).filter(
-    (d) =>
-      localDay(new Date(d.createdAt), workspace.preferences.timezone) === day,
+    (d) => localDay(new Date(d.createdAt)) === day,
   ).length;
 }
 async function prepare(
@@ -163,10 +162,7 @@ async function prepare(
     throw new Error(
       `Resolve the exclusion before drafting: ${assessed.assessment!.blockers.join(" ")}`,
     );
-  if (
-    (await draftCountToday(store, workspace)) >=
-    workspace.preferences.dailyLimit
-  )
+  if ((await draftCountToday(store)) >= workspace.preferences.dailyLimit)
     throw new Error(
       "Daily draft limit reached. Adjust the limit in Settings or wait until tomorrow.",
     );
@@ -295,7 +291,7 @@ export async function processRun(
             !(await store.list("drafts", 10000)).some(
               (d) => d.opportunityId === op.id,
             ) &&
-            (await draftCountToday(store, workspace)) <
+            (await draftCountToday(store)) <
               workspace.preferences.dailyLimit
           )
             await prepare(store, op, workspace);

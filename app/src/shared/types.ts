@@ -34,7 +34,6 @@ export const PreferencesSchema = z.object({
   lookback: z.number().int().min(0).max(365),
   lookbackUnit: z.enum(["days", "months"]),
   dateMode: z.enum(["strict", "emphasize"]),
-  timezone: z.string().default("America/Guayaquil"),
   minimumMatch: z.number().min(0).max(100),
   essentialMatch: z.number().min(0).max(100),
   country: z.string(),

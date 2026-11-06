@@ -112,9 +112,8 @@ const latam = new Set([
   "cuba",
   "haiti",
 ]);
-export function localDay(date: Date, timezone: string): string {
+export function localDay(date: Date): string {
   const parts = new Intl.DateTimeFormat("en-CA", {
-    timeZone: timezone,
     year: "numeric",
     month: "2-digit",
     day: "2-digit",
@@ -123,10 +122,10 @@ export function localDay(date: Date, timezone: string): string {
   return `${value("year")}-${value("month")}-${value("day")}`;
 }
 export function dateWindow(
-  prefs: Pick<Preferences, "lookback" | "lookbackUnit" | "timezone">,
+  prefs: Pick<Preferences, "lookback" | "lookbackUnit">,
   now = new Date(),
 ): { start: string; end: string } {
-  const end = localDay(now, prefs.timezone);
+  const end = localDay(now);
   const [y, m, d] = end.split("-").map(Number);
   let start: Date;
   if (prefs.lookbackUnit === "days")
@@ -154,7 +153,7 @@ export function orderOpportunities(
   const window = dateWindow(prefs, now);
   const freshness = (op: Opportunity) => {
     if (!op.publishedAt) return 0;
-    const day = localDay(new Date(op.publishedAt), prefs.timezone);
+    const day = localDay(new Date(op.publishedAt));
     return day >= window.start && day <= window.end ? 1 : 0;
   };
   const rank = (op: Opportunity) =>
@@ -319,17 +318,7 @@ export function assessOpportunity(
         "A professional contact address and its public source are needed before outreach.",
       );
   }
-  let window: { start: string; end: string };
-  let dateTimezone = prefs.timezone;
-  try {
-    window = dateWindow(prefs, now);
-  } catch {
-    dateTimezone = "UTC";
-    window = dateWindow({ ...prefs, timezone: "UTC" }, now);
-    unknowns.push(
-      "Invalid timezone; date evaluation used UTC and needs review.",
-    );
-  }
+  const window = dateWindow(prefs, now);
   const published = op.publishedAt ? new Date(op.publishedAt) : null;
   if (!published || Number.isNaN(published.getTime()))
     unknowns.push(
@@ -340,7 +329,7 @@ export function assessOpportunity(
   else if (published > now)
     unknowns.push("Publication timestamp is in the future.");
   else {
-    const day = localDay(published, dateTimezone);
+    const day = localDay(published);
     if (day < window.start) {
       if (prefs.dateMode === "strict")
         blockers.push(

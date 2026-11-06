@@ -56,6 +56,7 @@ import type {
 import { api, date, downloadFile, safeUrl, uid, words, write } from "./api";
 import { SalaryFields } from "./SalaryFields";
 import { SalaryPolicies } from "./SalaryPolicies";
+import { FreshnessPreferences } from "./FreshnessPreferences";
 import { TargetRolesInput } from "./TargetRolesInput";
 import { IndustryInterests } from "./IndustryInterests";
 import {
@@ -1780,81 +1781,7 @@ function PreferencesEditor({
             <SalaryPolicies preferences={prefs} onChange={set} />
           </div>
         </section>
-        <section className="form-section">
-          <div className="form-section-heading">
-            <h2>Freshness & fit</h2>
-            <p>
-              Today is always included. A window of zero days means today only.
-            </p>
-          </div>
-          <div className="form-grid">
-            <Field label="Look back">
-              <input
-                type="number"
-                min="0"
-                max="365"
-                value={prefs.lookback}
-                onChange={(e) => set("lookback", +e.target.value)}
-              />
-            </Field>
-            <Field label="Window unit">
-              <select
-                value={prefs.lookbackUnit}
-                onChange={(e) =>
-                  set(
-                    "lookbackUnit",
-                    e.target.value as Preferences["lookbackUnit"],
-                  )
-                }
-              >
-                <option value="days">Previous days + today</option>
-                <option value="months">Previous calendar months + today</option>
-              </select>
-            </Field>
-            <Field label="Date policy">
-              <select
-                value={prefs.dateMode}
-                onChange={(e) =>
-                  set("dateMode", e.target.value as Preferences["dateMode"])
-                }
-              >
-                <option value="emphasize">
-                  Prioritize recent opportunities
-                </option>
-                <option value="strict">Exclude older opportunities</option>
-              </select>
-            </Field>
-            <Field label="Timezone">
-              <input
-                required
-                value={prefs.timezone}
-                onChange={(e) => set("timezone", e.target.value)}
-              />
-            </Field>
-            <Field label="Minimum overall match (%)">
-              <input
-                type="number"
-                min="0"
-                max="100"
-                value={prefs.minimumMatch}
-                onChange={(e) => set("minimumMatch", +e.target.value)}
-              />
-            </Field>
-            <Field label="Minimum essential coverage (%)">
-              <input
-                type="number"
-                min="0"
-                max="100"
-                value={prefs.essentialMatch}
-                onChange={(e) => set("essentialMatch", +e.target.value)}
-              />
-            </Field>
-          </div>
-          <p className="form-footnote">
-            Match thresholds apply to advertised requirements. Startups are
-            assessed for relevance and verified signals separately.
-          </p>
-        </section>
+        <FreshnessPreferences preferences={prefs} onChange={set} />
         <section className="form-section">
           <div className="form-section-heading">
             <h2>Local automation</h2>

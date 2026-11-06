@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { demoOpportunities, demoWorkspace } from "./fixtures.js";
 import {
   assessOpportunity,
@@ -18,17 +18,22 @@ function setup() {
   return { profile, preferences, job: demoOpportunities(now)[0] };
 }
 describe("date windows", () => {
-  it("includes today and uses the configured local day near UTC midnight", () => {
+  it("includes today and follows the computer's timezone near UTC midnight", () => {
     const { preferences } = setup();
-    expect(
-      dateWindow(
-        { ...preferences, lookback: 0 },
-        new Date("2026-11-06T02:00:00Z"),
-      ),
-    ).toEqual({ start: "2026-11-05", end: "2026-11-05" });
-    expect(
-      localDay(new Date("2026-11-06T02:00:00Z"), preferences.timezone),
-    ).toBe("2026-11-05");
+    const nearMidnight = new Date("2026-11-06T02:00:00Z");
+    try {
+      vi.stubEnv("TZ", "America/Guayaquil");
+      expect(
+        dateWindow({ ...preferences, lookback: 0 }, nearMidnight),
+      ).toEqual({ start: "2026-11-05", end: "2026-11-05" });
+      expect(localDay(nearMidnight)).toBe("2026-11-05");
+      vi.stubEnv("TZ", "UTC");
+      expect(
+        dateWindow({ ...preferences, lookback: 0 }, nearMidnight),
+      ).toEqual({ start: "2026-11-06", end: "2026-11-06" });
+    } finally {
+      vi.unstubAllEnvs();
+    }
   });
   it("clamps a calendar-month subtraction to the last valid day", () => {
     const { preferences } = setup();
@@ -61,16 +66,11 @@ describe("date windows", () => {
     expect(a.recommendation).toBe("ready");
     expect(a.reasons.join(" ")).toContain("lower freshness");
   });
-  it("records an invalid timezone without crashing the assessment", () => {
-    const { profile, preferences, job } = setup();
+  it("discards legacy timezone settings when loading saved preferences", () => {
+    const { preferences } = setup();
     expect(
-      assessOpportunity(
-        job,
-        profile,
-        { ...preferences, timezone: "Invalid/Zone" },
-        now,
-      ).unknowns.join(" "),
-    ).toContain("Invalid timezone");
+      PreferencesSchema.parse({ ...preferences, timezone: "Invalid/Zone" }),
+    ).toEqual(preferences);
   });
 });
 describe("evidence and eligibility", () => {
