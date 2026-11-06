@@ -57,6 +57,7 @@ import { api, date, downloadFile, safeUrl, uid, words, write } from "./api";
 import { SalaryFields } from "./SalaryFields";
 import { SalaryPolicies } from "./SalaryPolicies";
 import { FreshnessPreferences } from "./FreshnessPreferences";
+import { MatchingPreferences } from "./MatchingPreferences";
 import { TargetRolesInput } from "./TargetRolesInput";
 import { IndustryInterests } from "./IndustryInterests";
 import {
@@ -1782,6 +1783,7 @@ function PreferencesEditor({
           </div>
         </section>
         <FreshnessPreferences preferences={prefs} onChange={set} />
+        <MatchingPreferences preferences={prefs} onChange={set} />
         <section className="form-section">
           <div className="form-section-heading">
             <h2>Local automation</h2>

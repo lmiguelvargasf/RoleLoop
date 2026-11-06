@@ -1,14 +1,8 @@
 import { useId, useState } from "react";
-import { ChevronDown } from "lucide-react";
 import type { Preferences } from "../shared/types";
 import { PolicySelect } from "./PolicySelect";
 
-type FreshnessKey =
-  | "lookback"
-  | "lookbackUnit"
-  | "dateMode"
-  | "minimumMatch"
-  | "essentialMatch";
+type FreshnessKey = "lookback" | "lookbackUnit" | "dateMode";
 
 const ages = [0, 7, 14, 30];
 const ageLabel = (days: number) =>
@@ -22,8 +16,7 @@ export function FreshnessPreferences({
   onChange: <K extends FreshnessKey>(key: K, value: Preferences[K]) => void;
 }) {
   const id = useId();
-  const { lookback, lookbackUnit, dateMode, minimumMatch, essentialMatch } =
-    preferences;
+  const { lookback, lookbackUnit, dateMode } = preferences;
   const [customAge, setCustomAge] = useState(
     lookbackUnit === "days" && !ages.includes(lookback),
   );
@@ -47,17 +40,17 @@ export function FreshnessPreferences({
   return (
     <section className="form-section">
       <div className="form-section-heading">
-        <h2>Freshness & fit</h2>
-        <p>Prioritize recent opportunities that fit your experience.</p>
+        <h2>Opportunity age</h2>
+        <p>Choose how recent opportunities should be.</p>
       </div>
       <div className="freshness-preferences">
         <div className="freshness-controls">
           <div className="freshness-age">
             <PolicySelect
-              label="Opportunity age"
+              label="Preferred age"
               value={selectedAge}
               onChange={changeAge}
-              hint="Uses the original posting or signal date."
+              hint="Uses the job posting date or startup update date."
               options={[
                 ...(legacyMonths
                   ? [
@@ -82,7 +75,7 @@ export function FreshnessPreferences({
             />
             {customAge && !legacyMonths && (
               <div className="freshness-custom-age">
-                <label htmlFor={`${id}-days`}>Maximum age</label>
+                <label htmlFor={`${id}-days`}>Days to look back</label>
                 <div className="preference-number-input">
                   <input
                     id={`${id}-days`}
@@ -112,8 +105,8 @@ export function FreshnessPreferences({
             options={[
               {
                 value: "emphasize",
-                label: "Keep, but prioritize recent",
-                description: "Older opportunities can still qualify as a match.",
+                label: "Keep older opportunities",
+                description: "Give recent opportunities priority in your results.",
               },
               {
                 value: "strict",
@@ -124,49 +117,6 @@ export function FreshnessPreferences({
             ]}
           />
         </div>
-        <details className="matching-details">
-          <summary>
-            <span className="matching-details-label">
-              <ChevronDown size={15} aria-hidden="true" />
-              Fine-tune matching
-            </span>
-            <span className="matching-details-values">
-              {minimumMatch}% overall <span aria-hidden="true">·</span>{" "}
-              {essentialMatch}% must-have
-            </span>
-          </summary>
-          <div className="matching-settings">
-            {([
-              ["minimumMatch", "Overall match", minimumMatch],
-              ["essentialMatch", "Must-have requirements", essentialMatch],
-            ] as const).map(([key, label, value]) => (
-              <div className="matching-field" key={key}>
-                <label htmlFor={`${id}-${key}`}>{label}</label>
-                <div className="preference-number-input">
-                  <input
-                    id={`${id}-${key}`}
-                    type="number"
-                    inputMode="decimal"
-                    min="0"
-                    max="100"
-                    step="any"
-                    value={value}
-                    aria-describedby={`${id}-matching-hint`}
-                    onChange={(event) => onChange(key, +event.target.value)}
-                    onInvalid={(event) => {
-                      event.currentTarget.closest("details")!.open = true;
-                    }}
-                  />
-                  <span aria-hidden="true">%</span>
-                </div>
-              </div>
-            ))}
-            <p className="preference-hint matching-hint" id={`${id}-matching-hint`}>
-              Minimum coverage from your verified experience. Jobs below either
-              minimum need review. Startups are assessed separately.
-            </p>
-          </div>
-        </details>
       </div>
     </section>
   );

@@ -1924,53 +1924,20 @@ code {
   font-size: 10px;
   line-height: 1.7;
 }
-.matching-details {
-  margin-top: 20px;
-  border-top: 1px solid var(--line);
-}
-.matching-details > summary {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 8px 20px;
-  min-height: 48px;
-  padding: 12px 0;
-  list-style: none;
-  cursor: pointer;
-}
-.matching-details > summary::-webkit-details-marker {
-  display: none;
-}
-.matching-details-label {
-  display: inline-flex;
-  align-items: center;
-  gap: 8px;
-  color: #337582;
-  font-size: 11px;
-  font-weight: 550;
-}
-.matching-details-label svg {
-  transition: transform 0.16s;
-}
-.matching-details[open] .matching-details-label svg {
-  transform: rotate(180deg);
-}
-.matching-details-values {
-  color: var(--muted);
-  font-size: 10px;
-  font-variant-numeric: tabular-nums;
-}
-.matching-details-values > span {
-  margin: 0 3px;
-  color: #a6b2bd;
-}
 .matching-settings {
-  padding: 4px 0 8px;
   gap: 12px 18px;
 }
-.matching-hint {
+.matching-outcome {
   grid-column: 1/-1;
-  margin: 0;
+  padding-top: 12px;
+  border-top: 1px solid var(--line);
+  color: var(--muted);
+  font-size: 11px;
+  line-height: 1.7;
+}
+.matching-outcome strong {
+  color: #536b80;
+  font-weight: 550;
 }
 @media (max-width: 600px) {
   .compensation-grid,
@@ -1979,13 +1946,6 @@ code {
   .freshness-controls,
   .matching-settings {
     grid-template-columns: minmax(0, 1fr);
-  }
-  .matching-details > summary {
-    align-items: flex-start;
-    flex-direction: column;
-  }
-  .matching-details-values {
-    margin-left: 23px;
   }
   .policy-trigger,
   .preference-number-input input {
