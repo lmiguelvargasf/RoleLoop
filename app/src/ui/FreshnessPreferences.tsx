@@ -10,7 +10,7 @@ type FreshnessKey =
   | "minimumMatch"
   | "essentialMatch";
 
-const ages = [0, 7, 14, 30, 90];
+const ages = [0, 7, 14, 30];
 const ageLabel = (days: number) =>
   days === 0 ? "Today only" : `Up to ${days} ${days === 1 ? "day" : "days"} old`;
 
