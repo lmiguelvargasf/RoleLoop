@@ -26,6 +26,7 @@ export const PreferencesSchema = z.object({
   minimumSalary: z.number().min(0),
   targetSalary: z.number().min(0).nullable().default(null),
   salaryPolicy: z.enum(["overlap", "strict"]),
+  salaryFlexibility: z.boolean().default(false),
   missingSalary: z.enum(["review", "exclude", "include"]),
   lookback: z.number().int().min(0).max(365),
   lookbackUnit: z.enum(["days", "months"]),

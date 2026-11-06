@@ -1675,9 +1675,195 @@ code {
   font-size: 10px;
   font-weight: 400;
 }
+.salary-policies {
+  grid-column: 1/-1;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  align-items: start;
+  gap: 18px;
+}
+.salary-policy-select {
+  min-width: 0;
+}
+.salary-policy-label {
+  display: block;
+  margin-bottom: 8px;
+  color: #6b7b8e;
+  font-size: 11px;
+  font-weight: 550;
+}
+.salary-policy-anchor {
+  position: relative;
+}
+.salary-policy-trigger {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  width: 100%;
+  min-height: 44px;
+  padding: 11px 13px;
+  border: 1px solid #dce3eb;
+  border-radius: 6px;
+  background: var(--paper);
+  color: #33485e;
+  font-size: 12px;
+  font-weight: 500;
+  text-align: left;
+  line-height: 1.5;
+}
+.salary-policy-trigger:hover {
+  border-color: #a9bec9;
+}
+.salary-policy-trigger[aria-expanded="true"] {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px #087f8c0d;
+}
+.salary-policy-trigger svg {
+  flex-shrink: 0;
+  color: #8292a3;
+}
+.salary-policy-trigger[aria-expanded="true"] svg {
+  transform: rotate(180deg);
+  color: var(--accent);
+}
+.salary-policy-hint {
+  margin-top: 8px;
+  color: var(--muted);
+  font-size: 10px;
+  line-height: 1.7;
+}
+.salary-policy-menu {
+  position: absolute;
+  top: calc(100% + 7px);
+  left: 0;
+  right: 0;
+  z-index: 20;
+  max-height: min(300px, 50vh);
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  padding: 5px;
+  border: 1px solid #dce3eb;
+  border-radius: 9px;
+  background: var(--paper);
+  box-shadow: 0 12px 32px #18293b1c, 0 2px 5px #18293b08;
+}
+.salary-policy-menu.above {
+  top: auto;
+  bottom: calc(100% + 7px);
+}
+.salary-policy-menu button {
+  display: flex;
+  align-items: flex-start;
+  gap: 9px;
+  width: 100%;
+  padding: 10px 9px;
+  border: 0;
+  border-radius: 5px;
+  background: transparent;
+  text-align: left;
+}
+.salary-policy-menu button:hover,
+.salary-policy-menu button:focus-visible {
+  outline: 0;
+  background: #f0f6f7;
+}
+.salary-policy-menu button[aria-selected="true"] {
+  color: var(--accent);
+}
+.salary-policy-check {
+  display: flex;
+  flex: 0 0 15px;
+  padding-top: 2px;
+}
+.salary-policy-menu button > span:last-child {
+  display: grid;
+  gap: 4px;
+}
+.salary-policy-menu strong {
+  font-size: 12px;
+  line-height: 1.5;
+  font-weight: 550;
+}
+.salary-policy-menu button > span > span {
+  color: #718092;
+  font-size: 10px;
+  line-height: 1.6;
+}
+.salary-flexibility {
+  grid-column: 1/-1;
+  padding-top: 16px;
+  border-top: 1px solid var(--line);
+}
+.salary-flexibility-control {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 20px;
+  cursor: pointer;
+}
+.salary-flexibility-control > span {
+  display: grid;
+  gap: 5px;
+}
+.salary-flexibility-control strong {
+  color: #33485e;
+  font-size: 12px;
+  font-weight: 550;
+  line-height: 1.6;
+}
+.salary-flexibility-control > span > span {
+  color: var(--muted);
+  font-size: 10px;
+  line-height: 1.6;
+}
+.salary-flexibility-control input {
+  position: relative;
+  flex: 0 0 36px;
+  width: 36px;
+  height: 21px;
+  margin: 0;
+  padding: 0;
+  border: 1px solid #cad4df;
+  border-radius: 20px;
+  appearance: none;
+  background: #d8e0e9;
+  cursor: pointer;
+}
+.salary-flexibility-control input::after {
+  content: "";
+  position: absolute;
+  left: 2px;
+  top: 2px;
+  width: 15px;
+  height: 15px;
+  border-radius: 50%;
+  background: var(--paper);
+  box-shadow: 0 1px 3px #18293b24;
+}
+.salary-flexibility-control input:checked {
+  border-color: var(--accent);
+  background: var(--accent);
+}
+.salary-flexibility-control input:checked::after {
+  left: 17px;
+}
+.salary-flexibility-summary {
+  margin-top: 12px;
+  color: var(--accent);
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+}
+.salary-flexibility-summary strong {
+  font-weight: 600;
+}
+.salary-flexibility-summary > span {
+  color: var(--muted);
+}
 @media (max-width: 600px) {
   .compensation-grid,
-  .salary-fields {
+  .salary-fields,
+  .salary-policies {
     grid-template-columns: minmax(0, 1fr);
   }
 }

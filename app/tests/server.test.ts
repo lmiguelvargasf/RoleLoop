@@ -84,6 +84,7 @@ describe("draft approval API guards", () => {
   it("rejects approval when pay, essential coverage, or date selection changes", () => {
     for (const patch of [
       { minimumSalary: 130000 },
+      { salaryFlexibility: true },
       { essentialMatch: 100 },
       { lookback: 0 },
     ]) {

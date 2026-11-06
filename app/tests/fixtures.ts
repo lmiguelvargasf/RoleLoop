@@ -52,6 +52,7 @@ export function demoWorkspace(): Workspace {
       minimumSalary: 90000,
       targetSalary: 120000,
       salaryPolicy: "overlap",
+      salaryFlexibility: false,
       missingSalary: "review",
       lookback: 30,
       lookbackUnit: "days",

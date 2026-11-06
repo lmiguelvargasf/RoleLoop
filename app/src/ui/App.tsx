@@ -55,6 +55,7 @@ import type {
 } from "../shared/types";
 import { api, date, downloadFile, safeUrl, uid, words, write } from "./api";
 import { SalaryFields } from "./SalaryFields";
+import { SalaryPolicies } from "./SalaryPolicies";
 import { TargetRolesInput } from "./TargetRolesInput";
 import { IndustryInterests } from "./IndustryInterests";
 import {
@@ -1776,39 +1777,7 @@ function PreferencesEditor({
               targetSalary={prefs.targetSalary}
               onChange={set}
             />
-            <Field label="Salary range policy">
-              <select
-                value={prefs.salaryPolicy}
-                onChange={(e) =>
-                  set(
-                    "salaryPolicy",
-                    e.target.value as Preferences["salaryPolicy"],
-                  )
-                }
-              >
-                <option value="overlap">Range may reach my minimum</option>
-                <option value="strict">
-                  Advertised minimum must meet mine
-                </option>
-              </select>
-            </Field>
-            <Field label="When salary is missing">
-              <select
-                value={prefs.missingSalary}
-                onChange={(e) =>
-                  set(
-                    "missingSalary",
-                    e.target.value as Preferences["missingSalary"],
-                  )
-                }
-              >
-                <option value="review">Keep for review</option>
-                <option value="include">
-                  Include with uncertainty visible
-                </option>
-                <option value="exclude">Exclude advertised jobs</option>
-              </select>
-            </Field>
+            <SalaryPolicies preferences={prefs} onChange={set} />
           </div>
         </section>
         <section className="form-section">

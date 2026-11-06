@@ -85,6 +85,7 @@ export function emptyWorkspace(user: User): Workspace {
       minimumSalary: 90000,
       targetSalary: null,
       salaryPolicy: "overlap",
+      salaryFlexibility: false,
       missingSalary: "review",
       lookback: 30,
       lookbackUnit: "days",

@@ -1,4 +1,5 @@
 import { createHash } from "node:crypto";
+import { salaryReviewMinimum } from "../shared/salary.js";
 import {
   industryPriorityBoost,
   preferredIndustryMatches,
@@ -259,20 +260,25 @@ export function assessOpportunity(
       const multiplier = op.salaryPeriod === "month" ? 12 : 1;
       const lower = op.salaryMin === null ? null : op.salaryMin * multiplier;
       const upper = op.salaryMax === null ? null : op.salaryMax * multiplier;
+      const minimum = prefs.salaryFlexibility
+        ? salaryReviewMinimum(prefs.minimumSalary)
+        : prefs.minimumSalary;
+      const comparedSalary = prefs.salaryPolicy === "strict" ? lower : upper;
       if (lower !== null && upper !== null && lower > upper)
         unknowns.push("The salary range is inconsistent.");
-      else if (prefs.salaryPolicy === "strict") {
-        if (lower === null)
-          unknowns.push(
-            "A salary minimum is needed for your strict salary policy.",
-          );
-        else if (lower < prefs.minimumSalary)
-          blockers.push(
-            "The advertised salary minimum is below your required floor.",
-          );
-      } else if (upper !== null && upper < prefs.minimumSalary)
+      else if (prefs.salaryPolicy === "strict" && lower === null)
+        unknowns.push(
+          "A salary minimum is needed for your strict salary policy.",
+        );
+      else if (comparedSalary !== null && comparedSalary < minimum)
         blockers.push(
-          "The advertised salary maximum is below your required floor.",
+          prefs.salaryPolicy === "strict"
+            ? "The advertised salary minimum is below your required floor."
+            : "The advertised salary maximum is below your required floor.",
+        );
+      else if (comparedSalary !== null && comparedSalary < prefs.minimumSalary)
+        unknowns.push(
+          "Below your minimum; consider benefits. Within your 10% salary flexibility; confirm the full compensation package before proceeding.",
         );
       else if (lower !== null && lower < prefs.minimumSalary)
         unknowns.push(

@@ -197,6 +197,139 @@ describe("evidence and eligibility", () => {
   });
 });
 describe("salary policies", () => {
+  it("defaults older saved preferences to no salary flexibility", () => {
+    const { salaryFlexibility, ...older } = setup().preferences;
+    expect(PreferencesSchema.parse(older).salaryFlexibility).toBe(false);
+  });
+  it.each(["overlap", "strict"] as const)(
+    "keeps the 10%% allowance opt-in and review-only with the %s policy",
+    (salaryPolicy) => {
+      const { profile, preferences, job } = setup();
+      const prefs = { ...preferences, minimumSalary: 108000, salaryPolicy };
+      job.salaryMin = job.salaryMax = 100000;
+      expect(assessOpportunity(job, profile, prefs, now).recommendation).toBe(
+        "excluded",
+      );
+      const flexible = assessOpportunity(
+        job,
+        profile,
+        { ...prefs, salaryFlexibility: true },
+        now,
+      );
+      expect(flexible.recommendation).toBe("review");
+      expect(flexible.unknowns.join(" ")).toContain(
+        "Below your minimum; consider benefits",
+      );
+      expect(flexible.blockers).toEqual([]);
+      expect(prefs.minimumSalary).toBe(108000);
+    },
+  );
+  it.each(["overlap", "strict"] as const)(
+    "includes the exact 10%% boundary and excludes a cent below it with %s",
+    (salaryPolicy) => {
+      const { profile, preferences, job } = setup();
+      const prefs = {
+        ...preferences,
+        minimumSalary: 108000,
+        salaryPolicy,
+        salaryFlexibility: true,
+      };
+      for (const [salary, recommendation] of [
+        [97199.99, "excluded"],
+        [97200, "review"],
+        [108000, "ready"],
+        [200000, "ready"],
+      ] as const) {
+        job.salaryMin = job.salaryMax = salary;
+        expect(assessOpportunity(job, profile, prefs, now).recommendation).toBe(
+          recommendation,
+        );
+      }
+    },
+  );
+  it("compares the selected end of the range when flexibility is enabled", () => {
+    const { profile, preferences, job } = setup();
+    job.salaryMin = 90000;
+    job.salaryMax = 100000;
+    const prefs = {
+      ...preferences,
+      minimumSalary: 108000,
+      salaryFlexibility: true,
+    };
+    expect(assessOpportunity(job, profile, prefs, now).recommendation).toBe(
+      "review",
+    );
+    expect(
+      assessOpportunity(
+        job,
+        profile,
+        { ...prefs, salaryPolicy: "strict" },
+        now,
+      ).recommendation,
+    ).toBe("excluded");
+    job.salaryMin = 100000;
+    job.salaryMax = 120000;
+    expect(
+      assessOpportunity(
+        job,
+        profile,
+        { ...prefs, salaryPolicy: "strict" },
+        now,
+      ).recommendation,
+    ).toBe("review");
+  });
+  it.each(["overlap", "strict"] as const)(
+    "applies flexibility to annualized monthly pay with %s",
+    (salaryPolicy) => {
+      const { profile, preferences, job } = setup();
+      job.salaryMin = job.salaryMax = 8100;
+      job.salaryPeriod = "month";
+      const prefs = {
+        ...preferences,
+        minimumSalary: 108000,
+        salaryPolicy,
+        salaryFlexibility: true,
+      };
+      expect(assessOpportunity(job, profile, prefs, now).recommendation).toBe(
+        "review",
+      );
+      job.salaryMin = job.salaryMax = 8099.99;
+      expect(assessOpportunity(job, profile, prefs, now).recommendation).toBe(
+        "excluded",
+      );
+    },
+  );
+  it("keeps undisclosed pay under the separate missing-salary policy", () => {
+    const { profile, preferences, job } = setup();
+    job.salaryMin = job.salaryMax = null;
+    for (const [missingSalary, recommendation] of [
+      ["review", "review"],
+      ["include", "ready"],
+      ["exclude", "excluded"],
+    ] as const) {
+      const result = assessOpportunity(
+        job,
+        profile,
+        { ...preferences, salaryFlexibility: true, missingSalary },
+        now,
+      );
+      expect(result.recommendation).toBe(recommendation);
+      expect(result.unknowns.join(" ")).not.toContain("10% salary flexibility");
+    }
+  });
+  it("does not let salary flexibility bypass other exclusion rules", () => {
+    const { profile, preferences, job } = setup();
+    job.salaryMin = job.salaryMax = 100000;
+    job.remoteScope = "us";
+    const result = assessOpportunity(
+      job,
+      profile,
+      { ...preferences, minimumSalary: 108000, salaryFlexibility: true },
+      now,
+    );
+    expect(result.recommendation).toBe("excluded");
+    expect(result.blockers.join(" ")).toContain("United States");
+  });
   it("accepts an unset target and preserves existing targets", () => {
     const { preferences } = setup();
     expect(PreferencesSchema.parse(preferences).targetSalary).toBe(120000);

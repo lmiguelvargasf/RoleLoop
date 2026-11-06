@@ -186,6 +186,70 @@ integration(
         "Target salary must be at least the minimum salary",
       );
     });
+    it("persists salary flexibility and reassesses existing jobs when it changes", async () => {
+      const actor = await account("Salary flexibility test");
+      const requestHeaders = headers(actor, actor.workspaceId);
+      const own = await app.inject({
+        url: "/api/bootstrap",
+        headers: requestHeaders,
+      });
+      expect(own.statusCode, own.body).toBe(200);
+      const preferences = own.json().preferences;
+      expect(preferences.salaryFlexibility).toBe(false);
+      const created = await app.inject({
+        method: "POST",
+        url: "/api/opportunities",
+        headers: requestHeaders,
+        payload: {
+          kind: "job",
+          company: "Benefits review test",
+          title: "Software Engineer",
+          description: "A remote software engineering role.",
+          url: "https://example.com/salary-flexibility-test",
+          companyCountry: "United States",
+          remoteScope: "worldwide",
+          salaryMin: 100000,
+          salaryMax: 100000,
+          salaryCurrency: "USD",
+          salaryPeriod: "year",
+          publishedAt: new Date().toISOString(),
+        },
+      });
+      expect(created.statusCode, created.body).toBe(200);
+      for (const salaryPolicy of ["overlap", "strict"]) {
+        for (const salaryFlexibility of [false, true, false]) {
+          const updated = await app.inject({
+            method: "PUT",
+            url: "/api/preferences",
+            headers: requestHeaders,
+            payload: {
+              ...preferences,
+              minimumSalary: 108000,
+              salaryPolicy,
+              salaryFlexibility,
+            },
+          });
+          expect(updated.statusCode, updated.body).toBe(200);
+          const loaded = await app.inject({
+            url: "/api/bootstrap",
+            headers: requestHeaders,
+          });
+          expect(loaded.statusCode, loaded.body).toBe(200);
+          expect(loaded.json().preferences).toMatchObject({
+            minimumSalary: 108000,
+            salaryPolicy,
+            salaryFlexibility,
+          });
+          const assessment = loaded.json().opportunities[0].assessment;
+          expect(assessment.recommendation).toBe(
+            salaryFlexibility ? "review" : "excluded",
+          );
+          expect(assessment.unknowns.join(" ").includes("consider benefits")).toBe(
+            salaryFlexibility,
+          );
+        }
+      }
+    });
     it("persists industry preferences and changes priority in both discovery lists without filtering", async () => {
       const actor = await account("Industry preferences test");
       const own = await app.inject({
