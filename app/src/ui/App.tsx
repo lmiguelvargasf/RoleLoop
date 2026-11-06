@@ -16,7 +16,6 @@ import {
   Briefcase,
   Check,
   CheckCircle2,
-  ChevronRight,
   Clock3,
   Database,
   Download,
@@ -372,7 +371,20 @@ export function App({
           RoleLoop<span className="brand-period">.</span>
         </a>
         <div className="workspace-picker">
-          <label htmlFor="workspace-picker">WORKSPACE</label>
+          <div className="workspace-picker-heading">
+            <label htmlFor="workspace-picker">WORKSPACE</label>
+            <IconButton
+              label="Refresh workspace"
+              onClick={() => void refresh()}
+              disabled={busy}
+            >
+              <RefreshCw
+                size={14}
+                className={busy ? "spin" : ""}
+                aria-hidden="true"
+              />
+            </IconButton>
+          </div>
           <select
             id="workspace-picker"
             aria-label="Active workspace"
@@ -452,24 +464,6 @@ export function App({
         </div>
       </aside>
       <main className="main-area">
-        <header className="topbar">
-          <div className="breadcrumb">
-            <span className="breadcrumb-workspace">{workspace.name}</span>
-            <ChevronRight size={13} />
-            <strong>{nav.find((n) => n.id === page)?.label}</strong>
-          </div>
-          <div className="topbar-right">
-            <span className="local-dot" />
-            On your computer
-            <IconButton
-              label="Refresh workspace"
-              onClick={() => void refresh()}
-              disabled={busy}
-            >
-              <RefreshCw size={15} className={busy ? "spin" : ""} />
-            </IconButton>
-          </div>
-        </header>
         {accountNotice && page !== "account" && (
           <div className="notice neutral" role="status">
             <ShieldCheck size={16} />
@@ -1718,15 +1712,12 @@ function PreferencesEditor({
   const set = <K extends keyof Preferences>(key: K, value: Preferences[K]) =>
     setPrefs((p) => ({ ...p, [key]: value }));
   return (
-    <section className="page form-page">
-      <div className="page-heading">
-        <div>
-          <div className="eyebrow">DEFINE YOUR SEARCH</div>
-          <h1>Search preferences</h1>
-          <p>Set the boundaries. Let both discovery paths work within them.</p>
-        </div>
-      </div>
+    <section
+      className="page form-page preferences-page"
+      aria-labelledby="preferences-title"
+    >
       <form
+        className="preferences-form"
         onSubmit={(e) => {
           e.preventDefault();
           void perform(
@@ -1735,6 +1726,34 @@ function PreferencesEditor({
           );
         }}
       >
+        <header className="preferences-header">
+          <div className="preferences-heading">
+            <h1 id="preferences-title">Search preferences</h1>
+            <p>Applies to job opportunities and startup prospects.</p>
+          </div>
+          <div className="preferences-actions">
+            <span
+              className={`preferences-save-state${dirty ? " is-dirty" : ""}`}
+              role="status"
+            >
+              {busy ? (
+                <LoaderCircle size={14} className="spin" aria-hidden="true" />
+              ) : dirty ? (
+                <Pencil size={13} aria-hidden="true" />
+              ) : (
+                <Check size={15} aria-hidden="true" />
+              )}
+              {busy ? "Saving…" : dirty ? "Unsaved changes" : "All changes saved"}
+            </span>
+            <button
+              type="submit"
+              className="button primary"
+              disabled={busy || !dirty}
+            >
+              Save changes
+            </button>
+          </div>
+        </header>
         <section className="form-section">
           <div className="form-section-heading">
             <h2>Roles & location</h2>
@@ -1872,16 +1891,6 @@ function PreferencesEditor({
             </Field>
           </div>
         </section>
-        <div className="form-save preferences-save">
-          <span className="muted" role="status">
-            {dirty ? <Pencil size={14} /> : <Check size={15} />}
-            {busy ? "Saving changes…" : dirty ? "Unsaved preferences" : "Preferences saved"}
-          </span>
-          <button className="button primary" disabled={busy || !dirty}>
-            <Save size={16} />
-            Save preferences
-          </button>
-        </div>
       </form>
     </section>
   );
