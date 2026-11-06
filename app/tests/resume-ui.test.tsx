@@ -16,7 +16,7 @@ describe("resume evidence visibility", () => {
     expect(html).toContain("Ready for a fresh extraction");
     expect(html).not.toContain("Alex Morgan");
     expect(html).not.toContain("Built and maintained");
-    expect(html).toContain("Extract career details");
+    expect(html).toContain("Extract details");
   });
 
   it.each(["processing", "failed"] as const)(
@@ -82,5 +82,30 @@ describe("resume evidence visibility", () => {
     expect(html).toContain("The AI service took too long");
     expect(html).toContain("original resume is saved");
     expect(html).not.toContain("Your resume needs another look");
+  });
+
+  it("makes partial extraction visible before the notes are expanded", () => {
+    const profile = demoWorkspace().profile;
+    profile.cache!.warnings = ["One page had no readable text."];
+    const html = render(profile);
+    expect(html).toContain("Some details may be missing");
+    expect(html).toContain("Review extraction notes");
+    expect(html).toContain("One page had no readable text.");
+    expect(html).not.toContain("Ready to review");
+  });
+
+  it("offers replacement rather than a no-op retry when extraction returns no facts", () => {
+    const profile = demoWorkspace().profile;
+    profile.cache!.facts = {
+      name: "",
+      portfolio: "",
+      sections: [],
+      evidence: [],
+    };
+    const html = render(profile);
+    expect(html).toContain("No details could be extracted");
+    expect(html).toContain("Replace resume");
+    expect(html).not.toContain("Ready to review");
+    expect(html).not.toContain("Retry extraction");
   });
 });

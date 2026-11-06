@@ -22,20 +22,30 @@ type Props = {
   busy: boolean;
   perform: (task: () => Promise<unknown>, success?: string) => Promise<boolean>;
 };
+type Confirmation =
+  | { kind: "replace"; file: File }
+  | { kind: "clear"; sourceId: string | null; cacheId: string | null };
+
 export function ResumePage({ initial: profile, busy, perform }: Props) {
-  const [confirmClear, setConfirmClear] = useState<{
-    sourceId: string | null;
-    cacheId: string | null;
-  } | null>(null);
+  const [confirmation, setConfirmation] = useState<Confirmation | null>(null);
   const [dragging, setDragging] = useState(false);
-  const [importing, setImporting] = useState(false);
+  const [pending, setPending] = useState<{
+    kind: "upload" | "retry";
+    sourceId: string | null;
+  } | null>(null);
   const [error, setError] = useState("");
   const [preview, setPreview] = useState<{
     url: string;
     kind: "pdf" | "docx";
   } | null>(null);
-  const dialog = useRef<HTMLDialogElement>(null);
+  const previewDialog = useRef<HTMLDialogElement>(null);
+  const previewTrigger = useRef<HTMLButtonElement>(null);
+  const restorePreviewFocus = useRef(false);
+  const confirmDialog = useRef<HTMLDialogElement>(null);
   const fileInput = useRef<HTMLInputElement>(null);
+  const heading = useRef<HTMLHeadingElement>(null);
+  const processingHeading = useRef<HTMLHeadingElement>(null);
+  const hadPending = useRef(false);
   const mounted = useRef(true);
   useEffect(() => {
     mounted.current = true;
@@ -44,48 +54,121 @@ export function ResumePage({ initial: profile, busy, perform }: Props) {
     };
   }, []);
   useEffect(() => {
-    if (preview) dialog.current?.showModal();
+    if (preview) previewDialog.current?.showModal();
     return () => {
       if (preview) URL.revokeObjectURL(preview.url);
     };
   }, [preview]);
+  useEffect(() => {
+    if (confirmation) confirmDialog.current?.showModal();
+  }, [confirmation]);
+
+  const source = profile.source;
   const facts = careerFacts(profile);
-  const ready = Boolean(facts);
+  const ready = Boolean(facts?.evidence.length || facts?.sections.length);
   const activeExtraction = resumeProcessingActive(profile.cache);
+  const uploading =
+    pending?.kind === "upload" && (source?.id ?? null) === pending.sourceId;
+  const starting = pending?.kind === "retry" && !activeExtraction && !ready;
+  const processing = uploading || starting || activeExtraction;
   const interrupted =
     profile.cache?.status === "processing" && !activeExtraction;
-  const processing = importing || activeExtraction;
   const failed = profile.cache?.status === "failed" || interrupted;
+  const noDetails = Boolean(facts && !ready);
+  const warnings = profile.cache?.warnings ?? [];
   const failureMessage = interrupted
-    ? "Processing was interrupted or exceeded its time limit. Your original resume is saved. Retry extraction to continue."
+    ? "Processing was interrupted or exceeded its time limit. Retry extraction using your saved resume."
     : profile.cache?.error === "The operation was aborted due to timeout"
-      ? "The AI service took too long to respond. Your original resume is saved. Retry extraction; you don’t need to upload it again."
-      : profile.cache?.error;
-  const source = profile.source;
+      ? "The AI service took too long to respond. Retry extraction using your saved resume."
+      : profile.cache?.error ||
+        "We couldn’t extract the details from this resume. Retry extraction, or replace it with a readable document.";
   const sourcePath = source
     ? `/profile/sources/${source.id}/${source.kind}`
     : "";
-  async function upload(file?: File) {
-    if (!file) return;
-    setError("");
-    if (
-      !/\.(pdf|docx)$/i.test(file.name) ||
-      !file.size ||
-      file.size > 2 * 1024 * 1024
-    ) {
-      setError("Choose a PDF or Word (.docx) document smaller than 2 MB.");
-      return;
+  const locked = busy || Boolean(pending);
+  const portfolio = facts?.portfolio && safeUrl(facts.portfolio);
+
+  useEffect(() => {
+    if (!preview && !locked && restorePreviewFocus.current) {
+      previewTrigger.current?.focus();
+      restorePreviewFocus.current = false;
     }
-    dialog.current?.close();
-    setConfirmClear(null);
-    setImporting(true);
+  }, [preview, locked]);
+
+  useEffect(() => {
+    if (pending && !hadPending.current) processingHeading.current?.focus();
+    if (
+      !pending &&
+      hadPending.current &&
+      document.activeElement === document.body
+    )
+      heading.current?.focus();
+    hadPending.current = Boolean(pending);
+  }, [pending]);
+
+  useEffect(() => {
+    if (!uploading) return;
+    const beforeUnload = (event: BeforeUnloadEvent) => {
+      event.preventDefault();
+    };
+    window.addEventListener("beforeunload", beforeUnload);
+    return () => window.removeEventListener("beforeunload", beforeUnload);
+  }, [uploading]);
+
+  async function run(
+    task: () => Promise<unknown>,
+    nextAction: string,
+    success?: string,
+  ) {
+    setError("");
+    return perform(async () => {
+      try {
+        return await task();
+      } catch (cause) {
+        if (
+          mounted.current &&
+          !(cause instanceof DOMException && cause.name === "AbortError")
+        ) {
+          const message =
+            cause instanceof Error
+              ? cause.message
+              : "The request didn’t finish.";
+          setError(`${message} ${nextAction}`);
+        }
+        throw cause;
+      }
+    }, success);
+  }
+  function choose(file?: File) {
+    if (!file || locked) return;
+    setError("");
+    if (!/\.(pdf|docx)$/i.test(file.name)) {
+      setError(
+        "This file type isn’t supported. Choose a PDF or Word (.docx) document.",
+      );
+    } else if (!file.size) {
+      setError("This file is empty. Choose a resume that contains text.");
+    } else if (file.size > 2 * 1024 * 1024) {
+      setError(
+        "This file is larger than 2 MB. Choose a smaller PDF or Word document.",
+      );
+    } else if (source) {
+      setConfirmation({ kind: "replace", file });
+    } else {
+      void upload(file);
+    }
+  }
+  async function upload(file: File) {
+    confirmDialog.current?.close();
+    setConfirmation(null);
+    setPending({ kind: "upload", sourceId: source?.id ?? null });
     try {
-      await perform(async () => {
+      await run(async () => {
         const data = await new Promise<string>((resolve, reject) => {
           const reader = new FileReader();
           reader.onload = () => resolve(String(reader.result).split(",")[1]);
           reader.onerror = () =>
-            reject(new Error("The CV could not be read. Try again."));
+            reject(new Error("The resume could not be read."));
           reader.readAsDataURL(file);
         });
         if (!mounted.current)
@@ -94,70 +177,70 @@ export function ResumePage({ initial: profile, busy, perform }: Props) {
           method: "POST",
           body: JSON.stringify({ name: file.name, data }),
         });
-      });
+      }, "Try uploading your resume again.");
     } finally {
-      setImporting(false);
-      if (fileInput.current) fileInput.current.value = "";
+      if (mounted.current) setPending(null);
     }
   }
-  const uploadButton = (label: string) => (
+  async function extract() {
+    setPending({ kind: "retry", sourceId: source?.id ?? null });
+    try {
+      await run(
+        () => api("/profile/process", { method: "POST", body: "{}" }),
+        "Retry extraction when you’re ready.",
+      );
+    } finally {
+      if (mounted.current) setPending(null);
+    }
+  }
+  const uploadButton = (label: string, primary = true) => (
     <button
       type="button"
-      className="button primary"
-      disabled={busy || importing}
+      className={`button${primary ? " primary" : ""}`}
+      disabled={locked}
       onClick={() => fileInput.current?.click()}
     >
-      {importing ? (
-        <LoaderCircle size={16} className="spin" aria-hidden="true" />
-      ) : (
-        <Upload size={16} aria-hidden="true" />
-      )}
-      {importing ? "Reading resume…" : label}
+      <Upload size={16} aria-hidden="true" />
+      {label}
     </button>
   );
-  const processButton = source && !ready && !processing && (
-    <button
-      type="button"
-      className="button primary"
-      disabled={busy}
-      onClick={() =>
-        void perform(() =>
-          api("/profile/process", { method: "POST", body: "{}" }),
-        )
-      }
-    >
-      <RotateCcw size={15} aria-hidden="true" />
-      {failed ? "Retry extraction" : "Extract career details"}
-    </button>
-  );
-  const portfolio = facts?.portfolio && safeUrl(facts.portfolio);
+  const status = uploading
+    ? "Uploading resume…"
+    : starting
+      ? "Starting extraction…"
+      : activeExtraction
+        ? "Extracting details…"
+        : ready
+          ? warnings.length
+            ? "Review extraction notes"
+            : "Ready to review"
+          : failed
+            ? "Extraction didn’t finish"
+            : source
+              ? "No extracted details"
+              : "No resume yet";
   return (
     <section className="page resume-page" aria-labelledby="resume-title">
       <header className="page-heading">
         <div>
-          <h1 id="resume-title">Resume</h1>
-          <p>Review the facts used for role matching and application drafts.</p>
+          <h1 id="resume-title" ref={heading} tabIndex={-1}>
+            Resume
+          </h1>
+          <p>Your resume, organized for role matching.</p>
         </div>
         <span
-          className={`resume-status${ready && !importing ? " is-ready" : ""}`}
+          className={`resume-status${ready && !processing && !warnings.length ? " is-ready" : ""}`}
           role="status"
+          aria-atomic="true"
         >
           {processing ? (
-            <LoaderCircle size={14} className="spin" aria-hidden="true" />
+            <LoaderCircle size={15} className="spin" aria-hidden="true" />
+          ) : failed || (ready && warnings.length) ? (
+            <AlertCircle size={15} aria-hidden="true" />
           ) : ready ? (
-            <CheckCircle2 size={14} aria-hidden="true" />
-          ) : failed ? (
-            <AlertCircle size={14} aria-hidden="true" />
+            <CheckCircle2 size={15} aria-hidden="true" />
           ) : null}
-          {processing
-            ? "Extracting details"
-            : ready
-              ? "Ready for matching"
-              : failed
-                ? "Extraction didn’t finish"
-                : source
-                  ? "No extracted details"
-                  : "No resume yet"}
+          {status}
         </span>
       </header>
       <input
@@ -166,37 +249,45 @@ export function ResumePage({ initial: profile, busy, perform }: Props) {
         type="file"
         accept=".pdf,.docx"
         aria-label="Upload resume"
-        onChange={(event) => void upload(event.target.files?.[0])}
+        onChange={(event) => {
+          const file = event.target.files?.[0];
+          event.target.value = "";
+          choose(file);
+        }}
       />
       {source && (
-        <section className="resume-document" aria-label="Source resume">
-          <FileText size={24} strokeWidth={1.5} aria-hidden="true" />
+        <section className="resume-document" aria-label="Original resume">
+          <FileText size={26} strokeWidth={1.5} aria-hidden="true" />
           <div className="resume-document-info">
-            <span className="resume-field-label">Source resume</span>
-            <strong title={source.name}>{source.name}</strong>
+            <span className="resume-field-label">Original resume</span>
+            <strong>{source.name}</strong>
             <span>
               {source.kind.toUpperCase()} <span aria-hidden="true">·</span>{" "}
               Uploaded{" "}
-              {new Intl.DateTimeFormat(undefined, {
-                month: "short",
-                day: "numeric",
-                year: "numeric",
-              }).format(new Date(source.importedAt))}
+              {Number.isFinite(Date.parse(source.importedAt))
+                ? new Intl.DateTimeFormat(undefined, {
+                    month: "short",
+                    day: "numeric",
+                    year: "numeric",
+                  }).format(new Date(source.importedAt))
+                : "date unavailable"}
             </span>
           </div>
           <div className="resume-document-actions">
             <button
+              ref={previewTrigger}
               type="button"
               className="button"
-              disabled={busy}
+              disabled={locked}
               onClick={() =>
-                void perform(async () => {
+                void run(async () => {
                   const blob = await fileBlob(`${sourcePath}?preview=1`);
-                  setPreview({
-                    url: URL.createObjectURL(blob),
-                    kind: source.kind,
-                  });
-                })
+                  if (mounted.current)
+                    setPreview({
+                      url: URL.createObjectURL(blob),
+                      kind: source.kind,
+                    });
+                }, "Try Preview again, or download the original.")
               }
             >
               <Eye size={15} aria-hidden="true" />
@@ -207,41 +298,60 @@ export function ResumePage({ initial: profile, busy, perform }: Props) {
               className="icon-button"
               title="Download original"
               aria-label="Download original resume"
-              disabled={busy}
+              disabled={locked}
               onClick={() =>
-                void perform(() => downloadFile(sourcePath, source.name))
+                void run(
+                  () => downloadFile(sourcePath, source.name),
+                  "Try downloading the original again.",
+                )
               }
             >
-              <Download size={17} />
+              <Download size={18} aria-hidden="true" />
             </button>
-            {uploadButton("Replace resume")}
+            {uploadButton("Replace resume", false)}
           </div>
         </section>
       )}
-      {error && (
+      {error && !confirmation && (
         <p className="resume-import-error" role="alert">
+          <AlertCircle size={17} aria-hidden="true" />
           {error}
         </p>
       )}
-      {ready && !importing && facts ? (
+      {ready && !processing && facts ? (
         <>
-          {!!profile.cache?.warnings.length && (
-            <details className="resume-notes">
-              <summary>
-                <AlertCircle size={15} aria-hidden="true" />
-                {profile.cache.warnings.length} extraction{" "}
-                {profile.cache.warnings.length === 1 ? "note" : "notes"}
-              </summary>
-              <ul>
-                {profile.cache.warnings.map((warning, index) => (
-                  <li key={index}>{warning}</li>
-                ))}
-              </ul>
-            </details>
+          {!!warnings.length && (
+            <aside
+              className="resume-review-notice"
+              aria-label="Extraction needs review"
+            >
+              <AlertCircle size={18} aria-hidden="true" />
+              <div>
+                <strong>Some details may be missing</strong>
+                <p>
+                  Review the extracted information against your original before
+                  relying on a match.
+                </p>
+                <details className="resume-notes">
+                  <summary>
+                    View {warnings.length} extraction{" "}
+                    {warnings.length === 1 ? "note" : "notes"}
+                  </summary>
+                  <ul>
+                    {warnings.map((warning, index) => (
+                      <li key={index}>{warning}</li>
+                    ))}
+                  </ul>
+                </details>
+              </div>
+            </aside>
           )}
           <ResumeFacts key={profile.cache!.id} facts={facts} />
           <footer className="resume-footer">
-            <p>To correct a fact, update your resume and replace the source.</p>
+            <p>
+              Something missing or incorrect? Update your resume, then choose
+              Replace resume.
+            </p>
             {portfolio && (
               <a
                 className="text-link"
@@ -249,8 +359,8 @@ export function ResumePage({ initial: profile, busy, perform }: Props) {
                 target="_blank"
                 rel="noreferrer"
               >
-                Portfolio
-                <ArrowUpRight size={14} />
+                Portfolio<span className="sr-only"> (opens in a new tab)</span>
+                <ArrowUpRight size={14} aria-hidden="true" />
               </a>
             )}
           </footer>
@@ -260,7 +370,7 @@ export function ResumePage({ initial: profile, busy, perform }: Props) {
           className={`resume-empty${dragging ? " is-dragging" : ""}`}
           onDragOver={(event) => {
             event.preventDefault();
-            if (!busy) setDragging(true);
+            if (!locked && !processing) setDragging(true);
           }}
           onDragLeave={(event) => {
             if (
@@ -271,138 +381,241 @@ export function ResumePage({ initial: profile, busy, perform }: Props) {
           onDrop={(event) => {
             event.preventDefault();
             setDragging(false);
-            if (!busy && !importing) void upload(event.dataTransfer.files[0]);
+            if (locked || processing) return;
+            if (event.dataTransfer.files.length > 1)
+              setError("Choose one resume at a time.");
+            else choose(event.dataTransfer.files[0]);
           }}
-          aria-busy={processing}
         >
           <div className="resume-empty-mark" aria-hidden="true">
             {processing ? (
-              <LoaderCircle size={32} className="spin" strokeWidth={1.3} />
+              <LoaderCircle size={30} className="spin" strokeWidth={1.5} />
             ) : (
-              <FileText size={32} strokeWidth={1.3} />
+              <FileText size={30} strokeWidth={1.5} />
             )}
           </div>
-          <h2>
-            {processing
-              ? "Reading your resume"
-              : failed
-                ? "Extraction didn’t finish"
-                : source
-                  ? "Ready for a fresh extraction"
-                  : "Add your resume"}
+          <h2 ref={processingHeading} tabIndex={-1}>
+            {uploading
+              ? "Uploading your resume"
+              : starting
+                ? "Starting extraction"
+                : activeExtraction
+                  ? "Reading your resume"
+                  : failed
+                    ? "Extraction didn’t finish"
+                    : noDetails
+                      ? "No details could be extracted"
+                      : source
+                        ? "Ready for a fresh extraction"
+                        : "Add your resume"}
           </h2>
           <p>
-            {processing
-              ? "Organizing your career details and checking each statement against the original. This can take a few minutes."
-              : failed
-                ? failureMessage
-                : source
-                  ? "Your original is saved. Extract its details again, or replace it with an updated resume."
-                  : "Your experience, skills and qualifications, organized with the source behind every detail."}
+            {uploading
+              ? "Uploading and checking your document. Keep this page open until your resume is saved."
+              : starting
+                ? "Opening your saved resume to extract its details."
+                : activeExtraction
+                  ? "Finding your roles, skills and qualifications, then linking them to your original text. This can take a few minutes."
+                  : failed
+                    ? failureMessage
+                    : noDetails
+                      ? "Your resume is saved, but no usable details were found. Replace it with a document that has selectable text."
+                      : source
+                        ? "Your original is saved. Extract its details again, or replace it with an updated resume."
+                        : "Upload once to see what was extracted and check the text behind each detail."}
           </p>
           <div className="button-row">
-            {source ? processButton : uploadButton("Upload resume")}
+            {!processing &&
+              (source
+                ? !noDetails && (
+                    <button
+                      type="button"
+                      className="button primary"
+                      disabled={locked}
+                      onClick={() => void extract()}
+                    >
+                      <RotateCcw size={16} aria-hidden="true" />
+                      {failed ? "Retry extraction" : "Extract details"}
+                    </button>
+                  )
+                : uploadButton("Upload resume"))}
           </div>
-          {!source && (
+          {!source && !processing && (
             <span className="resume-upload-hint">
-              or drop a file here · PDF or Word · up to 2 MB
+              or drop one file here · PDF or Word (.docx) · up to 2 MB
             </span>
           )}
-          {processing && (
+          {activeExtraction && !uploading && (
             <span className="resume-upload-hint">
-              Your resume is saved. You can leave this page while extraction
-              finishes.
+              Your original resume is saved. You can leave this page while
+              extraction finishes.
+            </span>
+          )}
+          {failed && !processing && (
+            <span className="resume-upload-hint">
+              Your original resume is saved. You don’t need to upload it again.
             </span>
           )}
         </div>
       )}
-      {!ready && !processing && (
+      {!ready && !processing && !source && (
         <div className="resume-outline" aria-label="What your resume provides">
           <div>
             <h3>Experience</h3>
-            <p>Roles and projects, with their original achievements.</p>
+            <p>Roles and projects, with details you can inspect.</p>
           </div>
           <div>
             <h3>Skills</h3>
-            <p>Connected to evidence, with listed skills kept distinct.</p>
+            <p>See demonstrated skills separately from listed skills.</p>
           </div>
           <div>
             <h3>Qualifications</h3>
-            <p>Education, certifications and languages.</p>
+            <p>Education, certifications and languages in one place.</p>
           </div>
         </div>
       )}
-      {profile.cache && !importing && (
+      {profile.cache && !processing && (
         <div className="resume-reset">
-          {confirmClear ? (
-            <div
-              className="resume-reset-confirm"
-              role="group"
-              aria-label="Confirm clearing extracted details"
-            >
-              <p>
-                Clear the extracted details? Your original resume and existing
-                drafts stay saved. New drafts will need a fresh extraction.
-              </p>
-              <div className="button-row">
-                <button
-                  className="button"
-                  type="button"
-                  disabled={busy}
-                  onClick={() => setConfirmClear(null)}
-                >
-                  Cancel
-                </button>
-                <button
-                  className="button danger"
-                  type="button"
-                  disabled={busy}
-                  onClick={() =>
-                    void perform(async () => {
-                      await api("/profile/cache", {
-                        method: "DELETE",
-                        body: JSON.stringify(confirmClear),
-                      });
-                      setConfirmClear(null);
-                    }, "Extracted details cleared.")
-                  }
-                >
-                  Clear extracted details
-                </button>
-              </div>
-            </div>
-          ) : (
-            <button
-              className="text-link"
-              type="button"
-              disabled={busy}
-              onClick={() =>
-                setConfirmClear({
-                  sourceId: profile.source?.id ?? null,
-                  cacheId: profile.cache?.id ?? null,
-                })
-              }
-            >
-              Clear extracted details
-            </button>
-          )}
+          <button
+            className="text-link"
+            type="button"
+            disabled={locked}
+            onClick={() => {
+              setError("");
+              setConfirmation({
+                kind: "clear",
+                sourceId: source?.id ?? null,
+                cacheId: profile.cache?.id ?? null,
+              });
+            }}
+          >
+            Clear extracted details
+          </button>
+          <span>Keeps your original resume and saved drafts.</span>
         </div>
       )}
       <dialog
-        ref={dialog}
+        ref={confirmDialog}
+        className="resume-confirm-dialog"
+        aria-labelledby="resume-confirm-title"
+        aria-describedby="resume-confirm-description"
+        onCancel={(event) => {
+          if (locked) event.preventDefault();
+        }}
+        onClose={(event) => {
+          // A queued close event must not clear a confirmation opened since then.
+          if (!event.currentTarget.open) setConfirmation(null);
+        }}
+      >
+        {confirmation && (
+          <>
+            <h2 id="resume-confirm-title">
+              {confirmation.kind === "replace"
+                ? "Replace your resume?"
+                : "Clear extracted details?"}
+            </h2>
+            <div id="resume-confirm-description">
+              {confirmation.kind === "replace" ? (
+                <>
+                  <p className="resume-selected-file">
+                    <FileText size={18} aria-hidden="true" />
+                    {confirmation.file.name}
+                  </p>
+                  <p>
+                    This becomes your active resume. Its details will replace
+                    the current extraction for future matches and drafts.
+                  </p>
+                  <p>
+                    Previous uploads, saved drafts and preferences stay saved.
+                    Existing drafts must be regenerated before approval.
+                  </p>
+                </>
+              ) : (
+                <>
+                  <p>
+                    This removes the experience, skills and qualifications used
+                    for matching and new drafts.
+                  </p>
+                  <p>
+                    Your original resume, saved drafts and preferences stay
+                    saved. To approve drafts, extract the details again and
+                    regenerate the drafts.
+                  </p>
+                </>
+              )}
+            </div>
+            {error && (
+              <p className="resume-import-error" role="alert">
+                {error}
+              </p>
+            )}
+            <div className="button-row">
+              <button
+                type="button"
+                className="button"
+                autoFocus
+                disabled={locked}
+                onClick={() => confirmDialog.current?.close()}
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                className={`button ${confirmation.kind === "clear" ? "danger" : "primary"}`}
+                disabled={locked}
+                onClick={() => {
+                  if (confirmation.kind === "replace")
+                    void upload(confirmation.file);
+                  else
+                    void run(
+                      () =>
+                        api("/profile/cache", {
+                          method: "DELETE",
+                          body: JSON.stringify({
+                            sourceId: confirmation.sourceId,
+                            cacheId: confirmation.cacheId,
+                          }),
+                        }),
+                      "Try clearing the details again.",
+                      "Extracted details cleared. Your original resume is still saved.",
+                    ).then((success) => {
+                      if (success) {
+                        confirmDialog.current?.close();
+                        heading.current?.focus();
+                      }
+                    });
+                }}
+              >
+                {locked
+                  ? "Clearing…"
+                  : confirmation.kind === "replace"
+                    ? "Replace and extract"
+                    : "Clear extracted details"}
+              </button>
+            </div>
+          </>
+        )}
+      </dialog>
+      <dialog
+        ref={previewDialog}
         className="cv-preview-dialog"
         aria-labelledby="cv-preview-title"
-        onClose={() => setPreview(null)}
+        onClose={(event) => {
+          if (!event.currentTarget.open) {
+            restorePreviewFocus.current = true;
+            setPreview(null);
+          }
+        }}
       >
         <header>
-          <h2 id="cv-preview-title">Resume preview</h2>
+          <h2 id="cv-preview-title">Original resume</h2>
           <button
             type="button"
             className="icon-button"
             aria-label="Close preview"
-            onClick={() => dialog.current?.close()}
+            onClick={() => previewDialog.current?.close()}
           >
-            <X size={20} />
+            <X size={20} aria-hidden="true" />
           </button>
         </header>
         {preview?.kind === "pdf" ? (
@@ -411,7 +624,10 @@ export function ResumePage({ initial: profile, busy, perform }: Props) {
             type="application/pdf"
             aria-label="Original resume preview"
           >
-            <p>Use Download to open this resume.</p>
+            <p className="resume-preview-fallback">
+              Preview unavailable in this browser. Close the preview and choose
+              Download original resume.
+            </p>
           </object>
         ) : (
           preview && (
