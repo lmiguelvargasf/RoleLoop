@@ -169,6 +169,11 @@
   font-size: 12px;
   margin-top: 4px;
 }
+.resume-ready-note {
+  color: var(--resume-muted);
+  font-size: 12px;
+  margin-bottom: 20px;
+}
 .resume-notes {
   font-size: 11px;
   margin-top: 4px;

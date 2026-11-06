@@ -77,11 +77,11 @@ export function ResumePage({ initial: profile, busy, perform }: Props) {
   const noDetails = Boolean(facts && !ready);
   const warnings = profile.cache?.warnings ?? [];
   const failureMessage = interrupted
-    ? "Processing was interrupted or exceeded its time limit. Retry extraction using your saved resume."
+    ? "Processing was interrupted or took too long. Try again using your saved resume."
     : profile.cache?.error === "The operation was aborted due to timeout"
-      ? "The AI service took too long to respond. Retry extraction using your saved resume."
+      ? "Processing took too long. Try again using your saved resume."
       : profile.cache?.error ||
-        "We couldn’t extract the details from this resume. Retry extraction, or replace it with a readable document.";
+        "We couldn’t read the details in your resume. Try again, or replace it with a readable document.";
   const sourcePath = source
     ? `/profile/sources/${source.id}/${source.kind}`
     : "";
@@ -187,7 +187,7 @@ export function ResumePage({ initial: profile, busy, perform }: Props) {
     try {
       await run(
         () => api("/profile/process", { method: "POST", body: "{}" }),
-        "Retry extraction when you’re ready.",
+        "Try again when you’re ready.",
       );
     } finally {
       if (mounted.current) setPending(null);
@@ -206,19 +206,17 @@ export function ResumePage({ initial: profile, busy, perform }: Props) {
   );
   const status = uploading
     ? "Uploading resume…"
-    : starting
-      ? "Starting extraction…"
-      : activeExtraction
-        ? "Extracting details…"
-        : ready
-          ? warnings.length
-            ? "Review extraction notes"
-            : "Ready to review"
-          : failed
-            ? "Extraction didn’t finish"
-            : source
-              ? "No extracted details"
-              : "No resume yet";
+    : processing
+      ? "Processing resume…"
+      : ready
+        ? warnings.length
+          ? "Some details need review"
+          : "Resume ready"
+        : failed
+          ? "Couldn’t process resume"
+          : source
+            ? "No resume details yet"
+            : "No resume yet";
   return (
     <section
       className="page form-page editor-page resume-page"
@@ -229,7 +227,9 @@ export function ResumePage({ initial: profile, busy, perform }: Props) {
           <h1 id="resume-title" ref={heading} tabIndex={-1}>
             Resume
           </h1>
-          <p>Your resume, organized for role matching.</p>
+          <p>
+            Your experience, skills, and qualifications, organized for job matching.
+          </p>
         </div>
         <span
           className={`editor-save-state resume-status${ready && !processing && !warnings.length ? " is-ready" : ""}`}
@@ -334,18 +334,18 @@ export function ResumePage({ initial: profile, busy, perform }: Props) {
           {!!warnings.length && (
             <aside
               className="resume-review-notice"
-              aria-label="Extraction needs review"
+              aria-label="Some details need review"
             >
               <AlertCircle size={18} aria-hidden="true" />
               <div>
                 <strong>Some details may be missing</strong>
                 <p>
-                  Review the extracted information against your original before
+                  Check the details below against your original resume before
                   relying on a match.
                 </p>
                 <details className="resume-notes">
                   <summary>
-                    View {warnings.length} extraction{" "}
+                    View {warnings.length}{" "}
                     {warnings.length === 1 ? "note" : "notes"}
                   </summary>
                   <ul>
@@ -356,6 +356,12 @@ export function ResumePage({ initial: profile, busy, perform }: Props) {
                 </details>
               </div>
             </aside>
+          )}
+          {!warnings.length && (
+            <p className="resume-ready-note">
+              Your resume is ready for job matching. Check the details below for
+              accuracy.
+            </p>
           )}
           <ResumeFacts key={profile.cache!.id} facts={facts} />
           <footer className="resume-footer">
@@ -408,32 +414,28 @@ export function ResumePage({ initial: profile, busy, perform }: Props) {
           <h2 ref={processingHeading} tabIndex={-1}>
             {uploading
               ? "Uploading your resume"
-              : starting
-                ? "Starting extraction"
-                : activeExtraction
-                  ? "Reading your resume"
-                  : failed
-                    ? "Extraction didn’t finish"
-                    : noDetails
-                      ? "No details could be extracted"
-                      : source
-                        ? "Ready for a fresh extraction"
-                        : "Add your resume"}
+              : processing
+                ? "Processing your resume"
+                : failed
+                  ? "Couldn’t process resume"
+                  : noDetails
+                    ? "No resume details found"
+                    : source
+                      ? "Ready to process your resume"
+                      : "Add your resume"}
           </h2>
           <p>
             {uploading
               ? "Uploading and checking your document. Keep this page open until your resume is saved."
-              : starting
-                ? "Opening your saved resume to extract its details."
-                : activeExtraction
-                  ? "Finding your roles, skills and qualifications, then linking them to your original text. This can take a few minutes."
-                  : failed
-                    ? failureMessage
-                    : noDetails
-                      ? "Your resume is saved, but no usable details were found. Replace it with a document that has selectable text."
-                      : source
-                        ? "Your original is saved. Extract its details again, or replace it with an updated resume."
-                        : "Upload once to see what was extracted and check the text behind each detail."}
+              : processing
+                ? "We’re reading your resume and organizing your details. This may take a few minutes."
+                : failed
+                  ? failureMessage
+                  : noDetails
+                    ? "Your resume is saved, but no usable details were found. Replace it with a document that has selectable text."
+                    : source
+                      ? "Your original resume is saved. Process it again, or replace it with an updated resume."
+                      : "Upload your resume to organize your experience, skills, and qualifications for job matching."}
           </p>
           <div className="button-row">
             {!processing &&
@@ -446,7 +448,7 @@ export function ResumePage({ initial: profile, busy, perform }: Props) {
                       onClick={() => void extract()}
                     >
                       <RotateCcw size={16} aria-hidden="true" />
-                      {failed ? "Retry extraction" : "Extract details"}
+                      {failed ? "Try again" : "Process resume"}
                     </button>
                   )
                 : uploadButton("Upload resume"))}
@@ -459,7 +461,7 @@ export function ResumePage({ initial: profile, busy, perform }: Props) {
           {activeExtraction && !uploading && (
             <span className="resume-upload-hint">
               Your original resume is saved. You can leave this page while
-              extraction finishes.
+              processing finishes.
             </span>
           )}
           {failed && !processing && (

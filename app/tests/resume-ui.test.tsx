@@ -13,10 +13,10 @@ describe("resume evidence visibility", () => {
     const profile = demoWorkspace().profile;
     profile.cache!.extractorVersion--;
     const html = render(profile);
-    expect(html).toContain("Ready for a fresh extraction");
+    expect(html).toContain("Ready to process your resume");
     expect(html).not.toContain("Alex Morgan");
     expect(html).not.toContain("Built and maintained");
-    expect(html).toContain("Extract details");
+    expect(html).toContain("Process resume");
   });
 
   it.each(["processing", "failed"] as const)(
@@ -29,7 +29,7 @@ describe("resume evidence visibility", () => {
       const html = render(profile);
       expect(html).not.toContain("Alex Morgan");
       expect(html).not.toContain("Built and maintained");
-      expect(html).toContain("Retry extraction");
+      expect(html).toContain("Try again");
       if (status === "failed")
         expect(html).toContain("The document needs readable text.");
     },
@@ -59,8 +59,8 @@ describe("resume evidence visibility", () => {
     profile.cache!.startedAt = new Date().toISOString();
     profile.cache!.expiresAt = new Date(Date.now() + 300_000).toISOString();
     const html = render(profile);
-    expect(html).toContain("Reading your resume");
-    expect(html).not.toContain("Retry extraction");
+    expect(html).toContain("Processing your resume");
+    expect(html).not.toContain("Try again");
     expect(html).not.toContain("Alex Morgan");
   });
 
@@ -69,9 +69,9 @@ describe("resume evidence visibility", () => {
     profile.cache!.status = "processing";
     profile.cache!.expiresAt = new Date(Date.now() - 1000).toISOString();
     const html = render(profile);
-    expect(html).toContain("Extraction didn’t finish");
-    expect(html).toContain("Retry extraction");
-    expect(html).not.toContain("Reading your resume");
+    expect(html).toContain("Couldn’t process resume");
+    expect(html).toContain("Try again");
+    expect(html).not.toContain("Processing your resume");
   });
 
   it("explains legacy timeouts without blaming the source document", () => {
@@ -79,7 +79,7 @@ describe("resume evidence visibility", () => {
     profile.cache!.status = "failed";
     profile.cache!.error = "The operation was aborted due to timeout";
     const html = render(profile);
-    expect(html).toContain("The AI service took too long");
+    expect(html).toContain("Processing took too long");
     expect(html).toContain("original resume is saved");
     expect(html).not.toContain("Your resume needs another look");
   });
@@ -89,9 +89,9 @@ describe("resume evidence visibility", () => {
     profile.cache!.warnings = ["One page had no readable text."];
     const html = render(profile);
     expect(html).toContain("Some details may be missing");
-    expect(html).toContain("Review extraction notes");
+    expect(html).toContain("Some details need review");
     expect(html).toContain("One page had no readable text.");
-    expect(html).not.toContain("Ready to review");
+    expect(html).not.toContain("Resume ready");
   });
 
   it("offers replacement rather than a no-op retry when extraction returns no facts", () => {
@@ -103,9 +103,9 @@ describe("resume evidence visibility", () => {
       evidence: [],
     };
     const html = render(profile);
-    expect(html).toContain("No details could be extracted");
+    expect(html).toContain("No resume details found");
     expect(html).toContain("Replace resume");
-    expect(html).not.toContain("Ready to review");
-    expect(html).not.toContain("Retry extraction");
+    expect(html).not.toContain("Resume ready");
+    expect(html).not.toContain("Try again");
   });
 });

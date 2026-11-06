@@ -26,13 +26,13 @@ function extractionFailure(error: unknown) {
     return {
       errorCode: "ai_timeout",
       error:
-        "The AI took too long to extract your resume. Your original is saved. Retry extraction; you do not need to upload it again.",
+        "Processing took too long. Your original resume is saved. Try again; you do not need to upload it again.",
     };
   return {
     error:
       error instanceof Error
         ? error.message
-        : "Resume extraction failed. Your original is saved. Try again.",
+        : "Couldn’t process resume. Your original resume is saved. Try again.",
     ...(typeof details.code === "string" ? { errorCode: details.code } : {}),
   };
 }

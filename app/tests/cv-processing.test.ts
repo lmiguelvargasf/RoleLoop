@@ -212,7 +212,7 @@ describe("bounded resume processing", () => {
         facts: null,
         errorCode: "ai_timeout",
         error: expect.stringMatching(
-          /AI took too long.*original is saved.*Retry extraction.*do not need to upload/,
+          /Processing took too long.*original resume is saved.*Try again.*do not need to upload/,
         ),
       });
       expect(result.cache!.processedAt).not.toBeNull();
