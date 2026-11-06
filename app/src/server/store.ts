@@ -15,8 +15,10 @@ import {
   type Opportunity,
   type Profile,
   type Run,
+  type Source,
   type Workspace,
 } from "../shared/types.js";
+import { normalizeSource, sourceIdentity } from "../shared/discovery.js";
 
 if (!settings.supabaseKey)
   throw new Error(
@@ -132,7 +134,7 @@ export function createWorkspaceStore({
     const row = checked(
       await client
         .from("workspace")
-        .select("payload,owner_user_id")
+        .select("payload,owner_user_id,sources_revision")
         .eq("id", workspaceId)
         .maybeSingle(),
     );
@@ -141,7 +143,7 @@ export function createWorkspaceStore({
       client
         .from("discovery_sources")
         .select(
-          "id,kind,company_id,label,provider,board,enabled,companies(name,country,country_source)",
+          "id,kind,company_id,label,provider,board,enabled,discovered_from,discovered_at,companies(name,country,country_source)",
         )
         .eq("workspace_id", workspaceId)
         .order("position"),
@@ -163,10 +165,15 @@ export function createWorkspaceStore({
         enabled: s.enabled,
         companyCountry: s.companies?.country,
         countrySource: s.companies?.country_source ?? undefined,
+        discoveredFrom: s.discovered_from ?? undefined,
+        discoveredAt: s.discovered_at
+          ? new Date(s.discovered_at).toISOString()
+          : undefined,
       }),
     );
     const workspace = {
       ...WorkspaceSchema.parse({ ...(row.payload as object), sources }),
+      sourcesRevision: row.sources_revision,
       companies: (checked(companyRows) ?? []).map((c: any) =>
         CompanySchema.parse({ ...c, countrySource: c.country_source }),
       ),
@@ -237,7 +244,9 @@ export function createWorkspaceStore({
           if (expectedProfile) throw changed();
           return missing();
         }
-        return workspace;
+        return Object.hasOwn(patch, "sources")
+          ? await getWorkspace()
+          : { ...workspace, sourcesRevision: current.sourcesRevision };
       });
     workspaceWrites.set(workspaceId, next);
     try {
@@ -246,6 +255,77 @@ export function createWorkspaceStore({
       if (workspaceWrites.get(workspaceId) === next)
         workspaceWrites.delete(workspaceId);
     }
+  }
+  async function replaceSources(sources: Source[], expectedRevision: number) {
+    const normalized = sources.map((source) =>
+      SourceSchema.parse(normalizeSource(source)),
+    );
+    if (
+      normalized.length > 50 ||
+      new Set(normalized.map((source) => source.id)).size !==
+        normalized.length ||
+      new Set(normalized.map(sourceIdentity)).size !== normalized.length
+    )
+      throw Object.assign(
+        new Error("Use up to 50 unique company boards or feeds."),
+        {
+          statusCode: 400,
+        },
+      );
+    const result = await client.rpc("replace_discovery_sources", {
+      target_workspace: workspaceId,
+      expected_revision: expectedRevision,
+      source_payload: normalized,
+    });
+    if (result.error?.code === "40001")
+      throw Object.assign(
+        new Error("Companies and feeds changed. Refresh and try again."),
+        { statusCode: 409 },
+      );
+    checked(result);
+    // Return the authoritative join, including retained discovery provenance and
+    // company IDs. Another append may have landed after the replacement.
+    const current = await getWorkspace();
+    return {
+      sources: current.sources,
+      sourcesRevision: current.sourcesRevision!,
+    };
+  }
+  async function connectDiscoveredSource(source: Source): Promise<{
+    status: "added" | "existing" | "ignored" | "limit";
+    sourceId?: string;
+  }> {
+    const data = checked(
+      await client.rpc("connect_discovered_source", {
+        target_workspace: workspaceId,
+        source_payload: SourceSchema.parse(normalizeSource(source)),
+      }),
+    );
+    return z
+      .object({
+        status: z.enum(["added", "existing", "ignored", "limit"]),
+        sourceId: z.string().optional(),
+      })
+      .parse(data);
+  }
+  async function ignoredDiscoveryIdentities(): Promise<string[]> {
+    const identities: string[] = [];
+    for (let offset = 0; ; offset += 500) {
+      const rows = checked(
+        await client
+          .from("discovery_source_suppressions")
+          .select("provider,board")
+          .eq("workspace_id", workspaceId)
+          .order("provider")
+          .order("board")
+          .range(offset, offset + 499),
+      );
+      identities.push(
+        ...(rows ?? []).map((row) => `${row.provider}:${row.board}`),
+      );
+      if (!rows || rows.length < 500) break;
+    }
+    return identities;
   }
   async function list<T extends keyof Payloads>(
     table: T,
@@ -428,6 +508,9 @@ export function createWorkspaceStore({
     actorUserId,
     getWorkspace,
     updateWorkspace,
+    replaceSources,
+    connectDiscoveredSource,
+    ignoredDiscoveryIdentities,
     list,
     get,
     save,

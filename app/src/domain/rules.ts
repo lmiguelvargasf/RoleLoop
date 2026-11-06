@@ -1,6 +1,7 @@
 import { createHash } from "node:crypto";
 import { salaryReviewMinimum } from "../shared/salary.js";
 import { careerFacts } from "../shared/types.js";
+import { matchesTargetRole } from "../shared/discovery.js";
 import {
   industryPriorityBoost,
   preferredIndustryMatches,
@@ -28,7 +29,11 @@ const hash = (value: unknown) =>
     .update(JSON.stringify(canonical(value)))
     .digest("hex");
 export const profileFingerprint = (profile: Profile) => hash(profile);
-export const preferencesFingerprint = (prefs: Preferences) => hash(prefs);
+export const preferencesFingerprint = (prefs: Preferences) => {
+  // Search expansion does not change a candidate's fit or invalidate drafts.
+  const { discoverEmployers: _discovery, ...matchingPreferences } = prefs;
+  return hash(matchingPreferences);
+};
 export const opportunityFingerprint = (op: Opportunity) =>
   hash({
     kind: op.kind,
@@ -255,6 +260,22 @@ export function assessOpportunity(
     blockers.push("This opportunity is restricted to Latin America.");
   else if (op.remoteScope === "unknown")
     unknowns.push("Remote location and hiring arrangement need confirmation.");
+  const inAmericas =
+    latam.has(candidateCountry) ||
+    ["united states", "canada"].includes(candidateCountry);
+  const outsideAmericas = op.location.match(
+    /\b(?:EMEA|Europe|European Union|APAC|Asia Pacific|Australia|New Zealand)\b/i,
+  );
+  if (
+    inAmericas &&
+    outsideAmericas &&
+    !/\b(?:LATAM|Latin America|Americas|AMER|worldwide|global|anywhere)\b/i.test(
+      op.location,
+    )
+  )
+    blockers.push(
+      `The listed hiring region (${outsideAmericas[0]}) does not include your working country.`,
+    );
   if (op.remoteScope === "us" && candidateCountry === "united states")
     unknowns.push(
       "Confirm any state restrictions and work authorization directly in the application.",
@@ -309,23 +330,7 @@ export function assessOpportunity(
       else
         reasons.push("The published salary is compatible with your minimum.");
     }
-    const roleTerms = prefs.roles.map((r) =>
-      r
-        .toLowerCase()
-        .split(/\W+/)
-        .filter(
-          (w) =>
-            w.length > 2 &&
-            !["senior", "junior", "lead", "staff", "principal"].includes(w),
-        ),
-    );
-    if (
-      roleTerms.length &&
-      !roleTerms.some(
-        (terms) =>
-          terms.length && terms.some((t) => op.title.toLowerCase().includes(t)),
-      )
-    )
+    if (!matchesTargetRole(op.title, prefs.roles, op.company))
       unknowns.push(
         "The title differs from your target roles; review relevance.",
       );

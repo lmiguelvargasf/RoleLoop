@@ -10,12 +10,120 @@ import {
   sourceLibrary,
   recommendedSources,
   applicationCounts,
+  matchesTargetRole,
 } from "../src/shared/discovery.js";
-import { assessOpportunity } from "../src/domain/rules.js";
+import {
+  assessOpportunity,
+  preferencesFingerprint,
+} from "../src/domain/rules.js";
 import { demoWorkspace, demoOpportunities } from "./fixtures.js";
 afterEach(() => vi.unstubAllGlobals());
 
 describe("practical discovery", () => {
+  it("excludes explicitly incompatible hiring regions while retaining multi-region LATAM roles", () => {
+    const workspace = demoWorkspace();
+    const job = {
+      ...demoOpportunities()[0],
+      location: "EMEA Remote",
+      remoteScope: "unknown" as const,
+    };
+    const excluded = assessOpportunity(
+      job,
+      workspace.profile,
+      workspace.preferences,
+    );
+    expect(excluded.recommendation).toBe("excluded");
+    expect(excluded.blockers.join(" ")).toContain(
+      "listed hiring region (EMEA)",
+    );
+    expect(
+      assessOpportunity(
+        { ...job, location: "EMEA or LATAM" },
+        workspace.profile,
+        workspace.preferences,
+      ).blockers.join(" "),
+    ).not.toContain("listed hiring region");
+    expect(
+      assessOpportunity(
+        { ...job, location: "Remote, United States", remoteScope: "latam" },
+        workspace.profile,
+        workspace.preferences,
+      ).blockers.join(" "),
+    ).not.toContain("listed hiring region");
+  });
+  it("matches role meaning without confusing shared generic title words", () => {
+    expect(matchesTargetRole("Civil Engineer", ["Software Engineer"])).toBe(
+      false,
+    );
+    expect(matchesTargetRole("Product Manager", ["Product Designer"])).toBe(
+      false,
+    );
+    expect(matchesTargetRole("Accountant", ["Account Executive"])).toBe(false);
+    expect(
+      matchesTargetRole("Senior Backend Developer", ["Software Engineer"]),
+    ).toBe(true);
+    expect(
+      matchesTargetRole("Staff Full-Stack Engineer", ["Full Stack Developer"]),
+    ).toBe(true);
+    expect(
+      matchesTargetRole("Customer Support Specialist", ["Customer Support"]),
+    ).toBe(true);
+    expect(
+      matchesTargetRole("Product Designer", [
+        "Software Engineer",
+        "Product Designer",
+      ]),
+    ).toBe(true);
+    expect(matchesTargetRole("Senior Accountant", ["Senior"])).toBe(false);
+    expect(matchesTargetRole("C++ Engineer", ["C++ Developer"])).toBe(true);
+    expect(matchesTargetRole("C# Engineer", ["C++ Developer"])).toBe(false);
+    expect(
+      matchesTargetRole(
+        "SaaSOps Engineer ($80,000/year USD), @CXT Software",
+        ["Software Engineer"],
+        "CXT Software",
+      ),
+    ).toBe(false);
+    expect(
+      matchesTargetRole(
+        "SaaSOps Engineer ($80,000/year USD), CXT Software",
+        ["Software Engineer"],
+        "CXT Software",
+      ),
+    ).toBe(false);
+    expect(
+      matchesTargetRole(
+        "Software Engineer, Acme",
+        ["Software Engineer"],
+        "Acme",
+      ),
+    ).toBe(true);
+    expect(
+      matchesTargetRole("AI-Native VP of Software Engineering, Canada-based", [
+        "Software Engineer",
+      ]),
+    ).toBe(false);
+    expect(
+      matchesTargetRole("Software Engineering Manager", ["Software Engineer"]),
+    ).toBe(false);
+    expect(
+      matchesTargetRole("Software Engineering Manager", [
+        "Engineering Manager",
+      ]),
+    ).toBe(true);
+  });
+  it("keeps prepared applications valid when employer discovery is toggled", () => {
+    const prefs = demoWorkspace().preferences;
+    expect(preferencesFingerprint({ ...prefs, discoverEmployers: true })).toBe(
+      preferencesFingerprint({ ...prefs, discoverEmployers: false }),
+    );
+    expect(
+      preferencesFingerprint({
+        ...prefs,
+        minimumSalary: prefs.minimumSalary + 1,
+      }),
+    ).not.toBe(preferencesFingerprint(prefs));
+  });
   it("adds researched employers without replacing custom or paused sources", () => {
     const paused = {
       ...recommendedSources[0],
@@ -64,23 +172,21 @@ describe("practical discovery", () => {
   it("imports oversized descriptions with explicit uncertainty rather than failing a whole board", async () => {
     vi.stubGlobal(
       "fetch",
-      vi
-        .fn()
-        .mockResolvedValue(
-          new Response(
-            JSON.stringify({
-              jobs: [
-                {
-                  id: "long",
-                  title: "Engineer",
-                  descriptionPlain:
-                    "Requirements\nReact experience\n" + "a".repeat(60000),
-                  jobUrl: "https://jobs.ashbyhq.com/ashby/long",
-                },
-              ],
-            }),
-          ),
+      vi.fn().mockResolvedValue(
+        new Response(
+          JSON.stringify({
+            jobs: [
+              {
+                id: "long",
+                title: "Engineer",
+                descriptionPlain:
+                  "Requirements\nReact experience\n" + "a".repeat(60000),
+                jobUrl: "https://jobs.ashbyhq.com/ashby/long",
+              },
+            ],
+          }),
         ),
+      ),
     );
     const workspace = demoWorkspace();
     const [op] = await discover(

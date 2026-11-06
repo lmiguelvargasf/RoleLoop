@@ -29,6 +29,7 @@ import {
   remoteScope,
 } from "../domain/connectors.js";
 import { normalizeSource, sourceIdentity } from "../shared/discovery.js";
+import { preferencesFingerprint } from "../domain/rules.js";
 import { resumePdf } from "./documents.js";
 
 declare module "fastify" {
@@ -274,7 +275,7 @@ export async function buildServer() {
       );
     const old = (await requestStore(req).getWorkspace()).preferences;
     await requestStore(req).updateWorkspace({ preferences });
-    if (JSON.stringify(old) !== JSON.stringify(preferences)) {
+    if (preferencesFingerprint(old) !== preferencesFingerprint(preferences)) {
       await service.invalidateDrafts(requestStore(req));
       await service.refreshAssessments(requestStore(req));
     }
@@ -282,8 +283,11 @@ export async function buildServer() {
     return preferences;
   });
   app.put("/api/sources", async (req) => {
-    const { sources } = z
-      .object({ sources: z.array(SourceSchema).max(50) })
+    const { sources, expectedRevision } = z
+      .object({
+        sources: z.array(SourceSchema).max(50),
+        expectedRevision: z.number().int().min(0),
+      })
       .parse(req.body);
     if (new Set(sources.map((s) => s.id)).size !== sources.length)
       throw Object.assign(new Error("Source IDs must be unique."), {
@@ -297,8 +301,7 @@ export async function buildServer() {
         ),
         { statusCode: 400 },
       );
-    await requestStore(req).updateWorkspace({ sources: normalized });
-    return normalized;
+    return requestStore(req).replaceSources(normalized, expectedRevision);
   });
   const manual = z
     .object({

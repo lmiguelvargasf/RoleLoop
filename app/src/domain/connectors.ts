@@ -166,13 +166,143 @@ export async function safeFetchText(
   return { text: response.text, url: url.toString() };
 }
 export function plainText(html: string): string {
-  const $ = load(html);
-  $("script,style,noscript,nav,footer,header").remove();
-  $("li,p,div,section,br,h1,h2,h3,h4").append("\n");
-  return $.text()
+  let text = html;
+  for (let pass = 0; pass < 2; pass++) {
+    const $ = load(text);
+    $("script,style,noscript,nav,footer,header").remove();
+    $("li,p,div,section,br,h1,h2,h3,h4,h5,h6,tr").append("\n");
+    text = $.text();
+    // Some boards return HTML as an escaped string inside their HTML field.
+    // Parse that known markup once more; never recursively decode arbitrary text.
+    if (
+      !/<\/?(?:p|div|span|li|ul|ol|br|h[1-6]|strong|em|section|article|table|tr|td|th|a|b|i|script|style)\b[^>]*>/i.test(
+        text,
+      )
+    )
+      break;
+  }
+  return text
     .replace(/[^\S\n]+/g, " ")
     .replace(/\n\s*\n/g, "\n")
     .trim();
+}
+
+type PublishedSalary = Pick<
+  Opportunity,
+  "salaryMin" | "salaryMax" | "salaryCurrency" | "salaryPeriod"
+>;
+
+/** Text is a fallback only. A dollar symbol alone does not identify a currency,
+ * and neither the size of an amount nor a job location proves its pay period. */
+export function publishedSalary(
+  title: string,
+  description: string,
+): PublishedSalary | null {
+  const payContext = /\b(?:salary|salaries|compensation|pay|wages?)\b/i;
+  const variablePay =
+    /\b(?:ote|on[- ]target|bonus|bonuses|commission|equity|stock|incentive)\b/i;
+  const unrelated =
+    /\b(?:revenue|donations?|fundrais\w*|funding|budget|reimburse\w*|allowance|stipend|expenses?|benefits?|insurance|401k|retirement)\b/i;
+  const candidates: PublishedSalary[] = [];
+  const parse = (input: string, fromTitle = false) => {
+    if (!fromTitle && !payContext.test(input)) return;
+    const base = input.search(
+      /\b(?:(?:annual|annually|yearly|monthly|hourly)\s+)?base\s+(?:salary|pay|compensation)\b/i,
+    );
+    if (variablePay.test(input) && base < 0) return;
+    // An explicitly named base component may precede a separate bonus/OTE.
+    let text = (base >= 0 ? input.slice(base) : input).split(
+      /\bplus\b|\s\+\s|;|\b(?:and|with|including|includes)\s+(?=(?:an?\s+)?(?:bonus|commission|equity|stock|benefit|allowance|stipend|ote|on[- ]target))/i,
+    )[0];
+    if (!fromTitle) text = text.split(/,\s+(?=[a-z])/i)[0];
+    if (variablePay.test(text) || unrelated.test(text)) return;
+    const currencies = new Set(
+      [...text.matchAll(/\b(?:USD|CAD|EUR|GBP)\b|US\$|CA\$|C\$|€|£/gi)].map(
+        ([value]) =>
+          /^(?:US\$|USD)$/i.test(value)
+            ? "USD"
+            : /^(?:CA\$|C\$|CAD)$/i.test(value)
+              ? "CAD"
+              : /^(?:€|EUR)$/i.test(value)
+                ? "EUR"
+                : "GBP",
+      ),
+    );
+    if (currencies.size !== 1) return;
+    const salaryCurrency = [...currencies][0];
+    const periods = new Set<PublishedSalary["salaryPeriod"]>();
+    if (/\b(?:year|yearly|annual|annually|annum|yr)\b/i.test(text))
+      periods.add("year");
+    if (/\b(?:month|monthly|mo)\b/i.test(text)) periods.add("month");
+    if (/\b(?:hour|hourly|hr)\b/i.test(text)) periods.add("hour");
+    const salaryPeriod = periods.size === 1 ? [...periods][0] : "unknown";
+    const amount = "(?:\\d{1,3}(?:,\\d{3})+|\\d+)(?:\\.\\d+)?";
+    const marker = "(?:(?:USD|CAD|EUR|GBP|US\\$|CA\\$|C\\$)\\s*)?[$€£]?\\s*";
+    const money = new RegExp(
+      `(?<![\\w.,])${marker}(?<min>${amount})\\s*(?<minUnit>k)?(?:\\s*(?:[-–—]|to)\\s*${marker}(?<max>${amount})\\s*(?<maxUnit>k)?)?(?!\\d|,\\d)`,
+      "gi",
+    );
+    const amounts: PublishedSalary[] = [];
+    for (const match of text.matchAll(money)) {
+      const after = text.slice((match.index ?? 0) + match[0].length);
+      if (
+        !/(?:USD|CAD|EUR|GBP|\$|€|£)/i.test(match[0]) &&
+        !/^\s*(?:(?:\/|per\s+)(?:year|yr|month|mo|hour|hr)\s*)?(?:USD|CAD|EUR|GBP)\b/i.test(
+          after,
+        )
+      )
+        continue;
+      const groups = match.groups!;
+      const scaleMin =
+        groups.minUnit || (groups.maxUnit && Number(groups.min) < 1000)
+          ? 1000
+          : 1;
+      const min = Number(groups.min.replaceAll(",", "")) * scaleMin;
+      const max = groups.max
+        ? Number(groups.max.replaceAll(",", "")) * (groups.maxUnit ? 1000 : 1)
+        : min;
+      if (
+        !Number.isFinite(min) ||
+        !Number.isFinite(max) ||
+        min <= 0 ||
+        max < min
+      )
+        continue;
+      const before = text.slice(0, match.index).slice(-45);
+      amounts.push({
+        salaryMin:
+          !groups.max && /\b(?:up to|maximum|ceiling)\b/i.test(before)
+            ? null
+            : min,
+        salaryMax:
+          !groups.max &&
+          /\b(?:starts? at|from|minimum|at least)\b/i.test(before)
+            ? null
+            : max,
+        salaryCurrency,
+        salaryPeriod,
+      });
+    }
+    if (amounts.length === 1) candidates.push(amounts[0]);
+  };
+  parse(title, true);
+  const lines = plainText(description)
+    .split("\n")
+    .map((line) => line.trim())
+    .filter(Boolean);
+  for (let index = 0; index < lines.length; index++) {
+    const line = lines[index];
+    if (!payContext.test(line)) continue;
+    // Read a labelled pay widget whose amount occupies the next line, without
+    // treating unrelated numbers elsewhere in a benefits section as salary.
+    const complete =
+      /\d/.test(line) && /\b(?:USD|CAD|EUR|GBP)\b|[$€£]/i.test(line);
+    parse(complete ? line : lines.slice(index, index + 3).join(" "));
+  }
+  const unique = new Map(
+    candidates.map((salary) => [JSON.stringify(salary), salary]),
+  );
+  return unique.size === 1 ? [...unique.values()][0] : null;
 }
 const skills: Record<string, RegExp> = {
   TypeScript: /\btypescript\b/i,
@@ -350,17 +480,7 @@ export async function discover(
         const pay = components.find(
           (p: any) => p.compensationType === "Salary",
         );
-        const workplace = j.workplaceType;
-        return base(source, j.id ?? j.jobUrl, {
-          title: j.title ?? "Untitled role",
-          description: desc,
-          url: j.jobUrl ?? j.applyUrl ?? "",
-          location: j.location ?? "Unknown",
-          remoteScope:
-            workplace && workplace !== "Remote"
-              ? "onsite"
-              : remoteScope(`Remote ${j.location ?? ""}\n${desc}`),
-          publishedAt: iso(j.publishedAt),
+        const structuredPay: PublishedSalary = {
           salaryMin: number(pay?.minValue),
           salaryMax: number(pay?.maxValue),
           salaryCurrency: pay?.currencyCode ?? "USD",
@@ -372,6 +492,23 @@ export async function discover(
                 : pay?.interval === "1 HOUR"
                   ? "hour"
                   : "unknown",
+        };
+        const salary =
+          structuredPay.salaryMin !== null || structuredPay.salaryMax !== null
+            ? structuredPay
+            : (publishedSalary(j.title ?? "", desc) ?? structuredPay);
+        const workplace = j.workplaceType;
+        return base(source, j.id ?? j.jobUrl, {
+          title: j.title ?? "Untitled role",
+          description: desc,
+          url: j.jobUrl ?? j.applyUrl ?? "",
+          location: j.location ?? "Unknown",
+          remoteScope:
+            workplace && workplace !== "Remote"
+              ? "onsite"
+              : remoteScope(`Remote ${j.location ?? ""}\n${desc}`),
+          publishedAt: iso(j.publishedAt),
+          ...salary,
           requirements: extractRequirements(desc),
           notes:
             "Ashby publishedAt is the last publication date. Company headquarters and hiring countries require verification.",
@@ -392,6 +529,9 @@ export async function discover(
         location: j.location?.name ?? "Unknown",
         remoteScope: remoteScope(`${j.location?.name ?? ""}\n${desc}`),
         publishedAt: iso(j.first_published),
+        ...(publishedSalary(j.title ?? "", desc) ?? {
+          salaryPeriod: "unknown",
+        }),
         requirements: extractRequirements(desc),
         notes:
           "An update timestamp is not treated as the original posting date. Salary and hiring eligibility may require checking the individual posting.",
@@ -418,16 +558,7 @@ export async function discover(
         j.additionalPlain ?? "",
       ].join("\n");
       const pay = j.salaryRange;
-      return base(source, j.id, {
-        title: j.text ?? "Untitled role",
-        description: desc,
-        url: j.hostedUrl ?? j.applyUrl ?? "",
-        location: j.categories?.location ?? "Unknown",
-        remoteScope:
-          j.workplaceType === "on-site" || j.workplaceType === "hybrid"
-            ? "onsite"
-            : remoteScope(`${j.categories?.location ?? ""}\n${desc}`),
-        publishedAt: iso(j.createdAt),
+      const structuredPay: PublishedSalary = {
         salaryMin: number(pay?.min),
         salaryMax: number(pay?.max),
         salaryCurrency: pay?.currency ?? "USD",
@@ -438,6 +569,22 @@ export async function discover(
             : /hour/i.test(pay?.interval ?? "")
               ? "hour"
               : "unknown",
+      };
+      const salary =
+        structuredPay.salaryMin !== null || structuredPay.salaryMax !== null
+          ? structuredPay
+          : (publishedSalary(j.text ?? "", desc) ?? structuredPay);
+      return base(source, j.id, {
+        title: j.text ?? "Untitled role",
+        description: desc,
+        url: j.hostedUrl ?? j.applyUrl ?? "",
+        location: j.categories?.location ?? "Unknown",
+        remoteScope:
+          j.workplaceType === "on-site" || j.workplaceType === "hybrid"
+            ? "onsite"
+            : remoteScope(`${j.categories?.location ?? ""}\n${desc}`),
+        publishedAt: iso(j.createdAt),
+        ...salary,
         requirements: extractRequirements(desc),
         notes:
           "The public posting may omit application questions and hiring-country restrictions.",

@@ -98,6 +98,7 @@ export const PreferencesSchema = z.object({
   industryPreference: z.enum(["any", "prefer"]).default("prefer"),
   topIndustries: z.array(z.string()).default([]),
   scheduleEnabled: z.boolean().default(false),
+  discoverEmployers: z.boolean().default(true),
   scheduleMinutes: z.number().int().min(15).max(1440).default(120),
   dailyLimit: z.number().int().min(1).max(100).default(10),
 });
@@ -120,6 +121,8 @@ export const SourceSchema = z.object({
   enabled: z.boolean(),
   companyCountry: z.string().max(100).optional(),
   countrySource: z.string().url().max(2000).optional(),
+  discoveredFrom: z.string().url().max(2000).optional(),
+  discoveredAt: z.string().datetime().optional(),
 });
 export const RequirementSchema = z.object({
   id: z.string(),
@@ -290,6 +293,7 @@ export interface Workspace {
   profile: Profile;
   preferences: Preferences;
   sources: Source[];
+  sourcesRevision?: number;
   companies?: Company[];
 }
 export interface WorkspaceAccess {
@@ -315,8 +319,17 @@ export interface SourceHealth {
   evaluated: number;
   error?: string;
 }
+export interface EmployerDiscoveryReport {
+  checkedAt: string;
+  status: "success" | "partial" | "error" | "needs_preferences";
+  message: string;
+  companiesFound: number;
+  boardsConnected: number;
+  boardsChecked: number;
+}
 export interface Bootstrap extends Workspace {
   sourceHealth?: Record<string, SourceHealth>;
+  employerDiscovery?: EmployerDiscoveryReport;
   opportunities: Opportunity[];
   drafts: Draft[];
   runs: Run[];

@@ -8,6 +8,7 @@ import {
   type Run,
   type Workspace,
   type SourceHealth,
+  type EmployerDiscoveryReport,
 } from "../shared/types.js";
 import {
   assessOpportunity,
@@ -29,8 +30,13 @@ import { generateDraft } from "./model.js";
 import { resumePdf, sendToLocalInbox } from "./documents.js";
 import { chatgptStatus } from "./chatgpt.js";
 import { assessWithAI } from "./fit.js";
-import { matchesTargetRole, sourceKind } from "../shared/discovery.js";
+import {
+  matchesTargetRole,
+  sourceIdentity,
+  sourceKind,
+} from "../shared/discovery.js";
 import { settings } from "./config.js";
+import { discoverEmployerBoards } from "../domain/employer-discovery.js";
 
 export const RunInput = z.object({
   action: z.enum(["discover", "analyze", "draft", "research", "simulate"]),
@@ -48,6 +54,7 @@ export async function bootstrap(store: WorkspaceStore): Promise<Bootstrap> {
     events,
     heartbeat,
     sourceHealth,
+    employerDiscovery,
   ] = await Promise.all([
     store.getWorkspace(),
     store.list("opportunities"),
@@ -56,6 +63,7 @@ export async function bootstrap(store: WorkspaceStore): Promise<Bootstrap> {
     store.list("events", 60),
     getGlobalRuntime<{ at: string }>("worker"),
     store.runtime<Record<string, SourceHealth>>("source-health"),
+    store.runtime<EmployerDiscoveryReport>("employer-discovery"),
   ]);
   // Refresh cached assessments after a CV change or a retired salary policy.
   const currentOpportunities = await Promise.all(
@@ -79,6 +87,7 @@ export async function bootstrap(store: WorkspaceStore): Promise<Bootstrap> {
   return {
     ...workspace,
     sourceHealth: sourceHealth ?? {},
+    employerDiscovery: employerDiscovery ?? undefined,
     opportunities: orderOpportunities(
       currentOpportunities,
       workspace.preferences,
@@ -170,7 +179,9 @@ export async function analyze(
   const current = await store.getWorkspace();
   if (
     profileFingerprint(current.profile) !==
-    profileFingerprint(workspace.profile)
+      profileFingerprint(workspace.profile) ||
+    preferencesFingerprint(current.preferences) !==
+      preferencesFingerprint(workspace.preferences)
   )
     assessment = assessOpportunity(op, current.profile, current.preferences);
   const progressed = ["drafted", "approved", "tested", "archived"].includes(
@@ -305,9 +316,116 @@ export async function processRun(
 ) {
   if (run.workspaceId !== store.workspaceId)
     throw new Error("Task workspace does not match its execution context.");
-  const workspace = await store.getWorkspace();
+  let workspace = await store.getWorkspace();
   if (run.action === "discover") {
     const scope = run.discoveryScope ?? (run.sourceId ? undefined : "jobs");
+    const discoveredJobs = new Map<
+      string,
+      { identity: string; opportunities: Opportunity[] }
+    >();
+    let expansion: EmployerDiscoveryReport | undefined;
+    const expand =
+      scope === "jobs" &&
+      !run.sourceId &&
+      workspace.preferences.discoverEmployers;
+    if (expand) {
+      expansion = {
+        checkedAt: new Date().toISOString(),
+        status: "success",
+        message: "",
+        companiesFound: 0,
+        boardsConnected: 0,
+        boardsChecked: 0,
+      };
+      if (
+        !workspace.preferences.roles.some((role) => role.trim()) ||
+        !workspace.preferences.country.trim()
+      ) {
+        expansion.status = "needs_preferences";
+        expansion.message =
+          "Set your target roles and working country in Settings to find new companies.";
+      } else if (workspace.sources.length >= 50) {
+        expansion.status = "partial";
+        expansion.message =
+          "Your 50-source limit is reached. Remove an unused source to connect new companies.";
+      } else {
+        try {
+          const found = await discoverEmployerBoards(workspace, {
+            cache: { get: getGlobalRuntime, set: setGlobalRuntime },
+            excludeIdentities: await store.ignoredDiscoveryIdentities(),
+            onProgress: (message) => progress(5, message),
+          });
+          expansion.companiesFound = found.companiesFound;
+          expansion.boardsChecked = found.boardsChecked;
+          let limited = false;
+          let changed = false;
+          let paused = false;
+          for (const board of found.boards) {
+            const latest = await store.getWorkspace();
+            if (!latest.preferences.discoverEmployers) {
+              paused = true;
+              break;
+            }
+            if (
+              preferencesFingerprint(latest.preferences) !==
+              preferencesFingerprint(workspace.preferences)
+            ) {
+              changed = true;
+              break;
+            }
+            const connection = await store.connectDiscoveredSource(
+              board.source,
+            );
+            if (connection.status === "limit") {
+              limited = true;
+              break;
+            }
+            if (connection.status !== "added" || !connection.sourceId) continue;
+            expansion.boardsConnected++;
+            discoveredJobs.set(connection.sourceId, {
+              identity: sourceIdentity(board.source),
+              opportunities: board.opportunities,
+            });
+          }
+          expansion.status =
+            found.errors.length || limited || changed || paused
+              ? "partial"
+              : "success";
+          expansion.message = `${expansion.boardsConnected} new ${expansion.boardsConnected === 1 ? "company connected" : "companies connected"} from ${found.companiesFound} employers found.`;
+          if (
+            !expansion.boardsConnected &&
+            !found.errors.length &&
+            !limited &&
+            !changed &&
+            !paused
+          )
+            expansion.message +=
+              " No additional supported boards with relevant openings were found in this search.";
+          if (limited) expansion.message += " Your 50-source limit is reached.";
+          if (changed)
+            expansion.message +=
+              " Your preferences changed during discovery. Search again to find companies for your updated preferences.";
+          if (paused) expansion.message += " New company discovery was paused.";
+          if (found.errors.length) {
+            expansion.message +=
+              " Some employers could not be checked; see Activity.";
+            for (const error of found.errors.slice(0, 5))
+              await store.event(`Employer discovery: ${error}`, "warning");
+          }
+        } catch (error) {
+          expansion.status = expansion.boardsConnected ? "partial" : "error";
+          expansion.message = `${expansion.boardsConnected ? `${expansion.boardsConnected} companies connected before discovery stopped.` : "New-company discovery was unavailable."} ${error instanceof Error ? error.message : "Try again later."}`;
+        }
+      }
+      expansion.checkedAt = new Date().toISOString();
+      await store.setRuntime("employer-discovery", expansion);
+      await store.event(
+        expansion.message,
+        expansion.status === "success" ? "info" : "warning",
+      );
+      // Reload after atomic appends and any edits made while websites were checked.
+      workspace = await store.getWorkspace();
+    }
     const sources = workspace.sources.filter(
       (s) =>
         s.enabled &&
@@ -318,8 +436,14 @@ export async function processRun(
             : sourceKind(s) !== "startup_feed")),
     );
 
-    if (!sources.length)
-      throw new Error("Add and enable a source before running discovery.");
+    if (!sources.length) {
+      if (expansion?.status === "success" || expansion?.status === "partial")
+        return expansion.message;
+      throw new Error(
+        expansion?.message ||
+          "Add and enable a source before running discovery.",
+      );
+    }
     const recordHealth = async (id: string, health: SourceHealth) => {
       const previous =
         (await store.runtime<Record<string, SourceHealth>>("source-health")) ??
@@ -331,13 +455,28 @@ export async function processRun(
       failed = 0;
     for (const [index, source] of sources.entries()) {
       await progress(
-        Math.round((index / sources.length) * 80),
+        Math.round(
+          (expand ? 15 : 0) + (index / sources.length) * (expand ? 65 : 80),
+        ),
         `Reading ${source.label}`,
       );
       const before = imported;
+      let found = 0;
       try {
         let opportunities: Opportunity[];
-        if (source.provider === "jobicy") {
+        const verified = discoveredJobs.get(source.id);
+        if (verified?.identity === sourceIdentity(source)) {
+          opportunities = verified.opportunities.map((op) => ({
+            ...op,
+            sourceId: source.id,
+            companyId: source.companyId,
+            company: source.companyName || source.label,
+            companyCountry: source.countrySource
+              ? (source.companyCountry ?? "Unknown")
+              : "Unknown",
+            companyCountrySource: source.countrySource,
+          }));
+        } else if (source.provider === "jobicy") {
           const cached = await getGlobalRuntime<{
             at: number;
             opportunities: Opportunity[];
@@ -371,11 +510,16 @@ export async function processRun(
               `${op.title} ${op.description}`.toLowerCase().includes(keyword),
             );
         } else opportunities = await discover(source, workspace.preferences);
+        found = opportunities.length;
         for (const candidate of opportunities) {
           if (
-            source.provider === "jobicy" &&
+            candidate.kind === "job" &&
             workspace.preferences.roles.length &&
-            !matchesTargetRole(candidate.title, workspace.preferences.roles)
+            !matchesTargetRole(
+              candidate.title,
+              workspace.preferences.roles,
+              candidate.company,
+            )
           )
             continue;
           const existing = await store.importOpportunity(
@@ -406,6 +550,7 @@ export async function processRun(
                     matchesTargetRole(
                       existing.title,
                       workspace.preferences.roles,
+                      existing.company,
                     ),
                 );
           if (op !== existing && op.assessment?.fitSummary)
@@ -423,7 +568,7 @@ export async function processRun(
         await recordHealth(source.id, {
           checkedAt: new Date().toISOString(),
           status: "error",
-          found: 0,
+          found,
           evaluated: imported - before,
           error: error instanceof Error ? error.message : "Source failed",
         });
@@ -464,10 +609,10 @@ export async function processRun(
       }
     }
     await store.event(
-      `Discovery evaluated ${imported} opportunities${failed ? `; ${failed} source(s) failed` : ""}.`,
+      `Discovery evaluated ${imported} opportunities${expansion?.boardsConnected ? `; connected ${expansion.boardsConnected} new ${expansion.boardsConnected === 1 ? "company" : "companies"}` : ""}${failed ? `; ${failed} source(s) failed` : ""}.`,
       "success",
     );
-    return `Evaluated ${imported} opportunities${failed ? `; ${failed} source(s) failed` : ""}`;
+    return `Evaluated ${imported} opportunities${expansion?.boardsConnected ? ` · ${expansion.boardsConnected} ${expansion.boardsConnected === 1 ? "company" : "companies"} connected` : ""}${failed ? `; ${failed} source(s) failed` : ""}`;
   }
   const op = await store.get("opportunities", run.opportunityId!);
   if (run.action === "analyze") {

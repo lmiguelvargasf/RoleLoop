@@ -4442,8 +4442,9 @@ summary.source-editor-top::before {
 }
 .source-settings-footer {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
-  gap: 24px;
+  gap: 12px 24px;
   margin-top: 20px;
 }
 .source-library-toolbar {
@@ -4617,7 +4618,103 @@ summary.source-editor-top::before {
   max-width: 350px;
   margin-top: 10px;
 }
+.employer-discovery {
+  margin-top: 28px;
+  padding: 22px 0;
+  border-top: 1px solid var(--line);
+  border-bottom: 1px solid var(--line);
+}
+.employer-discovery-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 24px;
+}
+.employer-discovery h2 {
+  margin: 0;
+  font-size: 16px;
+  letter-spacing: -0.025em;
+}
+.employer-discovery-heading p,
+.discovery-search-context p,
+.discovery-last-result p,
+.discovery-conflict p {
+  margin: 6px 0 0;
+  color: var(--muted);
+  font-size: 13px;
+  line-height: 1.6;
+}
+.employer-discovery-heading .source-toggle {
+  flex-shrink: 0;
+}
+.discovery-search-context {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px 24px;
+  margin-top: 12px;
+}
+.discovery-search-context p {
+  color: var(--ink);
+  overflow-wrap: anywhere;
+}
+.discovery-search-context a {
+  display: inline-flex;
+  align-items: center;
+  flex-shrink: 0;
+  gap: 4px;
+  color: var(--accent);
+  font-size: 12px;
+}
+.discovery-setup-note {
+  margin: 12px 0 0;
+  color: var(--muted);
+  font-size: 13px;
+  line-height: 1.6;
+}
+.discovery-last-result {
+  margin-top: 14px;
+}
+.discovery-last-result small {
+  display: block;
+  margin-top: 4px;
+  color: var(--muted);
+  font-size: 12px;
+}
+.discovery-last-result.source-error p {
+  color: var(--danger);
+}
+.discovery-conflict {
+  margin-top: 24px;
+  padding: 16px 0;
+  border-block: 1px solid var(--line);
+}
+.discovery-conflict .text-button {
+  margin-top: 8px;
+}
+.discovery-source-origin {
+  margin: 0;
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.6;
+}
+.discovery-source-origin a {
+  color: var(--accent);
+}
+.opportunity-filter-note {
+  margin: -8px 0 16px;
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.6;
+}
+.opportunity-filter-note .text-button {
+  font-size: inherit;
+}
 @media (max-width: 580px) {
+  .discovery-search-context {
+    flex-direction: column;
+    gap: 8px;
+  }
   .discovery-tabs {
     gap: 18px;
   }

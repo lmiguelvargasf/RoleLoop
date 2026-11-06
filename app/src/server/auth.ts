@@ -91,6 +91,7 @@ export function emptyWorkspace(user: User): Workspace {
       industryPreference: "prefer",
       topIndustries: [],
       scheduleEnabled: false,
+      discoverEmployers: true,
       scheduleMinutes: 120,
       dailyLimit: 10,
     },

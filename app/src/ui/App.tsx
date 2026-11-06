@@ -54,7 +54,11 @@ import type {
   RunAction,
 } from "../shared/types";
 import { api, date, downloadFile, safeUrl, uid, words, write } from "./api";
-import { applicationCounts, followUpDue } from "../shared/discovery";
+import {
+  applicationCounts,
+  followUpDue,
+  matchesTargetRole,
+} from "../shared/discovery";
 import { SourcesPage as Sources } from "./SourcesPage";
 import { ApplicationProgress } from "./ApplicationProgress";
 import { SalaryFields } from "./SalaryFields";
@@ -495,6 +499,9 @@ export function App({
         {page === "sources" && (
           <Sources
             initial={data.sources}
+            sourcesRevision={data.sourcesRevision}
+            preferences={data.preferences}
+            employerDiscovery={data.employerDiscovery}
             health={data.sourceHealth}
             searching={data.runs.some(
               (r) =>
@@ -544,26 +551,43 @@ function Opportunities({
   navigate: (p: Page) => void;
 }) {
   const [query, setQuery] = useState(""),
-    [stage, setStage] = useState("all"),
+    [stage, setStage] = useState(kind === "job" ? "matches" : "all"),
     [selected, setSelected] = useState<string | null>(null),
     [adding, setAdding] = useState(false),
     [editing, setEditing] = useState<Opportunity | null>(null),
     [discovering, setDiscovering] = useState(false);
+  const potentialMatch = (opportunity: Opportunity) =>
+    opportunity.stage !== "archived" &&
+    opportunity.assessment?.recommendation !== "excluded" &&
+    matchesTargetRole(
+      opportunity.title,
+      data.preferences.roles,
+      opportunity.company,
+    );
   const all = data.opportunities.filter((o) => o.kind === kind),
+    outsideMatches = all.filter(
+      (opportunity) =>
+        opportunity.stage !== "archived" && !potentialMatch(opportunity),
+    ).length,
     list = all.filter(
       (o) =>
-        (stage === "all"
-          ? o.stage !== "archived"
-          : stage === "followups"
-            ? followUpDue(o, new Date().toLocaleDateString("en-CA"))
-            : stage.startsWith("application:")
-              ? o.application?.status === stage.slice(12)
-              : o.stage === stage) &&
+        (stage === "matches"
+          ? potentialMatch(o)
+          : stage === "excluded"
+            ? o.stage !== "archived" &&
+              o.assessment?.recommendation === "excluded"
+            : stage === "all"
+              ? o.stage !== "archived"
+              : stage === "followups"
+                ? followUpDue(o, new Date().toLocaleDateString("en-CA"))
+                : stage.startsWith("application:")
+                  ? o.application?.status === stage.slice(12)
+                  : o.stage === stage) &&
         `${o.company} ${o.title} ${o.description}`
           .toLowerCase()
           .includes(query.toLowerCase()),
     );
-  const chosen = data.opportunities.find((o) => o.id === selected);
+  const chosen = list.find((o) => o.id === selected);
   const run = (action: RunAction, id: string) =>
     perform(
       () => write("/runs", { action, opportunityId: id }),
@@ -572,6 +596,19 @@ function Opportunities({
   const relatedDrafts = chosen
     ? data.drafts.filter((d) => d.opportunityId === chosen.id)
     : [];
+  const searching = data.runs.some(
+    (r) =>
+      r.action === "discover" &&
+      ["queued", "running"].includes(r.status) &&
+      (r.discoveryScope ?? "jobs") === (kind === "job" ? "jobs" : "startups"),
+  );
+  const canSearchJobs =
+    data.sources.some(
+      (source) => source.enabled && source.provider !== "hackernews",
+    ) ||
+    ((data.preferences.discoverEmployers ?? true) &&
+      data.preferences.roles.some((role) => role.trim()) &&
+      Boolean(data.preferences.country.trim()));
   return (
     <section className="page opportunities-page">
       <div className="page-heading">
@@ -593,14 +630,38 @@ function Opportunities({
           </button>
           <button
             className="button primary"
-            disabled={busy}
-            onClick={() => setDiscovering(true)}
+            disabled={busy || searching || (kind === "job" && !canSearchJobs)}
+            onClick={() => {
+              if (kind === "startup") setDiscovering(true);
+              else
+                void perform(
+                  () =>
+                    write("/runs", {
+                      action: "discover",
+                      discoveryScope: "jobs",
+                    }),
+                  "Job search queued. Follow progress in Activity.",
+                );
+            }}
           >
-            <Radio size={16} />
-            Discover
+            <Search size={16} />
+            {searching
+              ? "Searching…"
+              : kind === "job"
+                ? "Search jobs"
+                : "Find startup leads"}
           </button>
         </div>
       </div>
+      {kind === "job" && !canSearchJobs && (
+        <p className="discovery-setup-note">
+          Set your target roles and working country, or follow a company to
+          start searching.{" "}
+          <button className="text-button" onClick={() => navigate("sources")}>
+            Set up discovery
+          </button>
+        </p>
+      )}
       {kind === "job" && (
         <p className="muted" role="status">
           {all.length} saved · {applicationCounts(all).applied} applied ·{" "}
@@ -697,7 +758,11 @@ function Opportunities({
           value={stage}
           onChange={(e) => setStage(e.target.value)}
         >
-          <option value="all">Active opportunities</option>
+          {kind === "job" && <option value="matches">Potential matches</option>}
+          <option value="all">All active opportunities</option>
+          {kind === "job" && (
+            <option value="excluded">Excluded by preferences</option>
+          )}
           {kind === "job" && <option value="followups">Follow-ups due</option>}
           {kind === "job" &&
             ["applied", "interview", "offer", "rejected", "withdrawn"].map(
@@ -719,6 +784,18 @@ function Opportunities({
           {list.length} {list.length === 1 ? "opportunity" : "opportunities"}
         </span>
       </div>
+      {kind === "job" &&
+        stage === "matches" &&
+        outsideMatches > 0 &&
+        list.length > 0 && (
+          <p className="opportunity-filter-note">
+            {outsideMatches} other saved{" "}
+            {outsideMatches === 1 ? "role is" : "roles are"} outside this view.{" "}
+            <button className="text-button" onClick={() => setStage("all")}>
+              View all active opportunities
+            </button>
+          </p>
+        )}
       <div className={`opportunity-workspace ${chosen ? "has-selection" : ""}`}>
         <div className="opportunity-list">
           {list.length ? (
@@ -779,21 +856,38 @@ function Opportunities({
               title={
                 query
                   ? "No matches in this view"
-                  : kind === "job"
-                    ? "Start with your next opportunity"
-                    : "Build your startup shortlist"
+                  : kind === "job" && stage === "matches"
+                    ? "No potential matches yet"
+                    : all.length > 0
+                      ? "No opportunities in this view"
+                      : kind === "job"
+                        ? "Start with your next opportunity"
+                        : "Build your startup shortlist"
               }
               detail={
                 query
                   ? "Try another search or change the stage filter."
-                  : "Connect a source to discover opportunities, or add one manually."
+                  : kind === "job" && stage === "matches" && outsideMatches > 0
+                    ? "Saved roles outside your target roles or preferences remain available in All active opportunities."
+                    : "Search for opportunities using your preferences, or add one manually."
               }
             >
               <button
                 className="button primary"
-                onClick={() => navigate("sources")}
+                onClick={() => {
+                  if (
+                    kind === "job" &&
+                    stage === "matches" &&
+                    outsideMatches > 0
+                  ) {
+                    setQuery("");
+                    setStage("all");
+                  } else navigate("sources");
+                }}
               >
-                Manage sources
+                {kind === "job" && stage === "matches" && outsideMatches > 0
+                  ? "View all active opportunities"
+                  : "Set up discovery"}
                 <ArrowRight size={15} />
               </button>
             </Empty>
@@ -1163,6 +1257,7 @@ function Opportunities({
                           write("/runs", {
                             action: "discover",
                             sourceId: source.id,
+                            discoveryScope: "startups",
                           }),
                         "Discovery queued.",
                       )
@@ -1226,7 +1321,17 @@ function salary(o: Opportunity) {
       return `${currency} ${n.toLocaleString()}`;
     }
   };
-  return `${amount(o.salaryMin)}${o.salaryMax !== null ? `–${amount(o.salaryMax)}` : "+"} / ${o.salaryPeriod}`;
+  const range =
+    o.salaryMin === null
+      ? `Up to ${amount(o.salaryMax)}`
+      : o.salaryMax === null
+        ? `${amount(o.salaryMin)}+`
+        : o.salaryMin === o.salaryMax
+          ? amount(o.salaryMin)
+          : `${amount(o.salaryMin)}–${amount(o.salaryMax)}`;
+  return o.salaryPeriod === "unknown"
+    ? `${range} · period unconfirmed`
+    : `${range} / ${o.salaryPeriod}`;
 }
 function NoticeList({
   title,

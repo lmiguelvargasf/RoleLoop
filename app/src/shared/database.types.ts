@@ -87,10 +87,41 @@ export type Database = {
           },
         ]
       }
+      discovery_source_suppressions: {
+        Row: {
+          board: string
+          provider: string
+          removed_at: string
+          workspace_id: string
+        }
+        Insert: {
+          board: string
+          provider: string
+          removed_at?: string
+          workspace_id: string
+        }
+        Update: {
+          board?: string
+          provider?: string
+          removed_at?: string
+          workspace_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "discovery_source_suppressions_workspace_id_fkey"
+            columns: ["workspace_id"]
+            isOneToOne: false
+            referencedRelation: "workspace"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       discovery_sources: {
         Row: {
           board: string
           company_id: string | null
+          discovered_at: string | null
+          discovered_from: string | null
           enabled: boolean
           id: string
           kind: string
@@ -102,6 +133,8 @@ export type Database = {
         Insert: {
           board: string
           company_id?: string | null
+          discovered_at?: string | null
+          discovered_from?: string | null
           enabled?: boolean
           id: string
           kind: string
@@ -113,6 +146,8 @@ export type Database = {
         Update: {
           board?: string
           company_id?: string | null
+          discovered_at?: string | null
+          discovered_from?: string | null
           enabled?: boolean
           id?: string
           kind?: string
@@ -323,6 +358,7 @@ export type Database = {
           name: string
           owner_user_id: string | null
           payload: Json
+          sources_revision: number
           updated_at: string
         }
         Insert: {
@@ -330,6 +366,7 @@ export type Database = {
           name?: string
           owner_user_id?: string | null
           payload: Json
+          sources_revision?: number
           updated_at?: string
         }
         Update: {
@@ -337,6 +374,7 @@ export type Database = {
           name?: string
           owner_user_id?: string | null
           payload?: Json
+          sources_revision?: number
           updated_at?: string
         }
         Relationships: []
@@ -412,6 +450,7 @@ export type Database = {
           name: string
           owner_user_id: string | null
           payload: Json
+          sources_revision: number
           updated_at: string
         }[]
         SetofOptions: {
@@ -439,6 +478,10 @@ export type Database = {
           isSetofReturn: true
         }
       }
+      connect_discovered_source: {
+        Args: { source_payload: Json; target_workspace: string }
+        Returns: Json
+      }
       enqueue_run: {
         Args: { run_payload: Json; target_workspace: string }
         Returns: {
@@ -464,6 +507,7 @@ export type Database = {
           name: string
           owner_user_id: string | null
           payload: Json
+          sources_revision: number
           updated_at: string
         }[]
         SetofOptions: {
@@ -488,6 +532,14 @@ export type Database = {
       owns_workspace: { Args: { target_workspace: string }; Returns: boolean }
       release_worker_lease: { Args: { owner: string }; Returns: boolean }
       renew_worker_lease: { Args: { owner: string }; Returns: boolean }
+      replace_discovery_sources: {
+        Args: {
+          expected_revision: number
+          source_payload: Json
+          target_workspace: string
+        }
+        Returns: number
+      }
       update_workspace_profile_if_current: {
         Args: {
           expected_profile: Json

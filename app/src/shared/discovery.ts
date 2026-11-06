@@ -288,19 +288,86 @@ export function applicationCounts(
   return counts;
 }
 
-export function matchesTargetRole(title: string, roles: string[]): boolean {
+export function matchesTargetRole(
+  title: string,
+  roles: string[],
+  company?: string,
+): boolean {
   if (!roles.length) return true;
-  return roles.some((role) =>
-    role
+  // Employer names appended to a title are not role evidence (e.g. CXT Software).
+  if (company?.trim()) {
+    const escaped = company.trim().replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+    title = title.replace(
+      new RegExp(`\\s*(?:[,|–—]| - )\\s*@?\\s*${escaped}\\s*$`, "iu"),
+      "",
+    );
+  }
+  const tokens = (value: string) =>
+    value
       .toLowerCase()
-      .split(/\W+/)
-      .filter(
+      .replace(/\b(front|back)[ -]end\b/g, "$1end")
+      .replace(/\bfull[ -]stack\b/g, "fullstack")
+      .replace(/\b(developer|programmer|engineering)\b/g, "engineer")
+      .match(/[\p{L}\p{N}+#]+/gu)
+      ?.filter(
         (word) =>
-          word.length > 2 &&
-          !["senior", "junior", "lead", "staff", "principal"].includes(word),
-      )
-      .some((word) => title.toLowerCase().includes(word)),
-  );
+          ![
+            "senior",
+            "sr",
+            "junior",
+            "jr",
+            "lead",
+            "staff",
+            "principal",
+            "remote",
+            "and",
+            "or",
+            "of",
+            "the",
+            "ii",
+            "iii",
+            "iv",
+          ].includes(word),
+      ) ?? [];
+  const titleWords = new Set(tokens(title));
+  return roles.some((role) => {
+    const words = tokens(role).filter(
+      (word) => word.length > 1 || word === "r" || word === "c",
+    );
+    if (!words.length) return false;
+    const leadership = [
+      "manager",
+      "director",
+      "head",
+      "chief",
+      "vp",
+      "president",
+      "cto",
+      "ceo",
+      "coo",
+      "cfo",
+    ];
+    if (
+      leadership.some((word) => titleWords.has(word)) &&
+      !words.some((word) => leadership.includes(word) || word === "assistant")
+    )
+      return false;
+    return words.every(
+      (word) =>
+        titleWords.has(word) ||
+        (word === "software" &&
+          words.includes("engineer") &&
+          [
+            "backend",
+            "frontend",
+            "fullstack",
+            "web",
+            "mobile",
+            "ios",
+            "android",
+          ].some((family) => titleWords.has(family))),
+    );
+  });
 }
 
 export function followUpDue(

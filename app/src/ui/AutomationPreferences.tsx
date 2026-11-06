@@ -20,8 +20,8 @@ export function AutomationPreferences({
       <div className="form-section-heading">
         <h2 id="automation-title">Automatic search</h2>
         <p>
-          Searches enabled job sources while RoleLoop is running. Start startup
-          research separately.
+          Searches followed companies and job feeds while RoleLoop is running.
+          New company discovery follows your Discovery setting.
         </p>
       </div>
       <div className="form-grid">

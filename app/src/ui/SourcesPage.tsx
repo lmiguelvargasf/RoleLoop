@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import {
   ArrowUpRight,
   Check,
@@ -8,7 +8,12 @@ import {
   Settings2,
   Trash2,
 } from "lucide-react";
-import type { Source, SourceHealth } from "../shared/types";
+import type {
+  Bootstrap,
+  Preferences,
+  Source,
+  SourceHealth,
+} from "../shared/types";
 import {
   addRecommendedSources,
   normalizeSource,
@@ -17,7 +22,7 @@ import {
   sourceKind,
   startupLibrary,
 } from "../shared/discovery";
-import { safeUrl, uid, write } from "./api";
+import { api, ApiError, safeUrl, uid, write } from "./api";
 
 type Perform = (
   task: () => Promise<unknown>,
@@ -31,25 +36,50 @@ const providers: Record<Source["provider"], string> = {
   hackernews: "Show HN",
 };
 function sourceTitle(source: Source): string {
-  if (sourceKind(source) !== "company_board")
-    return source.label || "New feed";
+  if (sourceKind(source) !== "company_board") return source.label || "New feed";
   const company = source.companyName || source.label;
   return company ? `Jobs at ${company}` : "New company";
 }
+type SavedSources = { sources: Source[]; sourcesRevision: number };
 export function SourcesPage({
   initial,
+  sourcesRevision = 0,
+  preferences,
+  employerDiscovery,
   health = {},
   searching = false,
   perform,
   busy,
 }: {
   initial: Source[];
+  sourcesRevision?: number;
+  preferences: Preferences;
+  employerDiscovery?: Bootstrap["employerDiscovery"];
   health?: Record<string, SourceHealth>;
   searching?: boolean;
   perform: Perform;
   busy: boolean;
 }) {
   const [sources, setSources] = useState(initial);
+  const saved = useRef<SavedSources>({ sources: initial, sourcesRevision });
+  const [conflict, setConflict] = useState(false);
+  const dirty =
+    JSON.stringify(sources) !== JSON.stringify(saved.current.sources);
+  useEffect(() => {
+    if (sourcesRevision <= saved.current.sourcesRevision) return;
+    if (dirty) {
+      setConflict(true);
+      return;
+    }
+    saved.current = { sources: initial, sourcesRevision };
+    setSources(initial);
+    setConflict(false);
+  }, [initial, sourcesRevision, dirty]);
+  const adoptSources = (next: SavedSources) => {
+    saved.current = next;
+    setSources(next.sources);
+    setConflict(false);
+  };
   const [area, setArea] = useState<"jobs" | "startups" | "browse">("jobs");
   const visibleSources = sources.filter((s) =>
     area === "startups"
@@ -68,6 +98,12 @@ export function SourcesPage({
   const [showAdded, setShowAdded] = useState(false);
   const [editing, setEditing] = useState<string | null>(null);
   const enabled = visibleSources.filter((s) => s.enabled).length;
+  const automatic = preferences.discoverEmployers ?? true;
+  const searchReady =
+    preferences.roles.some((role) => role.trim()) &&
+    Boolean(preferences.country.trim());
+  const canSearch =
+    enabled > 0 || (area === "jobs" && automatic && searchReady);
   const researchFor = (s: Source) =>
     sourceLibrary.find(
       (r) =>
@@ -89,25 +125,43 @@ export function SourcesPage({
   const missing = suggestions.filter((r) => !includes(r.source));
   const update = (id: string, patch: Partial<Source>) =>
     setSources((old) => old.map((s) => (s.id === id ? { ...s, ...patch } : s)));
-  const save = async (next = sources, message = "Sources saved.") => {
-    let normalized: Source[] = [];
-    const ok = await perform(async () => {
-      normalized = next.map(normalizeSource);
-      await write("/sources", { sources: normalized }, "PUT");
+  const save = async (
+    next: Source[] | (() => Source[]) = sources,
+    message = "Sources saved.",
+  ) => {
+    if (conflict) return false;
+    return perform(async () => {
+      try {
+        const result = await write<SavedSources>(
+          "/sources",
+          {
+            sources: (typeof next === "function" ? next() : next).map(
+              normalizeSource,
+            ),
+            expectedRevision: saved.current.sourcesRevision,
+          },
+          "PUT",
+        );
+        adoptSources(result);
+      } catch (error) {
+        if (error instanceof ApiError && error.status === 409) {
+          setConflict(true);
+          throw new Error(
+            "The company list changed while you were editing. Reload the latest list before saving.",
+          );
+        }
+        throw error;
+      }
     }, message);
-    if (ok) setSources(normalized);
-    return ok;
   };
   const add = async (additions: Source[]) => {
-    let next: Source[] = [];
-    const ok = await perform(async () => {
-      next = addRecommendedSources(sources, additions);
-      await write("/sources", { sources: next }, "PUT");
-    }, "Sources added.");
-    if (ok) setSources(next);
+    await save(
+      () => addRecommendedSources(sources, additions),
+      "Sources added.",
+    );
   };
   const discover = async (sourceId?: string) => {
-    if (await save())
+    if (!dirty || (await save()))
       await perform(
         () =>
           write("/runs", {
@@ -118,6 +172,20 @@ export function SourcesPage({
         "Discovery queued. Follow progress in Activity.",
       );
   };
+  const toggleAutomatic = () =>
+    perform(
+      async () => {
+        const { preferences: current } = await api<Bootstrap>("/bootstrap");
+        await write(
+          "/preferences",
+          { ...current, discoverEmployers: !automatic },
+          "PUT",
+        );
+      },
+      automatic
+        ? "New company discovery paused."
+        : "New company discovery enabled.",
+    );
   const library = suggestions.filter(
     (r) =>
       (showAdded || !includes(r.source)) &&
@@ -137,7 +205,7 @@ export function SourcesPage({
         {area !== "browse" && (
           <button
             className="button primary"
-            disabled={busy || searching || !enabled}
+            disabled={busy || searching || !canSearch || conflict}
             onClick={() => void discover()}
           >
             <Search size={16} />
@@ -210,13 +278,103 @@ export function SourcesPage({
       >
         <p className="discovery-purpose-note">
           {area === "jobs"
-            ? "Company boards show jobs at one employer; job feeds cover many employers. Results appear in Job opportunities, where you can check fit and prepare an application."
+            ? "Search company boards and job feeds together. Review results and prepare applications in Job opportunities."
             : area === "startups"
               ? "Discover product launches for possible outreach. These are research leads, not advertised jobs. Results appear in Startup prospects."
               : "Open a job site, find a role, then bring its original listing into Add role. These sites are browsed manually."}
         </p>
+        {area === "jobs" && (
+          <section
+            className="employer-discovery"
+            aria-labelledby="employer-discovery-title"
+          >
+            <div className="employer-discovery-heading">
+              <div>
+                <h2 id="employer-discovery-title">
+                  Find new companies automatically
+                </h2>
+                <p>
+                  Discover employers for your target roles and connect their
+                  supported career pages.
+                </p>
+              </div>
+              <button
+                type="button"
+                role="switch"
+                aria-checked={automatic}
+                aria-label="Find new companies automatically"
+                className="source-toggle"
+                disabled={busy}
+                onClick={() => void toggleAutomatic()}
+              >
+                <span />
+              </button>
+            </div>
+            <div className="discovery-search-context">
+              <p>
+                {preferences.roles.length
+                  ? preferences.roles.join(" · ")
+                  : "Choose your target roles"}
+                {" · "}
+                {preferences.country.trim()
+                  ? `Working from ${preferences.country}`
+                  : "Set your working country"}
+                {preferences.companyCountry.trim() &&
+                  ` · Targeting ${preferences.companyCountry} employers`}
+                {preferences.minimumSalary > 0 &&
+                  ` · $${preferences.minimumSalary.toLocaleString()} USD/year minimum`}
+              </p>
+              <a href="#settings">
+                Edit preferences <ArrowUpRight size={13} />
+              </a>
+            </div>
+            {automatic && !searchReady && (
+              <p className="discovery-setup-note">
+                Set your target roles and working country to find new companies.
+                Your followed companies can still be searched.
+              </p>
+            )}
+            {employerDiscovery && (
+              <div
+                className={`discovery-last-result${employerDiscovery.status === "error" ? " source-error" : ""}`}
+                role="status"
+              >
+                <p>{employerDiscovery.message}</p>
+                <small>
+                  Last checked{" "}
+                  {new Date(employerDiscovery.checkedAt).toLocaleString()}
+                </small>
+              </div>
+            )}
+          </section>
+        )}
         {area !== "browse" && (
           <>
+            {conflict && (
+              <div className="discovery-conflict" role="alert">
+                <p>
+                  The company list changed while you were editing. Your edits
+                  are still here; reload to use the latest list.
+                </p>
+                <button
+                  className="text-button"
+                  type="button"
+                  disabled={busy}
+                  onClick={() =>
+                    void perform(async () => {
+                      const current = await api<Bootstrap>("/bootstrap");
+                      adoptSources({
+                        sources: current.sources,
+                        sourcesRevision: current.sourcesRevision ?? 0,
+                      });
+                      setEditing(null);
+                    }, "Latest company list loaded.")
+                  }
+                >
+                  Discard edits and reload
+                </button>
+              </div>
+            )}
             <section
               className="source-section"
               aria-labelledby="your-sources-title"
@@ -233,7 +391,7 @@ export function SourcesPage({
                 </div>
                 <button
                   className="text-button"
-                  disabled={busy || sources.length >= 50}
+                  disabled={busy || conflict || sources.length >= 50}
                   onClick={() => {
                     const source: Source = {
                       id: uid(),
@@ -296,7 +454,7 @@ export function SourcesPage({
                                   aria-checked={source.enabled}
                                   aria-label={`Enable ${source.label || "new source"}`}
                                   className="source-toggle"
-                                  disabled={busy}
+                                  disabled={busy || conflict}
                                   onClick={() =>
                                     void save(
                                       sources.map((s) =>
@@ -327,7 +485,10 @@ export function SourcesPage({
                                   className="source-icon-action"
                                   aria-label={`Search ${source.label || "new source"}`}
                                   disabled={
-                                    busy || searching || !source.enabled
+                                    busy ||
+                                    searching ||
+                                    conflict ||
+                                    !source.enabled
                                   }
                                   onClick={() => void discover(source.id)}
                                 >
@@ -338,6 +499,18 @@ export function SourcesPage({
                             {editing === source.id && (
                               <div className="source-settings">
                                 <div className="form-grid">
+                                  {source.discoveredFrom && (
+                                    <p className="wide discovery-source-origin">
+                                      Found automatically.{" "}
+                                      <a
+                                        href={safeUrl(source.discoveredFrom)}
+                                        target="_blank"
+                                        rel="noreferrer"
+                                      >
+                                        View discovery source ↗
+                                      </a>
+                                    </p>
+                                  )}
                                   <label className="field">
                                     <span>
                                       {feed ? "Feed name" : "Company name"}
@@ -454,13 +627,41 @@ export function SourcesPage({
                                   )}
                                 </div>
                                 <div className="source-settings-footer">
-                                  <button className="button" disabled={busy}>
+                                  <button
+                                    className="button"
+                                    disabled={busy || conflict}
+                                  >
                                     Save sources
                                   </button>
                                   <button
                                     type="button"
                                     className="text-button"
                                     disabled={busy}
+                                    onClick={() => {
+                                      const original =
+                                        saved.current.sources.find(
+                                          (item) => item.id === source.id,
+                                        );
+                                      setSources((current) =>
+                                        original
+                                          ? current.map((item) =>
+                                              item.id === source.id
+                                                ? original
+                                                : item,
+                                            )
+                                          : current.filter(
+                                              (item) => item.id !== source.id,
+                                            ),
+                                      );
+                                      setEditing(null);
+                                    }}
+                                  >
+                                    Cancel
+                                  </button>
+                                  <button
+                                    type="button"
+                                    className="text-button"
+                                    disabled={busy || conflict}
                                     onClick={() =>
                                       void save(
                                         sources.filter(
@@ -514,7 +715,7 @@ export function SourcesPage({
                   </div>
                   <button
                     className="button"
-                    disabled={busy || !missing.length}
+                    disabled={busy || conflict || !missing.length}
                     onClick={() => void add(missing.map((r) => r.source))}
                   >
                     {missing.length
@@ -573,7 +774,7 @@ export function SourcesPage({
                       </a>
                       <button
                         className="button"
-                        disabled={busy || includes(research.source)}
+                        disabled={busy || conflict || includes(research.source)}
                         onClick={() => void add([research.source])}
                       >
                         {includes(research.source) ? (
@@ -603,6 +804,22 @@ export function SourcesPage({
                     <summary>
                       How sources are selected <ChevronDown size={14} />
                     </summary>
+                    <p>
+                      Automatic company discovery uses{" "}
+                      <a
+                        href="https://himalayas.app/api"
+                        target="_blank"
+                        rel="noreferrer"
+                      >
+                        Himalayas employer search
+                      </a>{" "}
+                      to find employers for your target roles and working
+                      country. It connects up to five new companies per search
+                      after checking their linked Ashby, Lever or Greenhouse
+                      boards. Job openings come from those company boards.
+                      Employer country, hiring eligibility and pay still need
+                      evidence.
+                    </p>
                     <p>
                       Working public boards, an official company-country
                       reference, and remote openings across professions. A board

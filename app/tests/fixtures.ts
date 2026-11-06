@@ -76,6 +76,7 @@ export function demoWorkspace(): Workspace {
       industryPreference: "prefer",
       topIndustries: [],
       scheduleEnabled: false,
+      discoverEmployers: false,
       scheduleMinutes: 120,
       dailyLimit: 10,
     },
