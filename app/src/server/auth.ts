@@ -90,7 +90,6 @@ export function emptyWorkspace(user: User): Workspace {
       lookback: 30,
       lookbackUnit: "days",
       dateMode: "emphasize",
-      minimumMatch: 85,
       essentialMatch: 90,
       country: "",
       companyCountry: "United States",

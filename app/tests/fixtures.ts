@@ -57,7 +57,6 @@ export function demoWorkspace(): Workspace {
       lookback: 30,
       lookbackUnit: "days",
       dateMode: "emphasize",
-      minimumMatch: 85,
       essentialMatch: 90,
       country: "Ecuador",
       companyCountry: "United States",

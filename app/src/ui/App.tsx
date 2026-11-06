@@ -712,11 +712,17 @@ function Opportunities({
                 <span className="opportunity-trailing">
                   <Badge value={opportunityBadge(o)} />
                   <span
-                    className={`score ${o.assessment?.recommendation !== "excluded" && o.assessment?.score && o.assessment.score >= data.preferences.minimumMatch ? "good" : ""}`}
+                    className={`score ${o.assessment?.recommendation === "ready" ? "good" : ""}`}
                   >
-                    {o.assessment ? `${Math.round(o.assessment.score)}%` : "—"}
+                    {o.assessment
+                      ? `${Math.round(
+                          kind === "job"
+                            ? o.assessment.essentialScore
+                            : o.assessment.score,
+                        )}%`
+                      : "—"}
                     <small>
-                      {kind === "job" ? "evidence fit" : "relevance"}
+                      {kind === "job" ? "required match" : "relevance"}
                     </small>
                   </span>
                 </span>
@@ -887,23 +893,32 @@ function Opportunities({
                 )}
                 <div className="section-title">
                   <h3>
-                    {kind === "job" ? "Evidence match" : "Startup assessment"}
+                    {kind === "job" ? "Required match" : "Startup assessment"}
                   </h3>
                   <span className="match-number">
-                    {Math.round(chosen.assessment.score)}
+                    {Math.round(
+                      kind === "job"
+                        ? chosen.assessment.essentialScore
+                        : chosen.assessment.score,
+                    )}
                     <small>%</small>
                   </span>
                 </div>
                 <div className="match-track">
                   <i
                     style={{
-                      width: `${Math.min(100, chosen.assessment.score)}%`,
+                      width: `${Math.min(
+                        100,
+                        kind === "job"
+                          ? chosen.assessment.essentialScore
+                          : chosen.assessment.score,
+                      )}%`,
                     }}
                   />
                 </div>
                 <div className="match-note">
                   {kind === "job"
-                    ? `${Math.round(chosen.assessment.essentialScore)}% essential coverage · internal score, not an employer ATS score`
+                    ? "Required qualifications supported by verified experience. Preferred skills help rank your matches."
                     : "Relevance to your experience; not a prediction of company success."}
                 </div>
                 {chosen.assessment.recommendation !== "excluded" &&
@@ -1783,7 +1798,11 @@ function PreferencesEditor({
           </div>
         </section>
         <FreshnessPreferences preferences={prefs} onChange={set} />
-        <MatchingPreferences preferences={prefs} onChange={set} />
+        <MatchingPreferences
+          preferences={prefs}
+          onChange={set}
+          disabled={busy}
+        />
         <section className="form-section">
           <div className="form-section-heading">
             <h2>Local automation</h2>

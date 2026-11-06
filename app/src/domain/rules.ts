@@ -365,7 +365,8 @@ export function assessOpportunity(
       );
     if (quantified) {
       status = "missing";
-      unknowns.push(`Confirm this stated condition independently: ${req.text}`);
+      if (req.essential || req.hard)
+        unknowns.push(`Confirm this stated condition independently: ${req.text}`);
     }
     if (req.hard && status !== "matched")
       unknowns.push(`Mandatory requirement not confirmed: ${req.text}`);
@@ -413,13 +414,9 @@ export function assessOpportunity(
       );
     if (!essentials.length)
       unknowns.push("Essential requirements have not been identified.");
-    if (matches.length && score < prefs.minimumMatch)
-      reasons.push(
-        `Evidence coverage (${score}%) is below your ${prefs.minimumMatch}% target.`,
-      );
     if (essentials.length && essentialScore < prefs.essentialMatch)
       unknowns.push(
-        `Essential evidence coverage is ${essentialScore}%; your threshold is ${prefs.essentialMatch}%.`,
+        `Verified experience covers ${essentialScore}% of required qualifications; your minimum is ${prefs.essentialMatch}%.`,
       );
   } else {
     const verifiedSkills = new Set(
@@ -441,13 +438,12 @@ export function assessOpportunity(
   }
   if (!evidence.length)
     unknowns.push("Add verified experience before preparing an application.");
-  const belowTarget = op.kind === "job" && score < prefs.minimumMatch;
   return {
     score,
     essentialScore,
     recommendation: blockers.length
       ? "excluded"
-      : unknowns.length || belowTarget
+      : unknowns.length
         ? "review"
         : "ready",
     reasons: [...new Set(reasons)],

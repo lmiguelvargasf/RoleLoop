@@ -51,17 +51,18 @@ Supabase Studio and Mailpit are shared local developer tools. RoleLoop account p
 ## Get started
 
 1. Open **My profile** and add your identity and verified experience.
-2. Set your salary, working country, time zone, date window and match thresholds in **Search preferences**.
+2. Set your salary, working country, search dates and matching preference in **Search preferences**. Dates follow your computer’s timezone automatically.
 3. Add public company board identifiers in **Discovery sources**, use the Show HN startup feed, or add opportunities manually.
 4. Review opportunities, prepare your application or founder email, and download the drafts.
 
 ## What is implemented
 
+- A single job-matching minimum for required qualifications, backed by verified experience. Preferred qualifications affect ranking only. Salary, location and mandatory conditions remain separate checks; lowering the match minimum does not bypass them. Saved required minimums are preserved; the legacy overall minimum is ignored.
 - Supabase Auth login, signup, password reset, private workspaces, owner/manager memberships, account administration, and RLS-protected data and documents.
 - Persistent local Supabase opportunity records, drafts, artifacts, activity and database-backed task queues scoped to each workspace.
 - Public ATS-board imports, launch-feed startup discovery, manual opportunity entry and bounded public-website research.
 - Source deduplication with refreshed source facts and preservation of explicit user corrections.
-- Separate job requirement coverage and startup relevance indicators. An 85–90% job threshold is configurable; the app does not manufacture experience to reach it or claim an external ATS score.
+- Separate job required-qualification coverage and startup relevance indicators. The app does not manufacture experience to reach a threshold or claim an external ATS score.
 - Salary minimum with no upper limit, an optional target for application answers, overlap/strict salary policy, and optional 10% flexibility for benefits or perks. Flexibility defaults off; jobs qualifying only through the lower threshold always require review. Jobs with undisclosed salaries can be kept for review or excluded. Remote-country checks and inclusive posting-date windows are configurable. Unknown publication dates remain unknown. Older posts can be excluded or retained with lower freshness priority.
 - Curated industry interests with consistent icons and three levels: No boost, Interested, and Top priority. Choose explicitly between no industry preference and prioritizing selected industries. Interested adds 5 ranking points and Top priority adds 10 (the strongest match wins; bonuses never stack), within the existing readiness and freshness groups for both jobs and startup prospects. Stronger general fits can still rank higher; all industries remain eligible and evidence scores stay independent. Priorities can be paused without losing selections. Industry matches use listing keywords, not verified company classifications; older saved interests remain editable.
 - Evidence-based résumé ordering, application answers, cover letters and founder email drafts. Optional local Ollama ranks existing evidence; it does not invent free-form career claims. Templates work without a model or API key.

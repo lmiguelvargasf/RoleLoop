@@ -98,7 +98,7 @@ describe("evidence and eligibility", () => {
     expect(result.recommendation).toBe("review");
     expect(result.unknowns).toHaveLength(2);
   });
-  it("flags a missing essential even when a low overall threshold allows it", () => {
+  it("still flags mandatory requirements with a relaxed matching minimum", () => {
     const { profile, preferences, job } = setup();
     job.requirements.push({
       id: "security",
@@ -110,7 +110,7 @@ describe("evidence and eligibility", () => {
     const result = assessOpportunity(
       job,
       profile,
-      { ...preferences, minimumMatch: 30 },
+      { ...preferences, essentialMatch: 30 },
       now,
     );
     expect(result.recommendation).toBe("review");
@@ -145,7 +145,7 @@ describe("evidence and eligibility", () => {
     expect(result.reasons.join(" ")).toContain("not a job requirements score");
     expect(result.unknowns.join(" ")).toContain("exploratory startup lead");
     expect(result.unknowns.join(" ")).not.toContain(
-      "Essential evidence coverage",
+      "your minimum is",
     );
   });
   it("reports preferred industries without changing startup skill relevance or blocking other industries", () => {
