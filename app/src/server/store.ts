@@ -352,6 +352,7 @@ export function createWorkspaceStore({
       firstSeenAt: old.firstSeenAt,
       stage: old.stage,
       assessment: old.assessment,
+      application: old.application,
       notes: old.notes,
     };
     if (opportunityFingerprint(old) === opportunityFingerprint(refreshed))

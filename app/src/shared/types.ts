@@ -103,10 +103,12 @@ export const PreferencesSchema = z.object({
 });
 export const SourceSchema = z.object({
   id: z.string(),
-  provider: z.enum(["ashby", "greenhouse", "lever", "hackernews"]),
+  provider: z.enum(["ashby", "greenhouse", "lever", "hackernews", "jobicy"]),
   label: z.string(),
   board: z.string(),
   enabled: z.boolean(),
+  companyCountry: z.string().max(100).optional(),
+  countrySource: z.string().url().max(2000).optional(),
 });
 export const RequirementSchema = z.object({
   id: z.string(),
@@ -153,6 +155,7 @@ export const OpportunitySchema = z.object({
   isDemo: z.boolean().default(false),
   location: z.string().default("Unknown"),
   companyCountry: z.string().default("Unknown"),
+  companyCountrySource: z.string().url().max(2000).optional(),
   remoteScope: z
     .enum(["worldwide", "latam", "us", "onsite", "unknown"])
     .default("unknown"),
@@ -183,6 +186,30 @@ export const OpportunitySchema = z.object({
       "archived",
     ])
     .default("new"),
+  application: z
+    .object({
+      status: z
+        .enum([
+          "saved",
+          "applied",
+          "interview",
+          "offer",
+          "rejected",
+          "withdrawn",
+        ])
+        .default("saved"),
+      appliedAt: z.string().datetime().nullable().default(null),
+      interviewAt: z.string().datetime().nullable().optional(),
+      offerAt: z.string().datetime().nullable().optional(),
+      nextAction: z.string().max(1000).default(""),
+      followUpOn: z
+        .string()
+        .regex(/^\d{4}-\d{2}-\d{2}$/)
+        .nullable()
+        .default(null),
+      notes: z.string().max(10000).default(""),
+    })
+    .optional(),
   assessment: AssessmentSchema.nullable().default(null),
   notes: z.string().default(""),
 });
@@ -219,7 +246,11 @@ export type Assessment = z.infer<typeof AssessmentSchema>;
 export type Draft = z.infer<typeof DraftSchema>;
 export type Requirement = z.infer<typeof RequirementSchema>;
 export type RunAction =
-  "discover" | "analyze" | "draft" | "simulate" | "research";
+  | "discover"
+  | "analyze"
+  | "draft"
+  | "simulate"
+  | "research";
 export interface Run {
   requestedBy?: string;
   id: string;

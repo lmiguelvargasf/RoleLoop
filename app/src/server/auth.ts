@@ -1,3 +1,4 @@
+import { recommendedSources } from "../shared/discovery.js";
 import { createHash } from "node:crypto";
 import {
   createClient,
@@ -93,15 +94,7 @@ export function emptyWorkspace(user: User): Workspace {
       scheduleMinutes: 120,
       dailyLimit: 10,
     },
-    sources: [
-      {
-        id: "hn-startups",
-        provider: "hackernews",
-        label: "Show HN · startup leads",
-        board: "",
-        enabled: true,
-      },
-    ],
+    sources: recommendedSources.map((s) => ({ ...s })),
   };
 }
 export async function ensurePersonalWorkspace(

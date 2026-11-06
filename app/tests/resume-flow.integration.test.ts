@@ -314,14 +314,18 @@ integration("CV upload to application generation", () => {
         },
       });
       expect(created.statusCode, created.body).toBe(200);
-      const queued = await app.inject({
-        method: "POST",
-        url: "/api/runs",
-        headers: alice.headers,
-        payload: { action: "draft", opportunityId: created.json().id },
-      });
-      expect(queued.statusCode, queued.body).toBe(200);
-      const run = await alice.store.get("runs", queued.json().id);
+      // Execute directly without also publishing a queued task to the live local worker.
+      const run = {
+        id: randomUUID(),
+        workspaceId: alice.workspaceId,
+        action: "draft" as const,
+        opportunityId: created.json().id,
+        status: "running" as const,
+        progress: 0,
+        message: "Isolated test",
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+      };
       await processRun(alice.store, run, async () => {});
     }
     const drafts = await alice.store.list("drafts");

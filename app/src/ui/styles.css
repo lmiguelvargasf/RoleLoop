@@ -4261,3 +4261,53 @@ textarea {
   font-size: 13px;
   overflow-wrap: anywhere;
 }
+
+/* Keep source setup compact; expand a company only when editing it. */
+.source-editor:not([open]) .source-editor-top {
+  margin-bottom: 0;
+}
+summary.source-editor-top {
+  cursor: pointer;
+}
+summary.source-editor-top::before {
+  content: "▸";
+  color: var(--muted);
+}
+.source-editor[open] > summary.source-editor-top::before {
+  transform: rotate(90deg);
+}
+.opportunities-page > details {
+  margin: 12px 0;
+}
+.opportunities-page > details table {
+  width: 100%;
+  text-align: left;
+  margin-top: 12px;
+  border-collapse: collapse;
+}
+.opportunities-page > details th,
+.opportunities-page > details td {
+  padding: 8px 6px;
+  border-bottom: 1px solid var(--line);
+}
+
+.application-progress {
+  display: block;
+}
+.application-progress form {
+  width: 100%;
+  margin-top: 16px;
+}
+.application-progress .form-grid {
+  grid-template-columns: minmax(0, 1fr);
+  gap: 14px;
+}
+.application-progress input,
+.application-progress select,
+.application-progress textarea {
+  width: 100%;
+  min-width: 0;
+}
+.application-progress p {
+  margin: 10px 0;
+}

@@ -14,6 +14,7 @@ import {
 import { dateWindow } from "./rules.js";
 
 const LIMIT = 2 * 1024 * 1024;
+const IMPORT_LIMIT = 32 * 1024 * 1024;
 export function isPublicAddress(address: string): boolean {
   const value = address.toLowerCase().replace(/^\[|\]$/g, "");
   if (isIP(value) === 4) {
@@ -213,7 +214,12 @@ export function extractRequirements(description: string): Requirement[] {
     const explicitlyRequired = /\b(?:must|required|essential|minimum)\b/i.test(
       raw,
     );
-    if (!mentioned.length || (!explicitlyRequired && section === "unknown"))
+    if (
+      (!explicitlyRequired && section === "unknown") ||
+      /^(?:requirements|qualifications|required|nice to have|preferred|bonus)\s*:?$/i.test(
+        raw,
+      )
+    )
       continue;
     const preferred =
       /\b(?:nice to have|preferred|bonus)\b/i.test(raw) ||
@@ -234,7 +240,9 @@ export function extractRequirements(description: string): Requirement[] {
 }
 export function remoteScope(text: string): Opportunity["remoteScope"] {
   if (
-    /\bhybrid\b|\bon[- ]?site\b/i.test(text) &&
+    /\bhybrid\s+(?:role|position|work|schedule|working|office)|\b(?:role|position|work|schedule|working)\s+(?:is\s+)?hybrid\b|\bon[- ]?site\s+(?:role|position|work|office)|\b(?:work|working)\s+on[- ]?site\b/i.test(
+      text,
+    ) &&
     !/\bfully remote\b/i.test(text)
   )
     return "onsite";
@@ -270,8 +278,8 @@ async function json(url: string): Promise<any> {
     throw new Error(
       `Source returned HTTP ${res.status}. Check the board ID and try again.`,
     );
-  if (Number(res.headers.get("content-length")) > LIMIT)
-    throw new Error("Source exceeds the 2 MB import limit.");
+  if (Number(res.headers.get("content-length")) > IMPORT_LIMIT)
+    throw new Error("Source exceeds the 32 MB import limit.");
   const reader = res.body?.getReader();
   if (!reader) throw new Error("Source returned an empty response.");
   let size = 0;
@@ -281,8 +289,8 @@ async function json(url: string): Promise<any> {
       const { done, value } = await reader.read();
       if (done) break;
       size += value.byteLength;
-      if (size > LIMIT)
-        throw new Error("Source exceeds the 2 MB import limit.");
+      if (size > IMPORT_LIMIT)
+        throw new Error("Source exceeds the 32 MB import limit.");
       chunks.push(value);
     }
   } finally {
@@ -299,6 +307,8 @@ function base(
     id: randomUUID(),
     kind: "job",
     company: source.label,
+    companyCountry: source.countrySource ? source.companyCountry : undefined,
+    companyCountrySource: source.countrySource,
     source: source.provider,
     sourceId: source.id,
     sourceKey: `${source.provider}:${source.board}:${id}`,
@@ -313,11 +323,13 @@ export async function discover(
 ): Promise<Opportunity[]> {
   if (
     source.provider !== "hackernews" &&
+    source.provider !== "jobicy" &&
     !/^[a-zA-Z0-9_-]{1,100}$/.test(source.board)
   )
     throw new Error(
       "Use the public job-board identifier, such as acme, rather than a full URL.",
     );
+  if (source.provider === "jobicy") return discoverJobicy(source);
   const board = encodeURIComponent(source.board);
   if (source.provider === "ashby") {
     const data = await json(
@@ -325,7 +337,6 @@ export async function discover(
     );
     return (data.jobs ?? [])
       .filter((j: any) => j.isListed !== false)
-      .slice(0, 100)
       .map((j: any) => {
         const desc = j.descriptionPlain ?? plainText(j.descriptionHtml ?? "");
         const components = j.compensation?.summaryComponents ?? [];
@@ -341,7 +352,7 @@ export async function discover(
           remoteScope:
             workplace && workplace !== "Remote"
               ? "onsite"
-              : remoteScope(`${j.location ?? ""}\n${desc}`),
+              : remoteScope(`Remote ${j.location ?? ""}\n${desc}`),
           publishedAt: iso(j.publishedAt),
           salaryMin: number(pay?.minValue),
           salaryMax: number(pay?.maxValue),
@@ -364,7 +375,7 @@ export async function discover(
     const data = await json(
       `https://boards-api.greenhouse.io/v1/boards/${board}/jobs?content=true`,
     );
-    return (data.jobs ?? []).slice(0, 100).map((j: any) => {
+    return (data.jobs ?? []).map((j: any) => {
       const desc = plainText(j.content ?? "");
       return base(source, j.id, {
         company: j.company_name ?? source.label,
@@ -381,10 +392,17 @@ export async function discover(
     });
   }
   if (source.provider === "lever") {
-    const data = await json(
-      `https://api.lever.co/v0/postings/${board}?mode=json&limit=100`,
-    );
-    return (Array.isArray(data) ? data : []).slice(0, 100).map((j: any) => {
+    const data: any[] = [];
+    for (let skip = 0; skip < 1000; skip += 100) {
+      const page = await json(
+        `https://api.lever.co/v0/postings/${board}?mode=json&limit=100&skip=${skip}`,
+      );
+      if (!Array.isArray(page))
+        throw new Error("Lever returned an invalid jobs feed.");
+      data.push(...page);
+      if (page.length < 100) break;
+    }
+    return data.map((j: any) => {
       const desc = [
         j.descriptionPlain ?? plainText(j.description ?? ""),
         ...(j.lists ?? []).map(
@@ -502,4 +520,71 @@ export async function research(op: Opportunity): Promise<Partial<Opportunity>> {
       " A public email was found; confirm the intended recipient and role.";
   }
   return patch;
+}
+
+async function discoverJobicy(source: Source): Promise<Opportunity[]> {
+  const jobs = new Map<string, Opportunity>();
+  const cursors = new Set<string>();
+  let cursor = "";
+  // Bound one synchronization to 1,000 recent listings; never infer closure from absence.
+  for (let page = 0; page < 10; page++) {
+    const params = new URLSearchParams({ count: "100" });
+    if (cursor) params.set("cursor", cursor);
+    const data = await json(`https://jobicy.com/api/jobs?${params}`);
+    if (data.success === false || !Array.isArray(data.jobs))
+      throw new Error("Jobicy returned an invalid jobs feed.");
+    for (const j of data.jobs) {
+      if (
+        !j.id ||
+        typeof j.url !== "string" ||
+        !j.url.startsWith("https://jobicy.com/")
+      )
+        continue;
+      const desc = plainText(String(j.jobDescription ?? j.jobExcerpt ?? ""));
+      const geo = String(j.jobGeo ?? "Unknown");
+      const scope = /^(anywhere|worldwide)$/i.test(geo)
+        ? "worldwide"
+        : /^(usa|united states|us)$/i.test(geo)
+          ? "us"
+          : /^(latam|latin america)$/i.test(geo)
+            ? "latam"
+            : "unknown";
+      jobs.set(
+        String(j.id),
+        base(source, j.id, {
+          company: j.companyName ?? "Unknown",
+          companyCountry: "Unknown",
+          sourceKey: `jobicy:${j.id}`,
+          title: j.jobTitle ?? "Untitled role",
+          url: j.url,
+          location: geo,
+          remoteScope: scope,
+          description: desc,
+          publishedAt: iso(j.pubDate),
+          salaryMin: number(j.salaryMin),
+          salaryMax: number(j.salaryMax),
+          salaryCurrency: j.salaryCurrency ?? "USD",
+          salaryPeriod: /year|annual/i.test(j.salaryPeriod ?? "")
+            ? "year"
+            : /month/i.test(j.salaryPeriod ?? "")
+              ? "month"
+              : /hour/i.test(j.salaryPeriod ?? "")
+                ? "hour"
+                : "unknown",
+          requirements: extractRequirements(desc),
+          notes:
+            "Source: Jobicy (https://jobicy.com). Recent seven-day feed; company country and hiring eligibility need verification. Open the Jobicy listing to apply. Absence from this feed does not establish closure.",
+        }),
+      );
+    }
+    if (
+      typeof data.nextCursor !== "string" ||
+      !data.nextCursor ||
+      cursors.has(data.nextCursor)
+    )
+      break;
+    cursor = data.nextCursor;
+    cursors.add(cursor);
+  }
+  return [...jobs.values()];
 }

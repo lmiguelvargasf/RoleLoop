@@ -22,6 +22,13 @@ import {
   originalCV,
   cvContentType,
 } from "./cv.js";
+import {
+  extractRequirements,
+  plainText,
+  safeFetchText,
+  remoteScope,
+} from "../domain/connectors.js";
+import { normalizeSource } from "../shared/discovery.js";
 import { resumePdf } from "./documents.js";
 
 declare module "fastify" {
@@ -282,8 +289,9 @@ export async function buildServer() {
       throw Object.assign(new Error("Source IDs must be unique."), {
         statusCode: 400,
       });
-    await requestStore(req).updateWorkspace({ sources });
-    return sources;
+    const normalized = sources.map(normalizeSource);
+    await requestStore(req).updateWorkspace({ sources: normalized });
+    return normalized;
   });
   const manual = z
     .object({
@@ -302,6 +310,7 @@ export async function buildServer() {
     companyUrl: true,
     location: true,
     companyCountry: true,
+    companyCountrySource: true,
     remoteScope: true,
     salaryMin: true,
     salaryMax: true,
@@ -315,13 +324,31 @@ export async function buildServer() {
     contactSource: true,
     notes: true,
     stage: true,
+    application: true,
   }).partial();
+  app.post("/api/opportunities/capture", async (req) => {
+    const { url } = z
+      .object({ url: z.string().url().max(2000) })
+      .parse(req.body);
+    const page = await safeFetchText(url);
+    const description = plainText(page.text).slice(0, 50000);
+    return {
+      description,
+      requirements: extractRequirements(description),
+      remoteScope: remoteScope(description),
+    };
+  });
   app.post("/api/opportunities", async (req) => {
     const input = manual.parse(req.body),
       id = randomUUID(),
       now = new Date().toISOString();
     const op = OpportunitySchema.parse({
       ...editable.parse(input),
+      requirements:
+        input.kind === "job" &&
+        !(input.requirements as unknown[] | undefined)?.length
+          ? extractRequirements(input.description)
+          : input.requirements,
       kind: input.kind,
       id,
       source: "Manual entry",
@@ -352,7 +379,33 @@ export async function buildServer() {
         ...patch,
         updatedAt: new Date().toISOString(),
       });
-      const { stage: _stage, ...corrections } = patch;
+      if (patch.application) {
+        const previous = existing.application;
+        const status = patch.application.status;
+        saved.application = {
+          ...patch.application,
+          appliedAt:
+            previous?.appliedAt ??
+            (["applied", "interview", "offer"].includes(status)
+              ? new Date().toISOString()
+              : patch.application.appliedAt),
+          interviewAt:
+            previous?.interviewAt ??
+            (status === "interview" ? new Date().toISOString() : null),
+          offerAt:
+            previous?.offerAt ??
+            (status === "offer" ? new Date().toISOString() : null),
+        };
+      }
+      if (Object.keys(patch).every((key) => key === "application")) {
+        await requestStore(req).save("opportunities", saved);
+        return saved;
+      }
+      const {
+        stage: _stage,
+        application: _application,
+        ...corrections
+      } = patch;
       await requestStore(req).setRuntime(`corrections:${existing.id}`, {
         ...((await requestStore(req).runtime(
           `corrections:${existing.id}`,

@@ -14,14 +14,21 @@ import {
   localDay,
   orderOpportunities,
   profileFingerprint,
+  preferencesFingerprint,
+  opportunityFingerprint,
 } from "../domain/rules.js";
 import { discover, research } from "../domain/connectors.js";
-import { getGlobalRuntime, type WorkspaceStore } from "./store.js";
+import {
+  getGlobalRuntime,
+  setGlobalRuntime,
+  type WorkspaceStore,
+} from "./store.js";
 import { assertApproved, assertFresh } from "./guards.js";
 import { generateDraft } from "./model.js";
 import { resumePdf, sendToLocalInbox } from "./documents.js";
 import { chatgptStatus } from "./chatgpt.js";
 import { assessWithAI } from "./fit.js";
+import { matchesTargetRole } from "../shared/discovery.js";
 import { settings } from "./config.js";
 
 export const RunInput = z.object({
@@ -179,8 +186,9 @@ async function prepare(
   store: WorkspaceStore,
   op: Opportunity,
   workspace: Workspace,
+  alreadyAssessed = false,
 ) {
-  const assessed = await analyze(store, op, workspace);
+  const assessed = alreadyAssessed ? op : await analyze(store, op, workspace);
   if (assessed.assessment!.recommendation === "excluded")
     throw new Error(
       `Resolve the exclusion before drafting: ${assessed.assessment!.blockers.join(" ")}`,
@@ -293,6 +301,7 @@ export async function processRun(
     );
     if (!sources.length)
       throw new Error("Add and enable a source before running discovery.");
+    const shortlist: Opportunity[] = [];
     let imported = 0,
       failed = 0;
     for (const [index, source] of sources.entries()) {
@@ -301,23 +310,81 @@ export async function processRun(
         `Reading ${source.label}`,
       );
       try {
-        const opportunities = await discover(source, workspace.preferences);
-        for (const candidate of opportunities.slice(0, 200)) {
+        let opportunities: Opportunity[];
+        if (source.provider === "jobicy") {
+          const cached = await getGlobalRuntime<{
+            at: number;
+            opportunities: Opportunity[];
+            ok?: boolean;
+          }>("jobicy-feed-v1");
+          if (cached && Date.now() - cached.at < 3600000) {
+            if (!cached.ok && !cached.opportunities.length)
+              throw new Error(
+                "Jobicy was checked recently; retry after the hourly refresh window.",
+              );
+            opportunities = cached.opportunities.map((op) =>
+              OpportunitySchema.parse({ ...op, sourceId: source.id }),
+            );
+          } else {
+            // Persist before requesting: errors and restarts must not bypass the hourly limit.
+            await setGlobalRuntime("jobicy-feed-v1", {
+              at: Date.now(),
+              opportunities: cached?.opportunities ?? [],
+            });
+            opportunities = await discover(source, workspace.preferences);
+            await setGlobalRuntime("jobicy-feed-v1", {
+              at: Date.now(),
+              opportunities,
+              ok: true,
+            });
+          }
+          const keyword = source.board.trim().toLowerCase();
+          if (keyword)
+            opportunities = opportunities.filter((op) =>
+              `${op.title} ${op.description}`.toLowerCase().includes(keyword),
+            );
+        } else opportunities = await discover(source, workspace.preferences);
+        for (const candidate of opportunities) {
+          if (
+            source.provider === "jobicy" &&
+            workspace.preferences.roles.length &&
+            !matchesTargetRole(candidate.title, workspace.preferences.roles)
+          )
+            continue;
           const existing = await store.importOpportunity(
             OpportunitySchema.parse(candidate),
           );
           if (existing.stage === "archived") continue;
-          const op = await analyze(store, existing, workspace);
+          const cacheKey = `fit:${existing.id}`;
+          const fingerprint = `${opportunityFingerprint(existing)}:${profileFingerprint(workspace.profile)}:${preferencesFingerprint(workspace.preferences)}:${store.actorUserId ?? "api"}`;
+          const previous = await store.runtime<{
+            fingerprint: string;
+            at: number;
+          }>(cacheKey);
+          const basic = assessOpportunity(
+            existing,
+            workspace.profile,
+            workspace.preferences,
+          );
+          const op =
+            existing.assessment &&
+            previous?.fingerprint === fingerprint &&
+            Date.now() - previous.at < 86400000
+              ? existing
+              : await analyze(
+                  store,
+                  existing,
+                  workspace,
+                  !basic.blockers.length &&
+                    matchesTargetRole(
+                      existing.title,
+                      workspace.preferences.roles,
+                    ),
+                );
+          if (op !== existing && op.assessment?.fitSummary)
+            await store.setRuntime(cacheKey, { fingerprint, at: Date.now() });
           imported++;
-          // Automatically prepare only reviewed, well-supported opportunities. Approval remains explicit.
-          if (
-            op.assessment?.recommendation === "ready" &&
-            !(await store.list("drafts", 10000)).some(
-              (d) => d.opportunityId === op.id,
-            ) &&
-            (await draftCountToday(store)) < workspace.preferences.dailyLimit
-          )
-            await prepare(store, op, workspace);
+          shortlist.push(op);
         }
       } catch (error) {
         failed++;
@@ -331,6 +398,31 @@ export async function processRun(
       throw new Error(
         "All selected sources failed. See Activity for source errors.",
       );
+    const drafted = new Set(
+      (await store.list("drafts", 10000)).map((d) => d.opportunityId),
+    );
+    let remainingDrafts =
+      workspace.preferences.dailyLimit - (await draftCountToday(store));
+    for (const op of orderOpportunities(shortlist, workspace.preferences)) {
+      if (remainingDrafts <= 0) break;
+      if (
+        op.assessment?.recommendation === "ready" &&
+        !drafted.has(op.id) &&
+        (!op.application || op.application.status === "saved")
+      ) {
+        try {
+          await prepare(store, op, workspace, true);
+          drafted.add(op.id);
+          remainingDrafts--;
+        } catch (error) {
+          await store.event(
+            `Draft for ${op.company}: ${error instanceof Error ? error.message : "failed"}`,
+            "error",
+            op.id,
+          );
+        }
+      }
+    }
     await store.event(
       `Discovery evaluated ${imported} opportunities${failed ? `; ${failed} source(s) failed` : ""}.`,
       "success",

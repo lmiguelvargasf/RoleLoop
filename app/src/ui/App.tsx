@@ -54,6 +54,13 @@ import type {
   Source,
 } from "../shared/types";
 import { api, date, downloadFile, safeUrl, uid, words, write } from "./api";
+import {
+  recommendedSources,
+  normalizeSource,
+  applicationCounts,
+  followUpDue,
+} from "../shared/discovery";
+import { ApplicationProgress } from "./ApplicationProgress";
 import { SalaryFields } from "./SalaryFields";
 import { SalaryPolicies } from "./SalaryPolicies";
 import { FreshnessPreferences } from "./FreshnessPreferences";
@@ -539,7 +546,13 @@ function Opportunities({
   const all = data.opportunities.filter((o) => o.kind === kind),
     list = all.filter(
       (o) =>
-        (stage === "all" ? o.stage !== "archived" : o.stage === stage) &&
+        (stage === "all"
+          ? o.stage !== "archived"
+          : stage === "followups"
+            ? followUpDue(o, new Date().toLocaleDateString("en-CA"))
+            : stage.startsWith("application:")
+              ? o.application?.status === stage.slice(12)
+              : o.stage === stage) &&
         `${o.company} ${o.title} ${o.description}`
           .toLowerCase()
           .includes(query.toLowerCase()),
@@ -582,6 +595,67 @@ function Opportunities({
           </button>
         </div>
       </div>
+      {kind === "job" && (
+        <p className="muted" role="status">
+          {all.length} saved · {applicationCounts(all).applied} applied ·{" "}
+          {applicationCounts(all).interview} reached interview ·{" "}
+          {applicationCounts(all).offer} offers ·{" "}
+          {
+            all.filter(
+              (o) =>
+                o.application?.followUpOn &&
+                o.application.followUpOn <=
+                  new Date().toLocaleDateString("en-CA") &&
+                !["rejected", "withdrawn", "offer"].includes(
+                  o.application.status,
+                ),
+            ).length
+          }{" "}
+          follow-ups due
+        </p>
+      )}
+      {kind === "job" && all.length > 0 && (
+        <details>
+          <summary>Results by source</summary>
+          <table>
+            <thead>
+              <tr>
+                <th>Source</th>
+                <th>Saved</th>
+                <th>Applied</th>
+                <th>Interviews</th>
+                <th>Offers</th>
+              </tr>
+            </thead>
+            <tbody>
+              {[...new Set(all.map((o) => o.sourceId || o.source))].map(
+                (id) => {
+                  const items = all.filter(
+                    (o) => (o.sourceId || o.source) === id,
+                  );
+                  const counts = applicationCounts(items);
+                  return (
+                    <tr key={id}>
+                      <td>
+                        {data.sources.find((s) => s.id === id)?.label ??
+                          items[0].source}
+                      </td>
+                      <td>{items.length}</td>
+                      <td>{counts.applied}</td>
+                      <td>{counts.interview}</td>
+                      <td>{counts.offer}</td>
+                    </tr>
+                  );
+                },
+              )}
+            </tbody>
+          </table>
+          <p className="muted">
+            Counts cover the opportunities currently loaded (up to 300).
+            Interview and offer milestones remain counted after a rejection.
+          </p>
+        </details>
+      )}
       <div className="flow-line">
         <span className="flow-current">
           <span>01</span>Discover
@@ -598,7 +672,8 @@ function Opportunities({
         </span>
         <i />
         <span>
-          <span>04</span>Review
+          <span>04</span>
+          {kind === "job" ? "Apply & follow up" : "Review"}
         </span>
       </div>
       <div className="list-toolbar">
@@ -617,6 +692,15 @@ function Opportunities({
           onChange={(e) => setStage(e.target.value)}
         >
           <option value="all">Active opportunities</option>
+          {kind === "job" && <option value="followups">Follow-ups due</option>}
+          {kind === "job" &&
+            ["applied", "interview", "offer", "rejected", "withdrawn"].map(
+              (status) => (
+                <option key={status} value={`application:${status}`}>
+                  {status[0].toUpperCase() + status.slice(1)}
+                </option>
+              ),
+            )}
           {["new", "review", "ready", "drafted", "approved", "archived"].map(
             (s) => (
               <option key={s} value={s}>
@@ -662,16 +746,21 @@ function Opportunities({
                 </span>
                 <span className="opportunity-trailing">
                   <Badge value={opportunityBadge(o)} />
+                  {o.application && o.application.status !== "saved" && (
+                    <span>{o.application.status}</span>
+                  )}
                   <span
                     className={`score ${o.assessment?.recommendation === "ready" ? "good" : ""}`}
                   >
-                    {o.assessment
-                      ? `${Math.round(
-                          kind === "job"
-                            ? o.assessment.essentialScore
-                            : o.assessment.score,
-                        )}%`
-                      : "—"}
+                    {kind === "job" && !o.requirements.some((r) => r.essential)
+                      ? "—"
+                      : o.assessment
+                        ? `${Math.round(
+                            kind === "job"
+                              ? o.assessment.essentialScore
+                              : o.assessment.score,
+                          )}%`
+                        : "—"}
                     <small>
                       {kind === "job" ? "required match" : "relevance"}
                     </small>
@@ -798,7 +887,14 @@ function Opportunities({
               </div>
             </div>
             <div className="inspector-links">
-              <External url={chosen.url}>View source</External>
+              <External url={chosen.url}>
+                View source{chosen.source === "jobicy" ? " · Jobicy" : ""}
+              </External>
+              {chosen.companyCountrySource && (
+                <External url={chosen.companyCountrySource}>
+                  Company country · {chosen.companyCountry}
+                </External>
+              )}
               {chosen.companyUrl && (
                 <External url={chosen.companyUrl}>Company website</External>
               )}
@@ -972,6 +1068,14 @@ function Opportunities({
                 <h3>Your notes</h3>
                 <p>{chosen.notes}</p>
               </div>
+            )}
+            {kind === "job" && (
+              <ApplicationProgress
+                key={`${chosen.id}:${JSON.stringify(chosen.application)}`}
+                opportunity={chosen}
+                busy={busy}
+                perform={perform}
+              />
             )}
             {relatedDrafts.length > 0 && (
               <button className="draft-link" onClick={() => navigate("drafts")}>
@@ -1162,6 +1266,7 @@ function OpportunityForm({
     companyUrl: existing?.companyUrl || "",
     location: existing?.location || "Unknown",
     companyCountry: existing?.companyCountry || "Unknown",
+    companyCountrySource: existing?.companyCountrySource || "",
     remoteScope: existing?.remoteScope || "unknown",
     salaryMin: existing?.salaryMin?.toString() || "",
     salaryMax: existing?.salaryMax?.toString() || "",
@@ -1181,6 +1286,31 @@ function OpportunityForm({
         .join("\n") || "",
     signals: existing?.signals.join("\n") || "",
   });
+  const [captureError, setCaptureError] = useState("");
+  const [capturing, setCapturing] = useState(false);
+  const capture = async () => {
+    setCaptureError("");
+    setCapturing(true);
+    try {
+      const result = await write<{
+        description: string;
+        remoteScope: Opportunity["remoteScope"];
+      }>("/opportunities/capture", { url: form.url });
+      setForm((p) => ({
+        ...p,
+        description: result.description,
+        remoteScope: result.remoteScope,
+      }));
+    } catch (error) {
+      setCaptureError(
+        error instanceof Error
+          ? error.message
+          : "Could not read this page. Paste the job description below.",
+      );
+    } finally {
+      setCapturing(false);
+    }
+  };
   const update = (key: keyof typeof form, value: string) =>
     setForm((p) => ({ ...p, [key]: value }));
   const submit = async (e: FormEvent) => {
@@ -1200,6 +1330,7 @@ function OpportunityForm({
       });
     const payload = {
       ...form,
+      companyCountrySource: form.companyCountrySource || undefined,
       kind,
       salaryMin: form.salaryMin ? Number(form.salaryMin) : null,
       salaryMax: form.salaryMax ? Number(form.salaryMax) : null,
@@ -1255,14 +1386,23 @@ function OpportunityForm({
               placeholder="https://…"
             />
           </Field>
-          <Field label="Company website">
-            <input
-              type="url"
-              value={form.companyUrl}
-              onChange={(e) => update("companyUrl", e.target.value)}
-              placeholder="https://…"
-            />
-          </Field>
+          {kind === "job" && (
+            <div className="wide">
+              <button
+                type="button"
+                className="button"
+                disabled={busy || capturing || !form.url}
+                onClick={() => void capture()}
+              >
+                {capturing ? "Reading…" : "Read job page"}
+              </button>
+              <p className="muted">
+                Or paste the description below. Requirements are extracted when
+                you save; review the result before applying.
+              </p>
+              {captureError && <p role="alert">{captureError}</p>}
+            </div>
+          )}
           <Field label="Description / source text" wide>
             <textarea
               required
@@ -1271,133 +1411,158 @@ function OpportunityForm({
               onChange={(e) => update("description", e.target.value)}
             />
           </Field>
-          <Field label="Location">
-            <input
-              value={form.location}
-              onChange={(e) => update("location", e.target.value)}
-            />
-          </Field>
-          <Field label="Company country">
-            <input
-              value={form.companyCountry}
-              onChange={(e) => update("companyCountry", e.target.value)}
-            />
-          </Field>
-          <Field label="Remote arrangement">
-            <select
-              value={form.remoteScope}
-              onChange={(e) => update("remoteScope", e.target.value)}
-            >
-              <option value="unknown">To confirm</option>
-              <option value="worldwide">Worldwide</option>
-              <option value="latam">Latin America</option>
-              <option value="us">US only</option>
-              <option value="onsite">On-site</option>
-            </select>
-          </Field>
-          <Field label="Published / signal date">
-            <input
-              type="date"
-              value={form.publishedAt}
-              onChange={(e) => update("publishedAt", e.target.value)}
-            />
-          </Field>
-          {kind === "job" && (
-            <>
-              <Field label="Salary minimum">
-                <input
-                  type="number"
-                  min="0"
-                  value={form.salaryMin}
-                  onChange={(e) => update("salaryMin", e.target.value)}
-                />
-              </Field>
-              <Field label="Salary maximum">
-                <input
-                  type="number"
-                  min="0"
-                  value={form.salaryMax}
-                  onChange={(e) => update("salaryMax", e.target.value)}
-                />
-              </Field>
-              <Field label="Currency">
-                <input
-                  maxLength={3}
-                  value={form.salaryCurrency}
-                  onChange={(e) =>
-                    update("salaryCurrency", e.target.value.toUpperCase())
-                  }
-                />
-              </Field>
-              <Field label="Salary period">
-                <select
-                  value={form.salaryPeriod}
-                  onChange={(e) => update("salaryPeriod", e.target.value)}
-                >
-                  {["year", "month", "hour", "unknown"].map((s) => (
-                    <option key={s}>{s}</option>
-                  ))}
-                </select>
-              </Field>
+          <details className="wide" open={!!existing}>
+            <summary>Location, compensation and other details</summary>
+            <div className="form-grid">
               <Field
-                label="Requirements"
-                hint="One per line: [essential] Build APIs | TypeScript, PostgreSQL. Use [preferred] or [hard] where appropriate."
-                wide
-              >
-                <textarea
-                  rows={4}
-                  value={form.requirements}
-                  onChange={(e) => update("requirements", e.target.value)}
-                />
-              </Field>
-            </>
-          )}
-          {kind === "startup" && (
-            <>
-              <Field label="Founder / contact name">
-                <input
-                  value={form.contactName}
-                  onChange={(e) => update("contactName", e.target.value)}
-                />
-              </Field>
-              <Field label="Verified professional email">
-                <input
-                  type="email"
-                  value={form.contactEmail}
-                  onChange={(e) => update("contactEmail", e.target.value)}
-                />
-              </Field>
-              <Field
-                label="Contact source URL"
-                hint="Where this professional contact information is published."
-                wide
+                label="Company country evidence URL"
+                hint="Official company page supporting its country."
               >
                 <input
                   type="url"
-                  value={form.contactSource}
-                  onChange={(e) => update("contactSource", e.target.value)}
+                  value={form.companyCountrySource}
+                  onChange={(e) =>
+                    update("companyCountrySource", e.target.value)
+                  }
                 />
               </Field>
-              <Field
-                label="Observed company signals"
-                hint="One sourced fact per line. Keep assumptions separate."
-                wide
-              >
+              <Field label="Company website">
+                <input
+                  type="url"
+                  value={form.companyUrl}
+                  onChange={(e) => update("companyUrl", e.target.value)}
+                  placeholder="https://…"
+                />
+              </Field>
+              <Field label="Location">
+                <input
+                  value={form.location}
+                  onChange={(e) => update("location", e.target.value)}
+                />
+              </Field>
+              <Field label="Company country">
+                <input
+                  value={form.companyCountry}
+                  onChange={(e) => update("companyCountry", e.target.value)}
+                />
+              </Field>
+              <Field label="Remote arrangement">
+                <select
+                  value={form.remoteScope}
+                  onChange={(e) => update("remoteScope", e.target.value)}
+                >
+                  <option value="unknown">To confirm</option>
+                  <option value="worldwide">Worldwide</option>
+                  <option value="latam">Latin America</option>
+                  <option value="us">US only</option>
+                  <option value="onsite">On-site</option>
+                </select>
+              </Field>
+              <Field label="Published / signal date">
+                <input
+                  type="date"
+                  value={form.publishedAt}
+                  onChange={(e) => update("publishedAt", e.target.value)}
+                />
+              </Field>
+              {kind === "job" && (
+                <>
+                  <Field label="Salary minimum">
+                    <input
+                      type="number"
+                      min="0"
+                      value={form.salaryMin}
+                      onChange={(e) => update("salaryMin", e.target.value)}
+                    />
+                  </Field>
+                  <Field label="Salary maximum">
+                    <input
+                      type="number"
+                      min="0"
+                      value={form.salaryMax}
+                      onChange={(e) => update("salaryMax", e.target.value)}
+                    />
+                  </Field>
+                  <Field label="Currency">
+                    <input
+                      maxLength={3}
+                      value={form.salaryCurrency}
+                      onChange={(e) =>
+                        update("salaryCurrency", e.target.value.toUpperCase())
+                      }
+                    />
+                  </Field>
+                  <Field label="Salary period">
+                    <select
+                      value={form.salaryPeriod}
+                      onChange={(e) => update("salaryPeriod", e.target.value)}
+                    >
+                      {["year", "month", "hour", "unknown"].map((s) => (
+                        <option key={s}>{s}</option>
+                      ))}
+                    </select>
+                  </Field>
+                  <Field
+                    label="Requirements"
+                    hint="Optional override. Leave blank to extract from the description. One per line: [essential] Build APIs | TypeScript, PostgreSQL."
+                    wide
+                  >
+                    <textarea
+                      rows={4}
+                      value={form.requirements}
+                      onChange={(e) => update("requirements", e.target.value)}
+                    />
+                  </Field>
+                </>
+              )}
+              {kind === "startup" && (
+                <>
+                  <Field label="Founder / contact name">
+                    <input
+                      value={form.contactName}
+                      onChange={(e) => update("contactName", e.target.value)}
+                    />
+                  </Field>
+                  <Field label="Verified professional email">
+                    <input
+                      type="email"
+                      value={form.contactEmail}
+                      onChange={(e) => update("contactEmail", e.target.value)}
+                    />
+                  </Field>
+                  <Field
+                    label="Contact source URL"
+                    hint="Where this professional contact information is published."
+                    wide
+                  >
+                    <input
+                      type="url"
+                      value={form.contactSource}
+                      onChange={(e) => update("contactSource", e.target.value)}
+                    />
+                  </Field>
+                  <Field
+                    label="Observed company signals"
+                    hint="One sourced fact per line. Keep assumptions separate."
+                    wide
+                  >
+                    <textarea
+                      rows={3}
+                      value={form.signals}
+                      onChange={(e) => update("signals", e.target.value)}
+                    />
+                  </Field>
+                </>
+              )}
+              <Field label="Your notes" wide>
                 <textarea
-                  rows={3}
-                  value={form.signals}
-                  onChange={(e) => update("signals", e.target.value)}
+                  rows={2}
+                  value={form.notes}
+                  onChange={(e) => update("notes", e.target.value)}
                 />
               </Field>
-            </>
-          )}
-          <Field label="Your notes" wide>
-            <textarea
-              rows={2}
-              value={form.notes}
-              onChange={(e) => update("notes", e.target.value)}
-            />
-          </Field>
+            </div>
+          </details>
         </div>
         <div className="modal-footer">
           <button type="button" className="button" onClick={close}>
@@ -1537,6 +1702,7 @@ function Sources({
   busy: boolean;
 }) {
   const [sources, setSources] = useState(initial);
+  const [newSourceId, setNewSourceId] = useState<string | null>(null);
   const update = (id: string, patch: Partial<Source>) =>
     setSources((p) => p.map((s) => (s.id === id ? { ...s, ...patch } : s)));
   return (
@@ -1549,18 +1715,14 @@ function Sources({
         </div>
         <button
           className="button"
-          onClick={() =>
+          onClick={() => {
+            const id = uid();
+            setNewSourceId(id);
             setSources((p) => [
               ...p,
-              {
-                id: uid(),
-                provider: "ashby",
-                label: "",
-                board: "",
-                enabled: true,
-              },
-            ])
-          }
+              { id, provider: "ashby", label: "", board: "", enabled: true },
+            ]);
+          }}
         >
           <Plus size={16} />
           Add source
@@ -1574,18 +1736,61 @@ function Sources({
           funding and hiring eligibility remain unverified until supported.
         </span>
       </div>
+      <p className="muted">
+        Start with US employers GitLab and Mozilla, plus Jobicy for broader
+        remote discovery. Each role still needs its hiring countries and salary
+        checked. Jobicy covers the last seven days and refreshes at most hourly.
+      </p>
+      <button
+        className="button"
+        disabled={busy}
+        onClick={async () => {
+          const next = [...sources];
+          for (const source of recommendedSources)
+            if (
+              !next.some(
+                (s) =>
+                  s.provider === source.provider && s.board === source.board,
+              )
+            )
+              next.push(source);
+          if (
+            await perform(
+              () =>
+                write(
+                  "/sources",
+                  { sources: next.map(normalizeSource) },
+                  "PUT",
+                ),
+              "Recommended sources saved.",
+            )
+          )
+            setSources(next);
+        }}
+      >
+        Add recommended sources
+      </button>
       <form
         onSubmit={(e) => {
           e.preventDefault();
           void perform(
-            () => write("/sources", { sources }, "PUT"),
+            () =>
+              write(
+                "/sources",
+                { sources: sources.map(normalizeSource) },
+                "PUT",
+              ),
             "Sources saved.",
           );
         }}
       >
         {sources.map((source) => (
-          <section className="source-editor" key={source.id}>
-            <div className="source-editor-top">
+          <details
+            className="source-editor"
+            key={source.id}
+            open={newSourceId === source.id}
+          >
+            <summary className="source-editor-top">
               <span className="source-icon">
                 {source.provider === "hackernews" ? (
                   <Rocket size={20} />
@@ -1594,6 +1799,9 @@ function Sources({
                 )}
               </span>
               <h2>{source.label || "New discovery source"}</h2>
+              <small>
+                {source.provider} · {source.enabled ? "Enabled" : "Paused"}
+              </small>
               <IconButton
                 label={`Remove ${source.label || "source"}`}
                 onClick={() =>
@@ -1602,7 +1810,7 @@ function Sources({
               >
                 <Trash2 size={16} />
               </IconButton>
-            </div>
+            </summary>
             <div className="form-grid">
               <Field label="Display name">
                 <input
@@ -1618,9 +1826,12 @@ function Sources({
                   onChange={(e) =>
                     update(source.id, {
                       provider: e.target.value as Source["provider"],
+                      companyCountry: undefined,
+                      countrySource: undefined,
                     })
                   }
                 >
+                  <option value="jobicy">Jobicy · remote jobs</option>
                   <option value="ashby">Ashby</option>
                   <option value="greenhouse">Greenhouse</option>
                   <option value="lever">Lever</option>
@@ -1631,23 +1842,56 @@ function Sources({
               </Field>
               <Field
                 label={
-                  source.provider === "hackernews"
+                  ["hackernews", "jobicy"].includes(source.provider)
                     ? "Search keyword (optional)"
-                    : "Company board identifier"
+                    : "Company board URL or identifier"
                 }
                 hint={
-                  source.provider === "hackernews"
-                    ? "A topic to narrow startup launches, such as developer tools."
+                  ["hackernews", "jobicy"].includes(source.provider)
+                    ? "A keyword to narrow the feed, such as developer tools."
                     : "Example: acme from jobs.ashbyhq.com/acme"
                 }
                 wide
               >
                 <input
                   value={source.board}
-                  required={source.provider !== "hackernews"}
-                  onChange={(e) => update(source.id, { board: e.target.value })}
+                  required={!["hackernews", "jobicy"].includes(source.provider)}
+                  onChange={(e) =>
+                    update(source.id, {
+                      board: e.target.value,
+                      companyCountry: undefined,
+                      countrySource: undefined,
+                    })
+                  }
                 />
               </Field>
+              {!["hackernews", "jobicy"].includes(source.provider) && (
+                <>
+                  <Field label="Company country">
+                    <input
+                      value={source.companyCountry ?? ""}
+                      placeholder="United States"
+                      onChange={(e) =>
+                        update(source.id, { companyCountry: e.target.value })
+                      }
+                    />
+                  </Field>
+                  <Field
+                    label="Country evidence URL"
+                    hint="Official company page supporting the country; hiring countries are checked per role."
+                  >
+                    <input
+                      type="url"
+                      value={source.countrySource ?? ""}
+                      onChange={(e) =>
+                        update(source.id, {
+                          countrySource: e.target.value || undefined,
+                        })
+                      }
+                    />
+                  </Field>
+                </>
+              )}
               <label className="checkbox-field wide">
                 <input
                   type="checkbox"
@@ -1666,7 +1910,13 @@ function Sources({
                 disabled={busy || !source.enabled || !source.label}
                 onClick={async () => {
                   if (
-                    await perform(() => write("/sources", { sources }, "PUT"))
+                    await perform(() =>
+                      write(
+                        "/sources",
+                        { sources: sources.map(normalizeSource) },
+                        "PUT",
+                      ),
+                    )
                   )
                     await perform(
                       () =>
@@ -1682,7 +1932,7 @@ function Sources({
                 Save & discover now
               </button>
             </div>
-          </section>
+          </details>
         ))}
         {!sources.length && (
           <Empty

@@ -23,14 +23,14 @@ describe("date windows", () => {
     const nearMidnight = new Date("2026-11-06T02:00:00Z");
     try {
       vi.stubEnv("TZ", "America/Guayaquil");
-      expect(
-        dateWindow({ ...preferences, lookback: 0 }, nearMidnight),
-      ).toEqual({ start: "2026-11-05", end: "2026-11-05" });
+      expect(dateWindow({ ...preferences, lookback: 0 }, nearMidnight)).toEqual(
+        { start: "2026-11-05", end: "2026-11-05" },
+      );
       expect(localDay(nearMidnight)).toBe("2026-11-05");
       vi.stubEnv("TZ", "UTC");
-      expect(
-        dateWindow({ ...preferences, lookback: 0 }, nearMidnight),
-      ).toEqual({ start: "2026-11-06", end: "2026-11-06" });
+      expect(dateWindow({ ...preferences, lookback: 0 }, nearMidnight)).toEqual(
+        { start: "2026-11-06", end: "2026-11-06" },
+      );
     } finally {
       vi.unstubAllEnvs();
     }
@@ -163,7 +163,7 @@ describe("evidence and eligibility", () => {
       },
     ];
     const result = assessOpportunity(job, profile, preferences, now);
-    expect(result.matches[0].status).toBe("missing");
+    expect(result.matches[0].status).toBe("partial");
     expect(result.unknowns.join(" ")).toContain("independently");
   });
   it("marks absent structured requirements as not evaluated", () => {
@@ -179,9 +179,7 @@ describe("evidence and eligibility", () => {
     const result = assessOpportunity(startup, profile, preferences, now);
     expect(result.reasons.join(" ")).toContain("not a job requirements score");
     expect(result.unknowns.join(" ")).toContain("exploratory startup lead");
-    expect(result.unknowns.join(" ")).not.toContain(
-      "your minimum is",
-    );
+    expect(result.unknowns.join(" ")).not.toContain("your minimum is");
   });
   it("reports preferred industries without changing startup skill relevance or blocking other industries", () => {
     const { profile, preferences } = setup();
@@ -295,22 +293,14 @@ describe("salary policies", () => {
       "review",
     );
     expect(
-      assessOpportunity(
-        job,
-        profile,
-        { ...prefs, salaryPolicy: "strict" },
-        now,
-      ).recommendation,
+      assessOpportunity(job, profile, { ...prefs, salaryPolicy: "strict" }, now)
+        .recommendation,
     ).toBe("excluded");
     job.salaryMin = 100000;
     job.salaryMax = 120000;
     expect(
-      assessOpportunity(
-        job,
-        profile,
-        { ...prefs, salaryPolicy: "strict" },
-        now,
-      ).recommendation,
+      assessOpportunity(job, profile, { ...prefs, salaryPolicy: "strict" }, now)
+        .recommendation,
     ).toBe("review");
   });
   it.each(["overlap", "strict"] as const)(
@@ -473,7 +463,8 @@ describe("truthful drafts and change fingerprints", () => {
       expect(draft.resume + draft.body).not.toContain("Ecuador");
       if (kind === "job") {
         expect(
-          draft.answers.find((a) => a.question === "Where are you based?")?.answer,
+          draft.answers.find((a) => a.question === "Where are you based?")
+            ?.answer,
         ).toBe("Canada");
       }
     },
@@ -497,7 +488,8 @@ describe("truthful drafts and change fingerprints", () => {
       expect(draft.warnings).toContain("Your working country is missing.");
       if (kind === "job") {
         expect(
-          draft.answers.find((a) => a.question === "Where are you based?")?.answer,
+          draft.answers.find((a) => a.question === "Where are you based?")
+            ?.answer,
         ).toBe("To confirm.");
       }
     },

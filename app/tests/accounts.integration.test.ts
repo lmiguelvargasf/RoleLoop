@@ -154,13 +154,11 @@ integration(
           .single();
         expect(result.error).toBeNull();
         expect(result.data?.requested_by).toBe(alice.id);
-        await db
-          .from("workspace_members")
-          .insert({
-            workspace_id: alice.workspaceId,
-            user_id: bob.id,
-            role: "manager",
-          });
+        await db.from("workspace_members").insert({
+          workspace_id: alice.workspaceId,
+          user_id: bob.id,
+          role: "manager",
+        });
         const tampered = await bob.client
           .from("runs")
           .update({ status: "queued", payload: { action: "discover" } })
@@ -231,6 +229,60 @@ integration(
         expect(own.json().profile.cache).toBeNull();
         expect(own.json().status.studioUrl).toBe("");
       }
+    });
+    it("captures requirements and keeps application milestones and follow-ups through status changes", async () => {
+      const actor = await account("Application progress test");
+      const requestHeaders = headers(actor, actor.workspaceId);
+      const created = await app.inject({
+        method: "POST",
+        url: "/api/opportunities",
+        headers: requestHeaders,
+        payload: {
+          kind: "job",
+          company: "Test employer",
+          title: "Account Manager",
+          url: "https://example.com/job",
+          description:
+            "Requirements\nExcellent communication skills\nMust manage enterprise accounts",
+        },
+      });
+      expect(created.statusCode, created.body).toBe(200);
+      const op = created.json();
+      expect(op.requirements).toHaveLength(2);
+      let application = {
+        status: "applied",
+        appliedAt: null,
+        nextAction: "Contact recruiter",
+        followUpOn: "2026-11-10",
+        notes: "Submitted on company website",
+      };
+      for (const status of ["applied", "interview", "rejected"]) {
+        const response = await app.inject({
+          method: "PATCH",
+          url: `/api/opportunities/${op.id}`,
+          headers: requestHeaders,
+          payload: { application: { ...application, status } },
+        });
+        expect(response.statusCode, response.body).toBe(200);
+        application = response.json().application;
+        expect(application.appliedAt).toBeTruthy();
+        expect(response.json().stage).toBe(op.stage);
+      }
+      expect(application).toMatchObject({
+        status: "rejected",
+        nextAction: "Contact recruiter",
+        followUpOn: "2026-11-10",
+      });
+      expect(
+        (application as unknown as { interviewAt: string }).interviewAt,
+      ).toBeTruthy();
+      const denied = await app.inject({
+        method: "PATCH",
+        url: `/api/opportunities/${op.id}`,
+        headers: headers(bob, actor.workspaceId),
+        payload: { application },
+      });
+      expect(denied.statusCode).toBe(403);
     });
     it("saves a minimum alone, adds or clears a target, and validates an explicit target", async () => {
       const actor = await account("Salary preferences test");
@@ -459,8 +511,9 @@ integration(
       expect(queue.error).not.toBeNull();
       const draftId = randomUUID();
       const { createDraft } = await import("../src/domain/templates.js");
-      const { demoWorkspace, demoOpportunities } =
-        await import("./fixtures.js");
+      const { demoWorkspace, demoOpportunities } = await import(
+        "./fixtures.js"
+      );
       const { assessOpportunity } = await import("../src/domain/rules.js");
       const profile = demoWorkspace();
       const sample = { ...demoOpportunities()[0], id: op.id };

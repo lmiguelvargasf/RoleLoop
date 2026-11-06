@@ -140,7 +140,20 @@ integration("local Supabase source refresh and lifecycle", () => {
         contactName: "Reviewed recipient",
       };
       await store.setRuntime(`corrections:${op.id}`, corrections);
-      const corrected = { ...op, ...corrections, stage: "tested" as const };
+      const application = {
+        status: "interview" as const,
+        appliedAt: new Date().toISOString(),
+        interviewAt: new Date().toISOString(),
+        nextAction: "Prepare interview",
+        followUpOn: "2026-11-10",
+        notes: "Recruiter screen completed",
+      };
+      const corrected = {
+        ...op,
+        ...corrections,
+        application,
+        stage: "tested" as const,
+      };
       await store.save("opportunities", corrected);
 
       const assessment = assessOpportunity(
@@ -186,6 +199,7 @@ integration("local Supabase source refresh and lifecycle", () => {
       expect(refreshed.salaryMin).toBe(130000);
       expect(refreshed.requirements.at(-1)?.id).toBe("new-aws");
       expect(refreshed).toMatchObject(corrections);
+      expect(refreshed.application).toEqual(application);
       expect(refreshed.stage).toBe("new");
       expect(refreshed.assessment).toBeNull();
       const invalidated = await store.get("drafts", approved.id);

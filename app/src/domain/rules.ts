@@ -222,7 +222,7 @@ export function assessOpportunity(
     );
   const candidateCountry = normalizeCountry(prefs.country);
   if (!candidateCountry) unknowns.push("Your working country is missing.");
-  if (unknown(op.companyCountry))
+  if (prefs.companyCountry && unknown(op.companyCountry))
     unknowns.push("Company headquarters country is not verified.");
   else if (
     prefs.companyCountry &&
@@ -393,7 +393,7 @@ export function assessOpportunity(
         req.text,
       );
     if (quantified) {
-      status = "missing";
+      if (status === "matched") status = "partial";
       if (req.essential || req.hard)
         unknowns.push(
           `Confirm this stated condition independently: ${req.text}`,
@@ -408,7 +408,7 @@ export function assessOpportunity(
       evidenceIds: [...ids],
       status,
       explanation: quantified
-        ? "Skill mentions cannot prove tenure, credentials, or legal eligibility."
+        ? "Capability evidence is shown separately; tenure, credentials, or legal eligibility remain unconfirmed."
         : listedExplanation && status !== "missing"
           ? listedExplanation
           : semantic
