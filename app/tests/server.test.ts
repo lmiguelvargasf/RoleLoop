@@ -81,8 +81,9 @@ describe("draft approval API guards", () => {
     }
   });
 
-  it("rejects approval when pay, essential coverage, or date selection changes", () => {
+  it("rejects approval when country, pay, essential coverage, or date selection changes", () => {
     for (const patch of [
+      { country: "Canada" },
       { minimumSalary: 130000 },
       { salaryFlexibility: true },
       { essentialMatch: 100 },

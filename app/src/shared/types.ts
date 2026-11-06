@@ -13,8 +13,6 @@ export const ProfileSchema = z.object({
   name: z.string().max(200),
   headline: z.string().max(300),
   email: z.string().max(200),
-  location: z.string().max(200),
-  country: z.string().max(100),
   summary: z.string().max(5000),
   portfolio: z.string().max(500),
   skills: z.array(z.string()),

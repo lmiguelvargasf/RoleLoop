@@ -47,10 +47,11 @@ export function createDraft(
   const highlights = (related.length ? related : selected).slice(0, 3);
   const facts = highlights.map((e) => e.text);
   const skills = [...new Set(selected.flatMap((e) => e.skills))];
+  const workingCountry = prefs.country.trim();
   const header = [
     profile.name,
     profile.headline,
-    [profile.location, profile.email, profile.portfolio]
+    [workingCountry, profile.email, profile.portfolio]
       .filter(Boolean)
       .join(" · "),
   ]
@@ -91,7 +92,7 @@ export function createDraft(
           salutation,
           companyHook,
           `My relevant experience includes:\n${facts.map((f) => "- " + f).join("\n")}`,
-          `I would welcome a conversation about whether this experience could help your team. Are you considering remote engineering collaborators based in ${profile.location || profile.country || "my location"}?`,
+          `I would welcome a conversation about whether this experience could help your team. Are you considering remote engineering collaborators${workingCountry ? ` based in ${workingCountry}` : ""}?`,
           profile.portfolio ? `Relevant work: ${profile.portfolio}` : "",
           `Best,\n${signature}`,
         ]
@@ -101,7 +102,12 @@ export function createDraft(
           salutation,
           `I am applying for the ${op.title} role at ${op.company}.`,
           `Relevant experience:\n${facts.map((f) => "- " + f).join("\n")}`,
-          `I am based in ${profile.location || profile.country || "[location to confirm]"}. I would be glad to discuss the role and your remote hiring arrangements.`,
+          [
+            workingCountry ? `I am based in ${workingCountry}.` : "",
+            "I would be glad to discuss the role and your remote hiring arrangements.",
+          ]
+            .filter(Boolean)
+            .join(" "),
           `Best,\n${signature}`,
         ].join("\n\n");
   const coverLetter = [
@@ -117,7 +123,7 @@ export function createDraft(
     },
     {
       question: "Where are you based?",
-      answer: profile.location || profile.country || "To confirm.",
+      answer: workingCountry || "To confirm.",
     },
     {
       question: "What are your salary expectations?",

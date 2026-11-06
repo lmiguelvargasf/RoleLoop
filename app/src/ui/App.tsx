@@ -1521,18 +1521,6 @@ function ProfileEditor({
                 onChange={(e) => set("portfolio", e.target.value)}
               />
             </Field>
-            <Field label="Location">
-              <input
-                value={profile.location}
-                onChange={(e) => set("location", e.target.value)}
-              />
-            </Field>
-            <Field label="Working country">
-              <input
-                value={profile.country}
-                onChange={(e) => set("country", e.target.value)}
-              />
-            </Field>
             <Field label="Professional summary" wide>
               <textarea
                 rows={4}
@@ -1744,7 +1732,10 @@ function PreferencesEditor({
                 return saved;
               }}
             />
-            <Field label="Working country">
+            <Field
+              label="Working country"
+              hint="Where you work from. Used for remote eligibility and application drafts."
+            >
               <input
                 required
                 value={prefs.country}

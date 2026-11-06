@@ -196,16 +196,8 @@ export function assessOpportunity(
     reasons.push(
       `Preferred industry signal: ${industryMatches.join(", ")}. Raises list priority without changing evidence scores; this is a keyword signal, not verified company classification.`,
     );
-  const candidateCountry = normalizeCountry(profile.country || prefs.country);
+  const candidateCountry = normalizeCountry(prefs.country);
   if (!candidateCountry) unknowns.push("Your working country is missing.");
-  if (
-    profile.country &&
-    prefs.country &&
-    normalizeCountry(profile.country) !== normalizeCountry(prefs.country)
-  )
-    unknowns.push(
-      "Profile country and search country differ; confirm your working location.",
-    );
   if (unknown(op.companyCountry))
     unknowns.push("Company headquarters country is not verified.");
   else if (

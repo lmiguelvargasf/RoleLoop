@@ -10,8 +10,6 @@ export function demoWorkspace(): Workspace {
       name: "Alex Morgan",
       headline: "Software engineer · sample profile",
       email: "alex@example.com",
-      location: "Quito, Ecuador",
-      country: "Ecuador",
       summary:
         "Demo candidate profile for testing the application. Replace these sample facts with your verified experience.",
       portfolio: "https://example.com/alex",

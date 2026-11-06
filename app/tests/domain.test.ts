@@ -10,7 +10,7 @@ import {
   profileFingerprint,
 } from "../src/domain/rules.js";
 import { createDraft } from "../src/domain/templates.js";
-import { PreferencesSchema } from "../src/shared/types.js";
+import { PreferencesSchema, ProfileSchema } from "../src/shared/types.js";
 
 const now = new Date("2026-11-05T17:00:00Z");
 function setup() {
@@ -74,6 +74,41 @@ describe("date windows", () => {
   });
 });
 describe("evidence and eligibility", () => {
+  it("loads existing profiles without retaining duplicate location fields", () => {
+    const { profile } = setup();
+    expect(
+      ProfileSchema.parse({
+        ...profile,
+        location: "Quito, Ecuador",
+        country: "Ecuador",
+      }),
+    ).toEqual(profile);
+  });
+  it.each([
+    ["us", "Ecuador", "United States", "excluded"],
+    ["us", "United States", "Ecuador", "review"],
+    ["latam", "Ecuador", "Canada", "ready"],
+    ["latam", "Canada", "Ecuador", "excluded"],
+  ] as const)(
+    "checks %s eligibility using preference %s despite legacy profile country %s",
+    (remoteScope, country, legacyCountry, recommendation) => {
+      const { profile, preferences, job } = setup();
+      job.remoteScope = remoteScope;
+      preferences.country = country;
+      const legacyProfile = { ...profile, country: legacyCountry };
+      const result = assessOpportunity(job, legacyProfile, preferences, now);
+      expect(result.recommendation).toBe(recommendation);
+      expect(result.unknowns.join(" ")).not.toContain("Profile country");
+    },
+  );
+  it("requires a working country in preferences even if the old profile has one", () => {
+    const { profile, preferences, job } = setup();
+    preferences.country = "";
+    const legacyProfile = { ...profile, country: "Ecuador" };
+    const result = assessOpportunity(job, legacyProfile, preferences, now);
+    expect(result.recommendation).toBe("review");
+    expect(result.unknowns).toContain("Your working country is missing.");
+  });
   it("matches the ready example using only verified evidence", () => {
     const { profile, preferences, job } = setup();
     const result = assessOpportunity(job, profile, preferences, now);
@@ -416,6 +451,57 @@ describe("salary policies", () => {
   });
 });
 describe("truthful drafts and change fingerprints", () => {
+  it.each(["job", "startup"] as const)(
+    "uses the preferences country for %s drafts despite legacy profile location fields",
+    (kind) => {
+      const { profile, preferences, job } = setup();
+      job.kind = kind;
+      preferences.country = "Canada";
+      const legacyProfile = {
+        ...profile,
+        country: "Ecuador",
+        location: "Quito, Ecuador",
+      };
+      const draft = createDraft(
+        job,
+        legacyProfile,
+        preferences,
+        assessOpportunity(job, legacyProfile, preferences, now),
+      );
+      expect(draft.resume).toContain("Canada · alex@example.com");
+      expect(draft.body).toContain("based in Canada");
+      expect(draft.resume + draft.body).not.toContain("Ecuador");
+      if (kind === "job") {
+        expect(
+          draft.answers.find((a) => a.question === "Where are you based?")?.answer,
+        ).toBe("Canada");
+      }
+    },
+  );
+  it.each(["job", "startup"] as const)(
+    "does not invent a location when the working country is blank for a %s draft",
+    (kind) => {
+      const { profile, preferences, job } = setup();
+      job.kind = kind;
+      preferences.country = "   ";
+      const draft = createDraft(
+        job,
+        profile,
+        preferences,
+        assessOpportunity(job, profile, preferences, now),
+      );
+      expect(draft.body).not.toContain("based in");
+      expect(draft.resume).toContain(
+        "\nalex@example.com · https://example.com/alex",
+      );
+      expect(draft.warnings).toContain("Your working country is missing.");
+      if (kind === "job") {
+        expect(
+          draft.answers.find((a) => a.question === "Where are you based?")?.answer,
+        ).toBe("To confirm.");
+      }
+    },
+  );
   it.each([null, 120000, 0])(
     "uses target %s for salary answers without volunteering the minimum",
     (targetSalary) => {

@@ -51,7 +51,7 @@ Supabase Studio and Mailpit are shared local developer tools. RoleLoop account p
 ## Get started
 
 1. Open **My profile** and add your identity and verified experience.
-2. Set your salary, working country, search dates and matching preference in **Search preferences**. Dates follow your computer’s timezone automatically.
+2. Set your salary, working country, search dates and matching preference in **Search preferences**. Working country is used for remote eligibility and location details in drafts. Dates follow your computer’s timezone automatically.
 3. Add public company board identifiers in **Discovery sources**, use the Show HN startup feed, or add opportunities manually.
 4. Review opportunities, prepare your application or founder email, and download the drafts.
 

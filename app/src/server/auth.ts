@@ -72,8 +72,6 @@ export function emptyWorkspace(user: User): Workspace {
       name: userName(user),
       email: user.email || "",
       headline: "",
-      location: "",
-      country: "",
       summary: "",
       portfolio: "",
       skills: [],
