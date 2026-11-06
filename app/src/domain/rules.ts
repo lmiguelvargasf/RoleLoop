@@ -1,4 +1,8 @@
 import { createHash } from "node:crypto";
+import {
+  industryPriorityBoost,
+  preferredIndustryMatches,
+} from "../shared/industries.js";
 import type {
   Assessment,
   Draft,
@@ -141,6 +145,42 @@ export function dateWindow(
   }
   return { start: start.toISOString().slice(0, 10), end };
 }
+export function orderOpportunities(
+  opportunities: Opportunity[],
+  prefs: Preferences,
+  now = new Date(),
+): Opportunity[] {
+  const window = dateWindow(prefs, now);
+  const freshness = (op: Opportunity) => {
+    if (!op.publishedAt) return 0;
+    const day = localDay(new Date(op.publishedAt), prefs.timezone);
+    return day >= window.start && day <= window.end ? 1 : 0;
+  };
+  const rank = (op: Opportunity) =>
+    op.assessment?.recommendation === "excluded"
+      ? 2
+      : op.assessment?.recommendation === "ready"
+        ? 0
+        : 1;
+  return opportunities
+    .map((op) => ({
+      op,
+      rank: rank(op),
+      priorityScore:
+        (op.assessment?.score || 0) + industryPriorityBoost(op, prefs),
+      freshness: freshness(op),
+    }))
+    .sort(
+      (a, b) =>
+        a.rank - b.rank ||
+        b.freshness - a.freshness ||
+        b.priorityScore - a.priorityScore ||
+        (b.op.assessment?.score || 0) - (a.op.assessment?.score || 0) ||
+        (b.op.publishedAt || "").localeCompare(a.op.publishedAt || ""),
+    )
+    .map(({ op }) => op);
+}
+
 export function assessOpportunity(
   op: Opportunity,
   profile: Profile,
@@ -151,6 +191,11 @@ export function assessOpportunity(
     unknowns: string[] = [],
     reasons: string[] = [];
   const evidence = profile.evidence.filter((e) => e.verified);
+  const industryMatches = preferredIndustryMatches(op, prefs);
+  if (industryMatches.length)
+    reasons.push(
+      `Preferred industry signal: ${industryMatches.join(", ")}. Raises list priority without changing evidence scores; this is a keyword signal, not verified company classification.`,
+    );
   const candidateCountry = normalizeCountry(profile.country || prefs.country);
   if (!candidateCountry) unknowns.push("Your working country is missing.");
   if (
@@ -390,41 +435,10 @@ export function assessOpportunity(
     const mentioned = [...verifiedSkills].filter((skill) =>
       op.description.toLowerCase().includes(skill),
     );
-    const normalizeTerms = (text: string) =>
-      text
-        .toLowerCase()
-        .replace(/[^\p{L}\p{N}]+/gu, " ")
-        .trim();
-    const industries = [
-      ...new Set(prefs.industries.map(normalizeTerms).filter(Boolean)),
-    ];
-    const sourceText =
-      " " +
-      normalizeTerms([op.title, op.description, ...op.signals].join(" ")) +
-      " ";
-    const industryMatches = industries.filter((industry) =>
-      sourceText.includes(" " + industry + " "),
-    );
-    score =
-      Math.min(industries.length ? 80 : 100, mentioned.length * 20) +
-      (industryMatches.length ? 20 : 0);
+    score = Math.min(100, mentioned.length * 20);
     reasons.push(
       `Exploratory relevance indicator: ${mentioned.length} evidenced skill${mentioned.length === 1 ? "" : "s"} mentioned. This is not a job requirements score.`,
     );
-    if (industries.length) {
-      if (industryMatches.length)
-        reasons.push(
-          `Selected industry keyword${industryMatches.length === 1 ? "" : "s"} found in recorded source text: ${industryMatches.join(", ")}. Adds 20 relevance points; this is a text signal, not verified company classification.`,
-        );
-      else {
-        reasons.push(
-          "No selected industry keyword appears in the recorded source text; no industry relevance bonus was added.",
-        );
-        unknowns.push(
-          "Research whether this startup fits your selected industries.",
-        );
-      }
-    }
     if (!op.signals.length)
       unknowns.push("No dated company progress signals have been recorded.");
     if (!mentioned.length)

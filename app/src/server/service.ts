@@ -10,9 +10,9 @@ import {
 } from "../shared/types.js";
 import {
   assessOpportunity,
-  dateWindow,
   draftContentHash,
   localDay,
+  orderOpportunities,
 } from "../domain/rules.js";
 import { discover, research } from "../domain/connectors.js";
 import { getGlobalRuntime, type WorkspaceStore } from "./store.js";
@@ -38,31 +38,9 @@ export async function bootstrap(store: WorkspaceStore): Promise<Bootstrap> {
       getGlobalRuntime<{ at: string }>("worker"),
       ollamaAvailable(),
     ]);
-  const window = dateWindow(workspace.preferences);
-  const freshness = (op: Opportunity) => {
-    if (!op.publishedAt) return 0;
-    const day = localDay(
-      new Date(op.publishedAt),
-      workspace.preferences.timezone,
-    );
-    return day >= window.start && day <= window.end ? 1 : 0;
-  };
-  const rank = (op: Opportunity) =>
-    op.assessment?.recommendation === "excluded"
-      ? 2
-      : op.assessment?.recommendation === "ready"
-        ? 0
-        : 1;
-  opportunities.sort(
-    (a, b) =>
-      rank(a) - rank(b) ||
-      freshness(b) - freshness(a) ||
-      (b.assessment?.score || 0) - (a.assessment?.score || 0) ||
-      (b.publishedAt || "").localeCompare(a.publishedAt || ""),
-  );
   return {
     ...workspace,
-    opportunities,
+    opportunities: orderOpportunities(opportunities, workspace.preferences),
     drafts,
     runs,
     events,
