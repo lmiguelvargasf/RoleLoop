@@ -21,6 +21,7 @@ import {
   Download,
   ExternalLink,
   FileText,
+  FileUser,
   Inbox,
   Link2,
   LoaderCircle,
@@ -60,7 +61,7 @@ import { MatchingPreferences } from "./MatchingPreferences";
 import { TargetRolesInput } from "./TargetRolesInput";
 import { IndustryInterests } from "./IndustryInterests";
 import { AutomationPreferences } from "./AutomationPreferences";
-import { ProfileEditor } from "./ProfileEditor";
+import { ResumePage } from "./ResumePage";
 import { EditorHeader } from "./EditorHeader";
 import { WorkspaceStatus, serverUnavailable } from "./WorkspaceStatus";
 import {
@@ -85,7 +86,7 @@ const nav = [
   { id: "jobs", label: "Job opportunities", icon: Briefcase },
   { id: "startups", label: "Startup prospects", icon: Rocket },
   { id: "drafts", label: "Drafts", icon: FileText },
-  { id: "profile", label: "My profile", icon: UserRound },
+  { id: "profile", label: "Resume", icon: FileUser },
   { id: "settings", label: "Search preferences", icon: SlidersHorizontal },
   { id: "sources", label: "Discovery sources", icon: Radio },
   { id: "activity", label: "Activity", icon: ActivityIcon },
@@ -479,7 +480,7 @@ export function App({
           <Drafts data={data} perform={perform} busy={busy} />
         )}
         {page === "profile" && (
-          <ProfileEditor initial={data.profile} perform={perform} busy={busy} />
+          <ResumePage initial={data.profile} perform={perform} busy={busy} />
         )}
         {page === "settings" && (
           <PreferencesEditor

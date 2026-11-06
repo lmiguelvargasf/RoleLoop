@@ -8,6 +8,7 @@ import { assessOpportunity } from "../src/domain/rules.js";
 import { resumePdf } from "../src/server/documents.js";
 import { careerFacts, type Profile } from "../src/shared/types.js";
 import { structuredAI } from "../src/server/ai.js";
+import { normalizeText, readResume } from "../src/server/resume-import.js";
 import { assertFresh } from "../src/server/guards.js";
 const integration =
   process.env.ROLELOOP_INTEGRATION === "1" ? describe : describe.skip;
@@ -26,13 +27,20 @@ const extracted = (text: string) => {
     uncertainties: ["Employment dates were not supplied."],
     entries: [
       {
-        text: entry,
+        sourceText: entry,
+        statements: [
+          {
+            text: entry,
+            skills:
+              entry === quote
+                ? ["TypeScript", "React"]
+                : ["Python", "PostgreSQL"],
+          },
+        ],
         role: "",
         company: "",
         period: "",
         category: "experience",
-        skills:
-          entry === quote ? ["TypeScript", "React"] : ["Python", "PostgreSQL"],
       },
     ],
   };
@@ -171,10 +179,16 @@ integration("CV upload to application generation", () => {
         sourceId: profile.source!.id,
         warnings: ["Employment dates were not supplied."],
       });
-      expect(careerFacts(profile)!.evidence[0]).toMatchObject({
-        text: quote,
-        verified: true,
-      });
+      const evidence = careerFacts(profile)!.evidence[0];
+      expect(evidence.verified).toBe(true);
+      expect(normalizeText(evidence.text)).toBe(normalizeText(quote));
+      const originalText = (await readResume(name, buffer)).text;
+      expect(
+        originalText.slice(evidence.source!.start, evidence.source!.end),
+      ).toBe(evidence.text);
+      expect(careerFacts(profile)!.sections[0].evidenceIds).toEqual([
+        evidence.id,
+      ]);
       expect(profile.source!.sha256).toBe(
         createHash("sha256").update(buffer).digest("hex"),
       );

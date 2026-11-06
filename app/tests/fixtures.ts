@@ -1,5 +1,6 @@
 import {
   OpportunitySchema,
+  CV_EXTRACTOR_VERSION,
   type Opportunity,
   type Workspace,
 } from "../src/shared/types.js";
@@ -17,7 +18,7 @@ export function demoWorkspace(): Workspace {
       cache: {
         id: "22222222-2222-4222-8222-222222222222",
         sourceId: "11111111-1111-4111-8111-111111111111",
-        extractorVersion: 1,
+        extractorVersion: CV_EXTRACTOR_VERSION,
         status: "ready",
         warnings: [],
         error: null,
@@ -25,6 +26,7 @@ export function demoWorkspace(): Workspace {
         facts: {
           name: "Alex Morgan",
           portfolio: "https://example.com/alex",
+          sections: [],
           evidence: [
             {
               id: "demo-e1",

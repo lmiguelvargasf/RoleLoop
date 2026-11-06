@@ -80,6 +80,27 @@ export function normalizeSkill(s: string): string {
     )[value] ?? value
   );
 }
+// A CV skill/language list is a declaration, not evidence of applying it.
+export const isListedClaim = (evidence: { category?: string }) =>
+  evidence.category === "skills" || evidence.category === "language";
+export function listedClaimExplanation(
+  evidence: { category?: string; skills: string[] }[],
+  requestedSkills: string[],
+): string | null {
+  if (evidence.length && evidence.every(isListedClaim))
+    return "Listed in the CV, but no supporting example of use was found.";
+  const hasListedGap = requestedSkills.some((skill) => {
+    const supporting = evidence.filter((entry) =>
+      entry.skills.some(
+        (value) => normalizeSkill(value) === normalizeSkill(skill),
+      ),
+    );
+    return supporting.length > 0 && supporting.every(isListedClaim);
+  });
+  return hasListedGap
+    ? "Some requested skills are only listed in the CV; supporting examples are missing."
+    : null;
+}
 const normalizeCountry = (s: string) => {
   const v = s.trim().toLowerCase();
   return ["us", "usa", "u.s.", "u.s.a.", "united states of america"].includes(v)
@@ -339,19 +360,21 @@ export function assessOpportunity(
   const matches: Assessment["matches"] = op.requirements.map((req) => {
     const ids = new Set<string>();
     let matched = 0;
+    let mentioned = 0;
     for (const skill of req.skills) {
       const found = evidence.filter((e) =>
         e.skills.some((s) => normalizeSkill(s) === normalizeSkill(skill)),
       );
       if (found.length) {
-        matched++;
+        mentioned++;
+        if (found.some((entry) => !isListedClaim(entry))) matched++;
         found.forEach((e) => ids.add(e.id));
       }
     }
     let status: "matched" | "partial" | "missing" =
       req.skills.length && matched === req.skills.length
         ? "matched"
-        : matched
+        : mentioned
           ? "partial"
           : "missing";
     const semantic = semanticMatches?.find((m) => m.requirementId === req.id);
@@ -360,6 +383,11 @@ export function assessOpportunity(
       ids.clear();
       semantic.evidenceIds.forEach((id) => ids.add(id));
     }
+    const listedExplanation = listedClaimExplanation(
+      evidence.filter((entry) => ids.has(entry.id)),
+      req.skills,
+    );
+    if (listedExplanation && status === "matched") status = "partial";
     const quantified =
       /\d+\+?\s*(?:years?|yrs?)|clearance|citizen|authorization|authorisation|license|licence|certif|degree/i.test(
         req.text,
@@ -381,15 +409,17 @@ export function assessOpportunity(
       status,
       explanation: quantified
         ? "Skill mentions cannot prove tenure, credentials, or legal eligibility."
-        : semantic
-          ? semantic.explanation
-          : !req.skills.length
-            ? "No structured skill evidence is available; review this requirement."
-            : status === "matched"
-              ? "Supported by verified candidate evidence."
-              : status === "partial"
-                ? "Only some requested skills have verified evidence."
-                : "No verified evidence supports this requirement.",
+        : listedExplanation && status !== "missing"
+          ? listedExplanation
+          : semantic
+            ? semantic.explanation
+            : !req.skills.length
+              ? "No structured skill evidence is available; review this requirement."
+              : status === "matched"
+                ? "Supported by verified candidate evidence."
+                : status === "partial"
+                  ? "Only some requested skills have verified evidence."
+                  : "No verified evidence supports this requirement.",
     };
   });
   const coverage = (items: typeof matches) =>
@@ -425,7 +455,9 @@ export function assessOpportunity(
       );
   } else {
     const verifiedSkills = new Set(
-      evidence.flatMap((e) => e.skills.map(normalizeSkill)),
+      evidence
+        .filter((e) => !isListedClaim(e))
+        .flatMap((e) => e.skills.map(normalizeSkill)),
     );
     const mentioned = [...verifiedSkills].filter((skill) =>
       op.description.toLowerCase().includes(skill),

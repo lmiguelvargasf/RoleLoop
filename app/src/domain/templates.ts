@@ -9,6 +9,7 @@ import type {
 } from "../shared/types.js";
 import {
   draftContentHash,
+  isListedClaim,
   normalizeSkill,
   opportunityFingerprint,
   preferencesFingerprint,
@@ -65,9 +66,67 @@ export function createDraft(
         op.description.toLowerCase().includes(s.toLowerCase()),
       ),
   );
-  const highlights = (related.length ? related : selected).slice(0, 3);
+  const supported = (related.length ? related : selected).filter(
+    (entry) => !isListedClaim(entry),
+  );
+  const highlights = (supported.length ? supported : selected).slice(0, 3);
   const facts = highlights.map((e) => e.text);
-  const skills = [...new Set(selected.flatMap((e) => e.skills))];
+  const skills = [
+    ...new Set(
+      selected
+        .filter((entry) => !isListedClaim(entry))
+        .flatMap((e) => e.skills),
+    ),
+  ];
+  const hasExperience = highlights.some(
+    (entry) =>
+      !entry.category ||
+      entry.category === "experience" ||
+      entry.category === "project",
+  );
+  const backgroundLabel = hasExperience
+    ? "Relevant experience"
+    : supported.length
+      ? "Relevant background"
+      : "Listed in my CV";
+  const labels: Record<string, string> = {
+    experience: "EXPERIENCE",
+    project: "PROJECTS",
+    education: "EDUCATION",
+    certification: "CERTIFICATIONS",
+    skills: "LISTED SKILLS",
+    language: "LANGUAGES",
+    other: "ADDITIONAL BACKGROUND",
+  };
+  const sections = new Map<string, Map<string, typeof selected>>();
+  for (const entry of selected) {
+    const heading = labels[entry.category || ""] || "CAREER HIGHLIGHTS";
+    const group = career.sections?.find((section) =>
+      section.evidenceIds.includes(entry.id),
+    );
+    const identity =
+      group?.id || JSON.stringify([entry.role, entry.company, entry.period]);
+    const records = sections.get(heading) || new Map<string, typeof selected>();
+    records.set(identity, [...(records.get(identity) || []), entry]);
+    sections.set(heading, records);
+  }
+  const careerSections = [...sections].map(
+    ([heading, records]) =>
+      heading +
+      "\n" +
+      [...records.values()]
+        .map((entries) =>
+          [
+            [entries[0].role, entries[0].company, entries[0].period]
+              .filter(Boolean)
+              .join(" · "),
+            ...entries.map((entry) => "- " + entry.text),
+          ]
+            .filter(Boolean)
+            .join("\n"),
+        )
+        .join("\n\n"),
+  );
   const workingCountry = prefs.country.trim();
   const header = [
     career.name,
@@ -82,20 +141,10 @@ export function createDraft(
     .join("\n");
   const resume = [
     header,
-    `SUMMARY\nRelevant experience for ${op.title} at ${op.company}: ` +
+    `SUMMARY\n${backgroundLabel} for ${op.title} at ${op.company}: ` +
       facts.slice(0, 2).join(" "),
-    "CAREER HIGHLIGHTS\n" +
-      selected
-        .map((e) =>
-          [
-            [e.role, e.company, e.period].filter(Boolean).join(" · "),
-            "- " + e.text,
-          ]
-            .filter(Boolean)
-            .join("\n"),
-        )
-        .join("\n\n"),
-    "SKILLS\n" + skills.join(" · "),
+    ...careerSections,
+    skills.length ? "SKILLS\n" + skills.join(" · ") : "",
   ]
     .filter(Boolean)
     .join("\n\n");
@@ -115,8 +164,8 @@ export function createDraft(
       ? [
           salutation,
           companyHook,
-          `My relevant experience includes:\n${facts.map((f) => "- " + f).join("\n")}`,
-          `I would welcome a conversation about whether this experience could help your team. Are you considering remote engineering collaborators${workingCountry ? ` based in ${workingCountry}` : ""}?`,
+          `${backgroundLabel}:\n${facts.map((f) => "- " + f).join("\n")}`,
+          `I would welcome a conversation about whether my background could help your team. Are you considering remote engineering collaborators${workingCountry ? ` based in ${workingCountry}` : ""}?`,
           career.portfolio ? `Relevant work: ${career.portfolio}` : "",
           `Best,\n${signature}`,
         ]
@@ -125,7 +174,7 @@ export function createDraft(
       : [
           salutation,
           `I am applying for the ${op.title} role at ${op.company}.`,
-          `Relevant experience:\n${facts.map((f) => "- " + f).join("\n")}`,
+          `${backgroundLabel}:\n${facts.map((f) => "- " + f).join("\n")}`,
           [
             workingCountry ? `I am based in ${workingCountry}.` : "",
             "I would be glad to discuss the role and your remote hiring arrangements.",
@@ -136,14 +185,18 @@ export function createDraft(
         ].join("\n\n");
   const coverLetter = [
     `Dear ${op.company} hiring team,`,
-    `I am interested in the ${op.title} position. My experience relevant to your team includes:\n\n${facts.map((f) => "- " + f).join("\n")}`,
-    `I would welcome the opportunity to discuss how this work relates to your priorities.`,
+    `I am interested in the ${op.title} position. ${backgroundLabel}:\n\n${facts.map((f) => "- " + f).join("\n")}`,
+    `I would welcome the opportunity to discuss how my background relates to your priorities.`,
     `Sincerely,\n${career.name}`,
   ].join("\n\n");
   const answers = [
     {
-      question: "What relevant experience would you bring?",
-      answer: facts.join("\n\n"),
+      question: hasExperience
+        ? "What relevant experience would you bring?"
+        : "What relevant background would you bring?",
+      answer: supported.length
+        ? facts.join("\n\n")
+        : "Listed in my CV:\n\n" + facts.join("\n\n"),
     },
     {
       question: "Where are you based?",

@@ -15,7 +15,13 @@ import * as service from "./service.js";
 import { allowedOrigin } from "./guards.js";
 import { UploadSchema, readResume } from "./resume-import.js";
 import * as chatgpt from "./chatgpt.js";
-import { uploadCV, retryCV, originalCV, cvContentType } from "./cv.js";
+import {
+  uploadCV,
+  retryCV,
+  clearCVFacts,
+  originalCV,
+  cvContentType,
+} from "./cv.js";
 import { resumePdf } from "./documents.js";
 
 declare module "fastify" {
@@ -203,13 +209,23 @@ export async function buildServer() {
   app.post("/api/profile/process", async (req) => ({
     profile: await retryCV(requestStore(req), identity(req).user.id),
   }));
+  app.delete("/api/profile/cache", async (req) => ({
+    profile: await clearCVFacts(
+      requestStore(req),
+      z
+        .object({
+          sourceId: z.string().uuid().nullable(),
+          cacheId: z.string().uuid().nullable(),
+        })
+        .strict()
+        .parse(req.body),
+    ),
+  }));
   // Retired clients cannot save career facts independently of the master CV.
   app.put("/api/profile", async (_req, reply) =>
-    reply
-      .code(405)
-      .send({
-        error: "Replace the master CV to update your career information.",
-      }),
+    reply.code(405).send({
+      error: "Replace the master CV to update your career information.",
+    }),
   );
   app.get("/api/profile/sources/:id/:kind", async (req, reply) => {
     const { id, kind } = z

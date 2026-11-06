@@ -8,7 +8,7 @@ flowchart LR
   DB <--> WORKER["TypeScript worker\nAtomic queue + lease"]
   WORKER --> ATS["Ashby · Greenhouse · Lever\nPublic job boards"]
   WORKER --> HN["Show HN + public websites\nStartup research leads"]
-  ATS --> RULES["Eligibility + dates + salary\nVerified evidence coverage"]
+  ATS --> RULES["Eligibility + dates + salary\nSource-supported coverage"]
   HN --> RESEARCH["Company facts + contact source\nExploratory relevance"]
   RULES --> DRAFT["Evidence templates\nOpenAI evidence selection"]
   RESEARCH --> DRAFT
@@ -23,11 +23,43 @@ The UI, API and worker are native Node.js processes. Only Supabase uses Docker. 
 
 The worker claims durable database rows with `FOR UPDATE SKIP LOCKED`. A renewable database lease prevents overlapping worker owners and protects recovery. Interrupted runs are marked failed, so test delivery is not automatically retried. Queue insertion deduplicates equivalent active tasks atomically. Scheduled discovery depends on the worker and the machine remaining awake.
 
-Job coverage uses verified evidence for each requirement, with essential requirements weighted at 80% where both essential and preferred requirements exist. A matching skill does not prove years of experience, credentials or legal eligibility. Startup relevance is a separate exploration measure. Unknown facts remain review items; explicit contradictions are exclusions. Publication timestamps are distinct from discovery timestamps.
+Job coverage uses source-supported evidence for each requirement, with essential requirements weighted at 80% where both essential and preferred requirements exist. A matching skill does not prove years of experience, credentials or legal eligibility. Startup relevance is a separate exploration measure. Unknown facts remain review items; explicit contradictions are exclusions. Publication timestamps are distinct from discovery timestamps.
 
-Sources and website content are untrusted data. Bounded public-website requests validate and pin DNS, reject private/reserved addresses, validate every redirect, and cap response size/time. AI requests use the fixed OpenAI Responses endpoint and refuse redirects. Model output can only select existing evidence IDs. HTML is escaped before PDF rendering and the document browser blocks network requests.
+Sources and website content are untrusted data. Bounded public-website requests validate and pin DNS, reject private/reserved addresses, validate every redirect, and cap response size/time. AI requests use the fixed OpenAI Responses endpoint and refuse redirects. Assessment and drafting outputs can only select existing evidence IDs. HTML is escaped before PDF rendering and the document browser blocks network requests.
 
 Approval binds the profile, preferences, source opportunity, and exact draft text. Draft mutations revoke approval. Execution checks these values again before local simulation. No code path submits a real application or sends external mail. This is a testing foundation; future real delivery should use provider-specific adapters and separately defined authorization.
+
+## Resume facts
+
+The resume flow separates three responsibilities:
+
+```text
+Private original PDF/DOCX
+  → versioned career records and source statements
+  → opportunity-specific assessment and application drafts
+```
+
+The original is the source of truth. Derived facts describe the career independently of any target role. Assessments and drafts select from those facts; they do not rewrite the underlying record or trigger extraction for each opportunity. Search preferences remain separate from resume claims.
+
+### Extraction contract
+
+`app/src/shared/types.ts` defines the versioned contract. `CareerFactsSchema.sections` groups experience, projects, education, certifications, listed skills, languages and other career details. A section holds its title, organization, period, original source passage and evidence IDs. `facts.evidence` stores atomic quotations and supported skill tags, preserving the existing matching and drafting interface. This lets the presentation evolve without making each statement an independent career entry.
+
+`resume-import.ts` requests structured output, then validates every retained statement against its section's original passage. Metadata must also occur within that passage, and tags must be literal skill names in the statement. `source-quotations.ts` tolerates whitespace and Unicode presentation differences while retaining original spelling and UTF-16 offsets into extracted document text. Duplicate statements are removed and source order is retained. Matching titles and employers are merged only when their source passages overlap, keeping separate engagements distinct when dates are missing. Missing fields remain empty; extraction does not infer tenure, proficiency or job-search preferences. Instructions inside documents are untrusted content, never extraction instructions.
+
+A traceable quotation proves presence in the source, not independent truth or correct semantic interpretation. The stored `verified` flag means source-supported, not employer-verified or human-approved. Users review the source passages and extraction notes; corrections currently happen by updating and replacing the resume. There is no competing editable copy of career facts.
+
+### Matching and presentation
+
+Listed skills and language claims retain their categories through matching and drafting. They can indicate relevance but cannot alone produce a full requirement match or satisfy a mandatory condition. Contextual evidence and transferable experience remain distinguishable from a bare keyword list. Role-specific assessments cite evidence IDs, and drafts keep listed claims separate from career highlights.
+
+The **Resume** workspace separates document actions from the career review. `ResumeFacts.tsx` has one category registry for section order and labels, shared by navigation and grouped records. Search, expandable evidence and source passages operate on the same contract. New categories or metadata should extend the shared schema, extractor validation and matching semantics together; display changes belong in the review component and its scoped stylesheet.
+
+### Cache lifecycle and persistence
+
+`CV_EXTRACTOR_VERSION` is currently 2. `careerFacts()` is the common access gate: only a ready cache for the active source and current extractor version can supply facts. Upload activates a new source and removes the old cache before processing. Retry reuses the private original. Clearing extracted details removes only the cache, leaving originals, drafts and history intact. Processing, upload and reset use compare-and-swap writes; late responses and stale clear requests cannot overwrite a newer state.
+
+The v2 migration updates the database profile cleaner and invalidates v1 caches while preserving source references and stored files. Future contract changes must update both the runtime version gate and database cleaner/migration. Avoid adding parsed defaults to persisted profiles without normalizing existing rows: compare-and-swap compares stored JSON. Re-extraction is explicit. Existing documents remain downloadable, while profile fingerprints require fresh generation before approval after source or fact changes.
 
 ## Accounts and isolation
 

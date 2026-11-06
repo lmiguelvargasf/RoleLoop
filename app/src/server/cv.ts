@@ -113,6 +113,35 @@ export async function retryCV(store: WorkspaceStore, userId: string) {
   return processCV(store, profile, text, userId);
 }
 
+export async function clearCVFacts(
+  store: WorkspaceStore,
+  expected: { sourceId: string | null; cacheId: string | null },
+) {
+  const profile = (await store.getWorkspace()).profile;
+  if (
+    (profile.source?.id ?? null) !== expected.sourceId ||
+    (profile.cache?.id ?? null) !== expected.cacheId
+  )
+    throw Object.assign(
+      new Error(
+        "The resume changed. Refresh before clearing its extracted information.",
+      ),
+      { statusCode: 409 },
+    );
+  if (!profile.cache) return profile;
+  // The same compare-and-swap as extraction prevents both stale clears and
+  // an in-flight extraction from restoring facts after this reset.
+  const saved = await store.updateWorkspace(
+    { profile: { ...profile, cache: null } },
+    profile,
+  );
+  await store.event(
+    "Extracted resume information cleared. The original resume is still available.",
+    "info",
+  );
+  return saved.profile;
+}
+
 export async function originalCV(
   store: WorkspaceStore,
   id: string,

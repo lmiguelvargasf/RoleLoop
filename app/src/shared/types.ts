@@ -1,5 +1,14 @@
 import { z } from "zod";
 
+export const CareerCategorySchema = z.enum([
+  "experience",
+  "project",
+  "education",
+  "certification",
+  "skills",
+  "language",
+  "other",
+]);
 export const EvidenceSchema = z.object({
   id: z.string(),
   text: z.string().min(1).max(2000),
@@ -8,16 +17,28 @@ export const EvidenceSchema = z.object({
   role: z.string().default(""),
   company: z.string().default(""),
   period: z.string().default(""),
-  category: z
-    .enum(["experience", "project", "education", "certification", "other"])
+  category: CareerCategorySchema.optional(),
+  // UTF-16 offsets into the text read from the original document.
+  source: z
+    .object({ start: z.number().int().min(0), end: z.number().int().min(1) })
     .optional(),
+});
+export const CareerSectionSchema = z.object({
+  id: z.string(),
+  category: CareerCategorySchema,
+  role: z.string(),
+  company: z.string(),
+  period: z.string(),
+  sourceText: z.string().min(1),
+  evidenceIds: z.array(z.string()).min(1),
 });
 export const CareerFactsSchema = z.object({
   name: z.string().max(200),
   portfolio: z.string().max(500),
   evidence: z.array(EvidenceSchema),
+  sections: z.array(CareerSectionSchema).default([]),
 });
-export const CV_EXTRACTOR_VERSION = 1;
+export const CV_EXTRACTOR_VERSION = 2;
 export const ProfileSchema = z.object({
   // Resolved from the workspace owner's account; never persisted here.
   email: z.string().max(200).default(""),
@@ -195,11 +216,7 @@ export type Assessment = z.infer<typeof AssessmentSchema>;
 export type Draft = z.infer<typeof DraftSchema>;
 export type Requirement = z.infer<typeof RequirementSchema>;
 export type RunAction =
-  | "discover"
-  | "analyze"
-  | "draft"
-  | "simulate"
-  | "research";
+  "discover" | "analyze" | "draft" | "simulate" | "research";
 export interface Run {
   requestedBy?: string;
   id: string;
