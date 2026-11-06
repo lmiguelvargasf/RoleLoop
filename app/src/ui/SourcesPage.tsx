@@ -30,6 +30,12 @@ const providers: Record<Source["provider"], string> = {
   jobicy: "Jobicy",
   hackernews: "Show HN",
 };
+function sourceTitle(source: Source): string {
+  if (sourceKind(source) !== "company_board")
+    return source.label || "New feed";
+  const company = source.companyName || source.label;
+  return company ? `Jobs at ${company}` : "New company";
+}
 export function SourcesPage({
   initial,
   health = {},
@@ -204,7 +210,7 @@ export function SourcesPage({
       >
         <p className="discovery-purpose-note">
           {area === "jobs"
-            ? "Follow employers and job feeds. Search results appear in Job opportunities, where you can check fit and prepare an application."
+            ? "Company boards show jobs at one employer; job feeds cover many employers. Results appear in Job opportunities, where you can check fit and prepare an application."
             : area === "startups"
               ? "Discover product launches for possible outreach. These are research leads, not advertised jobs. Results appear in Startup prospects."
               : "Open a job site, find a role, then bring its original listing into Add role. These sites are browsed manually."}
@@ -265,10 +271,7 @@ export function SourcesPage({
                           <div className="source-managed-row" key={source.id}>
                             <div className="source-managed-top">
                               <div className="source-row-copy">
-                                <strong>
-                                  {(source.companyName ?? source.label) ||
-                                    (feed ? "New feed" : "New company")}
-                                </strong>
+                                <strong>{sourceTitle(source)}</strong>
                                 <p
                                   className={
                                     result?.status === "error"
@@ -356,7 +359,7 @@ export function SourcesPage({
                                     <details className="wide discovery-connection">
                                       <summary>Connection details</summary>
                                       <label className="field">
-                                        <span>Connection service</span>
+                                        <span>Job board platform</span>
                                         <select
                                           value={source.provider}
                                           onChange={(e) =>
@@ -543,7 +546,7 @@ export function SourcesPage({
                 {library.map((research) => (
                   <div className="source-library-row" key={research.source.id}>
                     <div className="source-row-copy">
-                      <strong>{research.source.label}</strong>
+                      <strong>{sourceTitle(research.source)}</strong>
                       <span className="source-provider">
                         {sourceKind(research.source) === "company_board"
                           ? "Company"
