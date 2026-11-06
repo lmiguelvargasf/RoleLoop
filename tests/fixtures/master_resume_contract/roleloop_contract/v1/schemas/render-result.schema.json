@@ -1,0 +1,57 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://roleloop.local/schemas/master-resume/render-result-v1.json",
+  "title": "RenderResultV1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema", "contract_version", "status", "source_revision", "resume_id", "evidence_catalog_sha256", "selection_sha256", "renderer_version", "files", "toolchain", "checks", "warnings"],
+  "properties": {
+    "schema": {"const": "roleloop.render-result.v1"},
+    "contract_version": {"const": 1},
+    "status": {"const": "ok"},
+    "source_revision": {"type": "string", "pattern": "^(?:[0-9a-f]{40}|[0-9a-f]{64})$"},
+    "resume_id": {"type": "string", "minLength": 1},
+    "evidence_catalog_sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "selection_sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "renderer_version": {"type": "string", "minLength": 1},
+    "files": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["file_name", "media_type", "sha256", "size_bytes"],
+        "properties": {
+          "file_name": {"type": "string", "minLength": 1},
+          "media_type": {"type": "string", "minLength": 1},
+          "sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+          "size_bytes": {"type": "integer", "minimum": 0}
+        }
+      }
+    },
+    "toolchain": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["python_version", "latexmk_version", "pdftex_version", "pdfinfo_version", "pdftotext_version"],
+      "properties": {
+        "python_version": {"type": "string", "minLength": 1},
+        "latexmk_version": {"type": "string", "minLength": 1},
+        "pdftex_version": {"type": "string", "minLength": 1},
+        "pdfinfo_version": {"type": "string", "minLength": 1},
+        "pdftotext_version": {"type": "string", "minLength": 1}
+      }
+    },
+    "checks": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["valid_pdf_header", "page_count", "ats_text_nonempty", "compile_log_sanitized"],
+      "properties": {
+        "valid_pdf_header": {"type": "boolean"},
+        "page_count": {"type": "integer", "minimum": 1},
+        "ats_text_nonempty": {"type": "boolean"},
+        "compile_log_sanitized": {"type": "boolean"}
+      }
+    },
+    "warnings": {"type": "array", "items": {"type": "string"}}
+  }
+}

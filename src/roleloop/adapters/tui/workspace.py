@@ -23,6 +23,13 @@ if TYPE_CHECKING:
 
 
 class WorkspaceScreen(Screen[None]):
+    HELP_TEXT: ClassVar[str] = (
+        "Workspace: 1 inbox · 2 applications · 3 settings · d Scout discovery · "
+        "n inspect job URL · Enter open review. Review: a Analyze/Rerun · t Tailor · "
+        "w Watch · s Skip · v request changes · p approve exact PDF · "
+        "u record submission · l record stage · r refresh · Esc back. q quits."
+    )
+
     BINDINGS: ClassVar = [
         Binding("1", "show_view('inbox')", "Inbox"),
         Binding("2", "show_view('applications')", "Applications"),
@@ -103,7 +110,7 @@ class WorkspaceScreen(Screen[None]):
         )
 
     def action_add_job(self) -> None:
-        self.run_worker(self._add_job, exit_on_error=False)  # type: ignore[arg-type]
+        self.run_worker(self._add_job, exit_on_error=False)
 
     async def _add_job(self) -> None:
         result = await self.app.push_screen_wait(AddJobModal())
@@ -119,8 +126,7 @@ class WorkspaceScreen(Screen[None]):
 
     def action_help(self) -> None:
         self.roleloop_app.notify(
-            "Arrows/j-k move · Enter reviews · t tailor · w watch · s skip · "
-            "g generate · a submitted · o outcome · Esc back",
+            self.HELP_TEXT,
             title="Keyboard map",
             timeout=8,
         )

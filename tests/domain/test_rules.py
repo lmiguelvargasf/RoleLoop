@@ -1,9 +1,12 @@
+from dataclasses import replace
 from datetime import UTC, datetime
 
 from roleloop.domain import (
     Answer,
+    ArtifactRef,
     EligibilityStatus,
     QuestionCategory,
+    ResumeApprovalStatus,
     ResumeRun,
     ResumeStage,
     ResumeStatus,
@@ -11,6 +14,7 @@ from roleloop.domain import (
     ReviewStatus,
     ReviewVersion,
     derive_eligibility,
+    resume_approval_status,
     resume_status,
     review_fingerprint,
     review_status,
@@ -67,6 +71,13 @@ def test_review_freshness_is_a_deterministic_input_snapshot() -> None:
     )
 
     assert review_status(review, expected_fingerprint=fingerprint) is ReviewStatus.CURRENT
+    assert (
+        review_status(
+            replace(review, legacy_input_status="legacy_unreproducible"),
+            expected_fingerprint=fingerprint,
+        )
+        is ReviewStatus.STALE
+    )
     changed = review_fingerprint(
         job_revision=4,
         profile_revision=2,
@@ -101,3 +112,50 @@ def test_in_progress_resume_remains_in_progress_but_finished_mismatch_is_stale()
         compiler_version=run.compiler_version,
     )
     assert resume_status(ready, expected_fingerprint="new") is ResumeStatus.STALE
+
+
+def test_unpinned_legacy_pdf_is_pending_review_without_becoming_current() -> None:
+    artifact = ArtifactRef(
+        id="legacy-pdf",
+        checksum="legacy-checksum",
+        uri="managed/legacy.pdf",
+        media_type="application/pdf",
+        size_bytes=42,
+    )
+    legacy = ResumeRun(
+        id="legacy-run",
+        job_case_id="case-1",
+        review_version_id="legacy-review",
+        evidence_version_id="legacy-evidence",
+        input_fingerprint="legacy-fingerprint",
+        stage=ResumeStage.READY,
+        generator_version="legacy-generator",
+        validator_version="legacy-validator",
+        compiler_version="legacy-compiler",
+        artifact=artifact,
+    )
+
+    assert (
+        resume_approval_status(legacy, None, is_current=False) is ResumeApprovalStatus.NEEDS_REVIEW
+    )
+
+    pinned_but_stale = ResumeRun(
+        id="native-run",
+        job_case_id=legacy.job_case_id,
+        review_version_id="review-1",
+        evidence_version_id="evidence-1",
+        input_fingerprint="native-fingerprint",
+        stage=ResumeStage.READY,
+        generator_version="resume-v1",
+        validator_version="contract-v1",
+        compiler_version="renderer-v1",
+        artifact=artifact,
+        agent_run_id="agent-run-1",
+        gate_decision_event_id="gate-1",
+        job_version_id="job-version-1",
+        profile_version_id="profile-version-1",
+    )
+    assert (
+        resume_approval_status(pinned_but_stale, None, is_current=False)
+        is ResumeApprovalStatus.STALE
+    )

@@ -1,7 +1,13 @@
 from __future__ import annotations
 
+import errno
 import hashlib
+import io
+import os
 import subprocess
+import sys
+import tarfile
+import time
 from pathlib import Path
 
 import pytest
@@ -73,6 +79,87 @@ def _source(
     )
 
 
+def _process_exists(process_id: int) -> bool:
+    try:
+        os.kill(process_id, 0)
+    except ProcessLookupError:
+        return False
+    return True
+
+
+def _assert_process_exits(process_id: int) -> None:
+    deadline = time.monotonic() + 2.0
+    while time.monotonic() < deadline:
+        if not _process_exists(process_id):
+            return
+        time.sleep(0.02)
+    pytest.fail(f"Git descendant {process_id} survived process-group cleanup")
+
+
+@pytest.mark.skipif(os.name != "posix", reason="POSIX process-group behavior")
+@pytest.mark.parametrize("probe_errno", [errno.EPERM, errno.ESRCH])
+def test_git_process_group_probe_treats_terminal_errors_as_cleanup_complete(
+    monkeypatch: pytest.MonkeyPatch,
+    probe_errno: int,
+) -> None:
+    signals: list[int] = []
+
+    class ExitedProcess:
+        pid = 123456
+
+        def poll(self) -> int:
+            return 0
+
+        def wait(self, *, timeout: float) -> int:
+            del timeout
+            return 0
+
+        def terminate(self) -> None:
+            pytest.fail("cleanup must not terminate an already-exited Git parent")
+
+        def kill(self) -> None:
+            pytest.fail("a terminal process-group probe must not escalate")
+
+    def fake_killpg(process_group: int, requested_signal: int) -> None:
+        assert process_group == ExitedProcess.pid
+        signals.append(requested_signal)
+        if requested_signal == 0:
+            raise OSError(probe_errno, "process-group probe is terminal")
+
+    monkeypatch.setattr(resume_sources_module.os, "killpg", fake_killpg)
+
+    resume_sources_module._terminate_git_process_group(  # type: ignore[arg-type]
+        ExitedProcess()
+    )
+
+    assert signals == [resume_sources_module.signal.SIGTERM, 0]
+
+
+@pytest.mark.skipif(os.name != "posix", reason="POSIX process-group behavior")
+def test_git_kills_descendants_even_after_successful_parent_exit(tmp_path: Path) -> None:
+    pid_path = tmp_path / "git-descendant.pid"
+    fake_git = tmp_path / "fake-git"
+    fake_git.write_text(
+        f"#!{sys.executable}\n"
+        "import subprocess\n"
+        "import sys\n"
+        "from pathlib import Path\n"
+        "child = subprocess.Popen([sys.executable, '-c', "
+        "'import time; time.sleep(60)'])\n"
+        f"Path({str(pid_path)!r}).write_text(str(child.pid), encoding='utf-8')\n",
+        encoding="utf-8",
+    )
+    fake_git.chmod(0o700)
+
+    result = GitResumeSourceSynchronizer(
+        tmp_path / "cache",
+        git_executable=str(fake_git),
+    )._run_git(["--version"], error_message="Fake Git could not run")
+
+    assert result.returncode == 0
+    _assert_process_exits(int(pid_path.read_text(encoding="utf-8")))
+
+
 @pytest.mark.asyncio
 async def test_clean_local_repository_resolves_an_immutable_markdown_snapshot(
     tmp_path: Path,
@@ -100,6 +187,54 @@ async def test_clean_local_repository_resolves_an_immutable_markdown_snapshot(
     assert snapshot.content_checksum == hashlib.sha256(snapshot.source_bytes).hexdigest()
     assert [update.stage for update in progress.updates] == ["resolving", "ready"]
     assert not (tmp_path / "cache").exists()
+
+
+@pytest.mark.asyncio
+async def test_clean_local_repository_archives_only_the_resolved_commit(
+    tmp_path: Path,
+) -> None:
+    repository = _repository(tmp_path / "master-resume")
+    revision = _commit(
+        repository,
+        "roleloop_contract/v1/cli.py",
+        "print('contract')\n",
+        "Add contract",
+    )
+    synchronizer = GitResumeSourceSynchronizer(tmp_path / "cache")
+
+    snapshot = await synchronizer.snapshot_archive(
+        _source(repository),
+        progress=RecordingProgress(),
+    )
+
+    assert snapshot.source_revision == revision
+    assert snapshot.checksum == hashlib.sha256(snapshot.data).hexdigest()
+    with tarfile.open(fileobj=io.BytesIO(snapshot.data), mode="r:") as archive:
+        contract = archive.extractfile("roleloop_contract/v1/cli.py")
+        assert contract is not None
+        assert contract.read() == b"print('contract')\n"
+
+
+@pytest.mark.asyncio
+async def test_repository_archive_is_streamed_and_rejected_at_live_size_cap(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    repository = _repository(tmp_path / "oversized-master-resume")
+    _commit(repository, "large.bin", b"x" * (64 * 1024), "Add oversized fixture")
+    monkeypatch.setattr(
+        resume_sources_module,
+        "_MAX_REPOSITORY_ARCHIVE_BYTES",
+        16 * 1024,
+    )
+
+    with pytest.raises(ResumeSourceSyncError, match="exceeds the size limit") as failure:
+        await GitResumeSourceSynchronizer(tmp_path / "cache").snapshot_archive(
+            _source(repository),
+            progress=RecordingProgress(),
+        )
+
+    assert failure.value.details["limit"] == "archive_bytes"
 
 
 @pytest.mark.asyncio
@@ -288,29 +423,156 @@ def test_git_subprocesses_are_strictly_noninteractive(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    monkeypatch.delenv("GIT_SSH_COMMAND", raising=False)
     captured: dict[str, object] = {}
 
-    def fake_run(arguments: list[str], **kwargs: object) -> subprocess.CompletedProcess[bytes]:
+    class FakeProcess:
+        pid = 123456
+
+        def poll(self) -> int:
+            return 0
+
+        def wait(self, *, timeout: float) -> int:
+            del timeout
+            return 0
+
+    def fake_popen(arguments: list[str], **kwargs: object) -> FakeProcess:
         captured["arguments"] = arguments
         captured.update(kwargs)
-        return subprocess.CompletedProcess(arguments, 0, stdout=b"git version 2.0\n", stderr=b"")
+        stdout = kwargs["stdout"]
+        assert hasattr(stdout, "write")
+        stdout.write(b"git version 2.0\n")  # type: ignore[union-attr]
+        environment = kwargs["env"]
+        assert isinstance(environment, dict)
+        global_config = Path(environment["GIT_CONFIG_GLOBAL"])
+        captured["global_config_was_empty"] = global_config.read_bytes() == b""
+        return FakeProcess()
 
-    monkeypatch.setattr(subprocess, "run", fake_run)
+    monkeypatch.setenv("OPENAI_API_KEY", "must-not-cross-git-boundary")
+    monkeypatch.setenv("ROLELOOP_TEST_SECRET", "must-not-cross-git-boundary")
+    monkeypatch.setenv("GIT_CONFIG_COUNT", "1")
+    monkeypatch.setenv("GIT_CONFIG_KEY_0", "core.fsmonitor")
+    monkeypatch.setenv("GIT_CONFIG_VALUE_0", "/tmp/ambient-fsmonitor")
+    monkeypatch.setenv("GIT_CONFIG_PARAMETERS", "'core.hooksPath'='/tmp/hooks'")
+    monkeypatch.setenv("GIT_CONFIG_GLOBAL", "/tmp/malicious-global-config")
+    monkeypatch.setenv("GIT_CONFIG_SYSTEM", "/tmp/malicious-system-config")
+    monkeypatch.setenv("GIT_EXEC_PATH", "/tmp/malicious-git-exec-path")
+    monkeypatch.setenv("GIT_EXTERNAL_DIFF", "/tmp/malicious-diff")
+    monkeypatch.setenv("GIT_ASKPASS", "/tmp/malicious-askpass")
+    monkeypatch.setenv("GIT_PROXY_COMMAND", "/tmp/malicious-proxy")
+    monkeypatch.setenv("GIT_EDITOR", "/tmp/malicious-editor")
+    monkeypatch.setenv("GIT_TRACE2_EVENT", "/tmp/leaked-git-trace")
+    monkeypatch.setenv("GIT_SSH", "/tmp/malicious-ssh")
+    monkeypatch.setenv("GIT_SSH_COMMAND", "malicious-ssh --leak-secret")
+    monkeypatch.setenv("GIT_DIR", "/tmp/malicious-git-dir")
+    monkeypatch.setenv("GIT_WORK_TREE", "/tmp/malicious-work-tree")
+    monkeypatch.setenv("SSH_AUTH_SOCK", "/tmp/roleloop-test-agent.sock")
+    monkeypatch.setattr(subprocess, "Popen", fake_popen)
+    monkeypatch.setattr(resume_sources_module, "_terminate_git_process_group", lambda _: None)
     synchronizer = GitResumeSourceSynchronizer(tmp_path / "cache")
     synchronizer._run_git(["--version"], error_message="Git could not run")
 
     environment = captured["env"]
     assert isinstance(environment, dict)
+    arguments = captured["arguments"]
+    assert isinstance(arguments, list)
+    configured_values = {
+        arguments[index + 1] for index, argument in enumerate(arguments[:-1]) if argument == "-c"
+    }
     assert captured["stdin"] is subprocess.DEVNULL
+    assert captured["shell"] is False
+    assert captured["global_config_was_empty"] is True
+    assert "core.fsmonitor=false" in configured_values
+    assert f"core.hooksPath={resume_sources_module.os.devnull}" in configured_values
+    assert "credential.interactive=never" in configured_values
+    assert "protocol.ext.allow=never" in configured_values
     assert environment["GIT_TERMINAL_PROMPT"] == "0"
     assert environment["GIT_SSH_COMMAND"] == "ssh -oBatchMode=yes"
+    assert environment["SSH_AUTH_SOCK"] == "/tmp/roleloop-test-agent.sock"
+    assert environment["GIT_CONFIG_NOSYSTEM"] == "1"
+    assert environment["GIT_CONFIG_SYSTEM"] == resume_sources_module.os.devnull
+    assert "OPENAI_API_KEY" not in environment
+    assert "ROLELOOP_TEST_SECRET" not in environment
+    assert "GIT_CONFIG_COUNT" not in environment
+    assert "GIT_CONFIG_KEY_0" not in environment
+    assert "GIT_CONFIG_VALUE_0" not in environment
+    assert "GIT_CONFIG_PARAMETERS" not in environment
+    assert environment["GIT_CONFIG_GLOBAL"] != "/tmp/malicious-global-config"
+    assert environment["GIT_CONFIG_SYSTEM"] != "/tmp/malicious-system-config"
+    assert "GIT_EXEC_PATH" not in environment
+    assert "GIT_EXTERNAL_DIFF" not in environment
+    assert "GIT_ASKPASS" not in environment
+    assert "GIT_PROXY_COMMAND" not in environment
+    assert "GIT_EDITOR" not in environment
+    assert "GIT_TRACE2_EVENT" not in environment
+    assert "GIT_SSH" not in environment
+    assert "GIT_DIR" not in environment
+    assert "GIT_WORK_TREE" not in environment
 
-    monkeypatch.setenv("GIT_SSH_COMMAND", "custom-ssh --identity configured-key")
-    synchronizer._run_git(["--version"], error_message="Git could not run")
-    configured_environment = captured["env"]
-    assert isinstance(configured_environment, dict)
-    assert configured_environment["GIT_SSH_COMMAND"] == "custom-ssh --identity configured-key"
+
+@pytest.mark.asyncio
+async def test_local_and_global_fsmonitor_programs_never_run_or_receive_secrets(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    repository = _repository(tmp_path / "master-resume")
+    _commit(repository, "resume.md", "Committed resume", "Add resume")
+    sentinel = tmp_path / "fsmonitor-secret.txt"
+    fsmonitor = tmp_path / "malicious-fsmonitor.sh"
+    fsmonitor.write_text(
+        f"#!/bin/sh\nprintf '%s' \"${{ROLELOOP_TEST_SECRET-missing}}\" > '{sentinel}'\n",
+        encoding="utf-8",
+    )
+    fsmonitor.chmod(0o700)
+    _git(repository, "config", "core.fsmonitor", str(fsmonitor))
+
+    malicious_home = tmp_path / "malicious-home"
+    malicious_home.mkdir()
+    (malicious_home / ".gitconfig").write_text(
+        f"[core]\n\tfsmonitor = {fsmonitor}\n\thooksPath = {tmp_path / 'hooks'}\n",
+        encoding="utf-8",
+    )
+    monkeypatch.setenv("HOME", str(malicious_home))
+    monkeypatch.setenv("ROLELOOP_TEST_SECRET", "ambient-secret")
+
+    snapshot = await GitResumeSourceSynchronizer(tmp_path / "cache").sync(
+        _source(repository),
+        progress=RecordingProgress(),
+    )
+
+    assert snapshot.source_bytes == b"Committed resume"
+    assert not sentinel.exists()
+
+
+def test_regular_git_stdout_and_stderr_are_bounded(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    synchronizer = GitResumeSourceSynchronizer(tmp_path / "cache")
+    monkeypatch.setattr(resume_sources_module, "_MAX_GIT_STDOUT_BYTES", 1)
+    with pytest.raises(ResumeSourceSyncError, match="output exceeds") as stdout_failure:
+        synchronizer._run_git(["--version"], error_message="Git could not run")
+    assert stdout_failure.value.details == {
+        "operation": "resume_source_sync",
+        "limit": "stdout_bytes",
+        "maximum_bytes": 1,
+    }
+
+    monkeypatch.setattr(
+        resume_sources_module,
+        "_MAX_GIT_STDOUT_BYTES",
+        4 * 1024 * 1024,
+    )
+    monkeypatch.setattr(resume_sources_module, "_MAX_GIT_STDERR_BYTES", 1)
+    with pytest.raises(ResumeSourceSyncError, match="output exceeds") as stderr_failure:
+        synchronizer._run_git(
+            ["roleloop-command-that-does-not-exist"],
+            error_message="Git could not run",
+        )
+    assert stderr_failure.value.details == {
+        "operation": "resume_source_sync",
+        "limit": "stderr_bytes",
+        "maximum_bytes": 1,
+    }
 
 
 def test_remote_cache_lock_is_cross_connection_and_bounded(tmp_path: Path) -> None:

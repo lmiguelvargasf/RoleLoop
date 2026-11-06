@@ -1,136 +1,93 @@
 # RoleLoop
 
-RoleLoop is a local, evidence-first job-search workflow for the terminal. Its primary interface is a
-Textual application; a small headless CLI exposes the same application services for automation.
+A local TypeScript app with private user workspaces for two job-search flows: applications to advertised remote roles, and research-led outreach to startup founders. The app runs directly on Node.js; Docker runs only Supabase's local services.
 
-## Screenshots
+## Start locally
 
-### Keyboard-first inbox
+From this repository, with Docker Desktop running:
 
-Search, filter, and triage every job case from one responsive workspace. Each row keeps review,
-eligibility, decision, résumé, application, and outcome state visible without making the UI the
-source of truth.
-
-[![RoleLoop inbox with workflow filters, job ledger, and selected-case preview](https://lmiguelvargasf.github.io/RoleLoop/screenshots/roleloop-inbox.png)](https://lmiguelvargasf.github.io/RoleLoop/screenshots/roleloop-inbox.png)
-
-### Evidence-led review
-
-RoleLoop gives supporting evidence and skeptic findings equal visual weight, with source anchors
-and explicit workflow facets instead of an opaque match score.
-
-[![RoleLoop job review showing the case for and skeptic's case side by side](https://lmiguelvargasf.github.io/RoleLoop/screenshots/roleloop-review-evidence.png)](https://lmiguelvargasf.github.io/RoleLoop/screenshots/roleloop-review-evidence.png)
-
-### Résumé validation and application tracking
-
-Tailored résumé runs retain their validation result and compiled artifact. Submitted applications
-then move into a separate ledger with the artifact snapshot and current outcome.
-
-#### Résumé validation
-
-[![RoleLoop résumé validation results](https://lmiguelvargasf.github.io/RoleLoop/screenshots/roleloop-review-resume.png)](https://lmiguelvargasf.github.io/RoleLoop/screenshots/roleloop-review-resume.png)
-
-#### Application ledger
-
-[![RoleLoop application and outcome ledger](https://lmiguelvargasf.github.io/RoleLoop/screenshots/roleloop-applications.png)](https://lmiguelvargasf.github.io/RoleLoop/screenshots/roleloop-applications.png)
-
-### Search profiles and provider readiness
-
-Settings shows the active search criteria, immutable résumé-evidence version, managed artifact,
-and which external provider capabilities are configured.
-
-[![RoleLoop settings with search profiles, résumé evidence, and provider readiness](https://lmiguelvargasf.github.io/RoleLoop/screenshots/roleloop-settings.png)](https://lmiguelvargasf.github.io/RoleLoop/screenshots/roleloop-settings.png)
-
-## Install and run
-
-```console
-uv sync
-uv run roleloop
+```sh
+nvm install
+nvm use
+npm ci
+npm run setup
+npm run dev
 ```
 
-The first launch opens profile onboarding. RoleLoop stores its SQLite database and managed artifacts
-in the platform-specific user data directory. Set `ROLELOOP_DATA_DIR` to override that location.
+Open **http://127.0.0.1:5173**. `setup` starts Supabase, applies pending migrations without resetting data, writes private backend configuration, and installs Chromium for résumé PDF export. The first run downloads Supabase images and the browser. Node.js **26.13.0** is pinned in `.nvmrc` and `.node-version`; npm is bundled with Node. Bun is not required. Use `source "$HOME/.nvm/nvm.sh"` first if your terminal has not loaded nvm.
 
-Headless commands operate on the active profile:
+Useful commands:
 
-```console
-uv run roleloop find --limit 20
-uv run roleloop add https://example.com/jobs/123
-uv run roleloop inbox --json
-uv run roleloop review JOB_ID --json
-uv run roleloop decide JOB_ID tailor
-uv run roleloop decide JOB_ID watch
-uv run roleloop decide JOB_ID skip
-uv run roleloop applied JOB_ID
-uv run roleloop outcome JOB_ID interviewing
+```sh
+npm run doctor      # database, Studio, local email, optional model readiness
+npm run typecheck
+npm test            # offline domain, connector and approval tests
+ROLELOOP_INTEGRATION=1 npm test  # includes isolated local database regression tests
+npm run build       # TypeScript verification and production UI build
+npm start           # serves built UI and API at http://127.0.0.1:4310
 ```
 
-### Master résumé repository
+`Ctrl+C` stops the native app processes. Supabase data remains in its Docker volumes; use `cd app && supabase stop` to stop database services. See [database setup notes](app/LOCAL_DATABASE.md), including the observed Docker Desktop port-binding limitation.
 
-A search profile can use a local or remote Git repository as its persistent master résumé source.
-Configuration does not clone, fetch, or change active evidence. Synchronization is an explicit,
-separate operation that resolves one committed Git revision and activates an immutable evidence
-snapshot:
+## Accounts and workspace access
 
-```console
-# Use a repository already available on this machine. Local paths must be absolute.
-uv run roleloop resume-source configure /absolute/path/to/resume-repository \
-  --kind local_git \
-  --document-path resume/master.md
+Open the app and create an email/password account (at least 12 characters). Each account receives an empty private workspace. Email confirmation is disabled for local testing; password-reset links go to Mailpit.
 
-# Or configure a remote whose managed clone RoleLoop will cache and reuse.
-uv run roleloop resume-source configure git@example.com:person/resume.git \
-  --kind remote_git \
-  --document-path resume/master.md \
-  --ref main
+To become the first account administrator and claim the existing workspace, keep the app running and use a second terminal:
 
-uv run roleloop resume-source show
-uv run roleloop resume-source sync
+```sh
+nvm use
+npm run account:setup
 ```
 
-The ref defaults to `HEAD` for a local source and `main` for a remote source. Local synchronization
-refuses a dirty working tree; commit or stash local changes before syncing so the snapshot always
-corresponds to an exact Git revision. Each new resolved revision becomes a provenance-bearing
-evidence version; repeated synchronization of the same revision and content is idempotent. Job
-evaluation and résumé generation use the active snapshot without cloning or fetching during each
-job workflow. The configured document must be tracked UTF-8 source with a `.json`, `.md`, `.txt`,
-`.yaml`, `.yml`, `.toml`, `.tex`, or `.typ` extension.
+Open the one-time local link printed by the command, then create your account or sign in. It expires after 30 minutes. The existing data is preserved and remains inaccessible to new signups until this step. The setup key is consumed once; subsequent signups never become administrators automatically. On a clean installation, this makes your personal workspace the initial administrator's workspace.
 
-The same configure-and-sync workflow is available in Settings. Direct PDF/text evidence import
-remains available as a manual alternative.
+Under **Account & access**, owners can add an existing account as a manager by email or remove that access. Managers can operate an assigned workspace but cannot grant access themselves. Use the workspace selector to switch between your personal workspace and shared ones. Switching accounts or workspaces clears the previous screen and unsaved edits.
 
-In the TUI, use `1`/`2`/`3` for Inbox, Applications, and Settings; `/` searches,
-`f` opens compact filters, `n` adds a URL, and `d` starts discovery. A detailed job
-review provides Summary, Evidence, Questions, Résumé, and History tabs. RoleLoop asks
-for confirmation before generation, submission, skipping, or replacing evidence.
+The installation administrator can list accounts and create accounts with an initial password. Administrative status does not grant access to other users' workspaces; that requires an explicit owner-granted membership. Normal users can also self-register. To test isolation on the same computer, use separate browser profiles or an incognito window—tabs in one browser profile share a login session.
 
-Discovery, automated review, résumé generation, validation, and PDF compilation are provider ports.
-This core release ships Git-backed résumé-source synchronization, but no live job-network, LLM, or
-PDF-compiler providers; unavailable actions report a clear error without changing workflow state.
+Supabase Studio and Mailpit are shared local developer tools. RoleLoop account permissions do not restrict someone who can access those services directly or use Docker. This remains a trusted local testing environment, not an internet-facing deployment.
 
-## Architecture
+## Get started
 
-- `roleloop.domain`: models, value objects, and state rules; standard library only.
-- `roleloop.application`: use cases, read models, ports, and transaction orchestration.
-- `roleloop.infrastructure`: SQLite, migrations, filesystem artifacts, local evidence extraction,
-  and pinned Git résumé snapshots.
-- `roleloop.adapters.tui`: the Textual evidence desk.
-- `roleloop.adapters.cli`: the thin headless command adapter and TUI launcher.
+1. Open **My profile** and add your identity and verified experience.
+2. Set your salary, working country, time zone, date window and match thresholds in **Search preferences**.
+3. Add public company board identifiers in **Discovery sources**, use the Show HN startup feed, or add opportunities manually.
+4. Review opportunities, prepare your application or founder email, and download the drafts.
 
-SQLite and the application services are authoritative. Widgets and CLI renderers only project
-application read models.
+## What is implemented
 
-## Development
+- Supabase Auth login, signup, password reset, private workspaces, owner/manager memberships, account administration, and RLS-protected data and documents.
+- Persistent local Supabase opportunity records, drafts, artifacts, activity and database-backed task queues scoped to each workspace.
+- Public ATS-board imports, launch-feed startup discovery, manual opportunity entry and bounded public-website research.
+- Source deduplication with refreshed source facts and preservation of explicit user corrections.
+- Separate job requirement coverage and startup relevance indicators. An 85–90% job threshold is configurable; the app does not manufacture experience to reach it or claim an external ATS score.
+- Salary minimum with no upper limit, an optional target for application answers, overlap/strict salary policy, undisclosed-pay handling, remote-country checks and inclusive posting-date windows. Unknown publication dates remain unknown. Older posts can be excluded or retained with lower freshness priority.
+- Evidence-based résumé ordering, application answers, cover letters and founder email drafts. Optional local Ollama ranks existing evidence; it does not invent free-form career claims. Templates work without a model or API key.
+- Draft review and editing; regeneration is required after source, profile or preference changes.
+- PDF/text/JSON export and private Supabase artifact storage.
+- Optional scheduled discovery while the local worker is running, automatic analysis and drafting of qualifying opportunities, a daily generated-draft limit, atomic queue deduplication and a single-worker lease.
 
-```console
-uv run pytest
-uv run ruff check .
-uv run ruff format --check .
-uv run mypy
-uv build
+## Testing boundary and current limits
+
+This version does **not** submit applications to employers or deliver external email. Delivery actions are unavailable. Real delivery adapters, provider-specific form automation, employer-site authentication/CAPTCHA handling and follow-up tracking are future work.
+
+Show HN announcements are research leads, not proof of promising traction, US headquarters, open positions or founder identity. Company country, remote eligibility, compensation and contacts often need confirmation. Job-board imports read at most 100 listings per source per run; the launch feed reads at most 25. Requirement extraction is intentionally conservative and can miss unstructured requirements; review and edit the requirement list before trusting a match. The sidebar shows the latest 300 opportunities and drafts; activity shows the latest 60 events.
+
+The API/UI bind to loopback and require verified user sessions for workspace operations. Ordinary database requests use the signed-in user’s identity and row-level policies. Service credentials are reserved for trusted worker/admin operations and never enter the browser bundle. The database's Docker-published ports may bind beyond localhost on Docker Desktop despite the requested network setting; `doctor` reports the observed state. Use a trusted development environment until this is addressed.
+
+## Project layout
+
+```text
+app/src/ui/          React interface and styles
+app/src/domain/      matching rules, truthful templates, public sources
+app/src/server/      Fastify API, Supabase persistence, worker, exports and local model
+app/src/shared/      Zod contracts and generated database types
+app/scripts/         native development runner, setup and diagnostics
+app/supabase/        local service configuration and SQL migrations
+app/tests/           offline regressions
 ```
 
-Regenerate the deterministic documentation screenshots with:
+The previous Python implementation is preserved. It is not used by the TypeScript application and its SQLite data is not automatically migrated. Its original documentation is in [the legacy guide](docs/LEGACY_PYTHON.md).
 
-```console
-uv run python scripts/capture_screenshots.py
-```
+[Published process visualization](https://roleloop-process.maltedridge.chatgpt.site) — the supplied HTML was published unchanged as an account-private Sites project. The app itself stays local.

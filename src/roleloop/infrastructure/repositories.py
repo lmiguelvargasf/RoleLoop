@@ -19,16 +19,20 @@ from roleloop.domain import (
     Finding,
     Job,
     JobCase,
+    JobIdentityKey,
+    JobIdentityKind,
     Outcome,
     OutcomeEvent,
     QuestionCategory,
     RemotePreference,
     ResumeEvidenceVersion,
+    ResumeExperienceSelection,
     ResumeRun,
     ResumeSource,
     ResumeSourceKind,
     ResumeStage,
     ReviewQuestion,
+    ReviewRequirement,
     ReviewVersion,
     SearchProfile,
     ValidationFinding,
@@ -48,8 +52,8 @@ class SQLiteProfilesRepository:
             INSERT INTO profiles (
                 id, name, remote_preference, annual_salary_floor, salary_currency,
                 constraints_text, revision, is_active, active_evidence_version_id,
-                created_at, updated_at
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                created_at, updated_at, current_version_id
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             _profile_parameters(profile),
         )
@@ -77,7 +81,8 @@ class SQLiteProfilesRepository:
             UPDATE profiles SET
                 name = ?, remote_preference = ?, annual_salary_floor = ?,
                 salary_currency = ?, constraints_text = ?, revision = ?, is_active = ?,
-                active_evidence_version_id = ?, created_at = ?, updated_at = ?
+                active_evidence_version_id = ?, created_at = ?, updated_at = ?,
+                current_version_id = ?
             WHERE id = ? AND revision = ?
             """,
             (*_profile_parameters(profile)[1:], profile.id, expected_revision),
@@ -111,6 +116,11 @@ class SQLiteEvidenceRepository:
 
     def add(self, evidence: ResumeEvidenceVersion) -> None:
         artifact = evidence.source_artifact
+        _catalog_artifact(self._connection, artifact)
+        if evidence.canonical_evidence_artifact is not None:
+            _catalog_artifact(self._connection, evidence.canonical_evidence_artifact)
+        if evidence.source_bundle_artifact is not None:
+            _catalog_artifact(self._connection, evidence.source_bundle_artifact)
         self._connection.execute(
             """
             INSERT INTO evidence_versions (
@@ -118,8 +128,11 @@ class SQLiteEvidenceRepository:
                 artifact_checksum, artifact_uri, artifact_media_type,
                 artifact_size_bytes, extracted_text, created_at, resume_source_id,
                 source_revision, resume_source_kind, source_repository, source_ref,
-                source_document_path
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                source_document_path, contract_schema_version,
+                canonical_evidence_artifact_id, source_bundle_artifact_id,
+                renderer_protocol_version, renderer_version, contract_checksum
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
+                      ?, ?, ?, ?)
             """,
             (
                 evidence.id,
@@ -143,6 +156,20 @@ class SQLiteEvidenceRepository:
                 evidence.source_repository,
                 evidence.source_ref,
                 evidence.source_document_path,
+                evidence.contract_schema_version,
+                (
+                    None
+                    if evidence.canonical_evidence_artifact is None
+                    else evidence.canonical_evidence_artifact.id
+                ),
+                (
+                    None
+                    if evidence.source_bundle_artifact is None
+                    else evidence.source_bundle_artifact.id
+                ),
+                evidence.renderer_protocol_version,
+                evidence.renderer_version,
+                evidence.contract_checksum,
             ),
         )
 
@@ -150,7 +177,7 @@ class SQLiteEvidenceRepository:
         row = self._connection.execute(
             "SELECT * FROM evidence_versions WHERE id = ?", (evidence_id,)
         ).fetchone()
-        return None if row is None else _evidence_from_row(row)
+        return None if row is None else _evidence_from_row(self._connection, row)
 
     def list_for_profile(self, profile_id: str) -> Sequence[ResumeEvidenceVersion]:
         rows = self._connection.execute(
@@ -161,7 +188,7 @@ class SQLiteEvidenceRepository:
             """,
             (profile_id,),
         ).fetchall()
-        return tuple(_evidence_from_row(row) for row in rows)
+        return tuple(_evidence_from_row(self._connection, row) for row in rows)
 
 
 class SQLiteResumeSourcesRepository:
@@ -175,8 +202,8 @@ class SQLiteResumeSourcesRepository:
                 id, profile_id, kind, repository, ref, document_path,
                 last_synced_revision, last_synced_checksum,
                 last_synced_evidence_version_id, last_synced_at, revision,
-                created_at, updated_at
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                created_at, updated_at, trust_acknowledged_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             _resume_source_parameters(source),
         )
@@ -200,7 +227,7 @@ class SQLiteResumeSourcesRepository:
                 profile_id = ?, kind = ?, repository = ?, ref = ?, document_path = ?,
                 last_synced_revision = ?, last_synced_checksum = ?,
                 last_synced_evidence_version_id = ?, last_synced_at = ?, revision = ?,
-                created_at = ?, updated_at = ?
+                created_at = ?, updated_at = ?, trust_acknowledged_at = ?
             WHERE id = ? AND revision = ?
             """,
             (*_resume_source_parameters(source)[1:], source.id, expected_revision),
@@ -217,21 +244,70 @@ class SQLiteJobsRepository:
             """
             INSERT INTO jobs (
                 id, canonical_url, title, company, location, description, source,
-                source_metadata_json, revision, created_at, updated_at
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                source_metadata_json, revision, created_at, updated_at, current_version_id
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             _job_parameters(job),
         )
 
     def get(self, job_id: str) -> Job | None:
         row = self._connection.execute("SELECT * FROM jobs WHERE id = ?", (job_id,)).fetchone()
-        return None if row is None else _job_from_row(row)
+        return None if row is None else _job_from_row(self._connection, row)
 
     def get_by_canonical_url(self, canonical_url: str) -> Job | None:
         row = self._connection.execute(
             "SELECT * FROM jobs WHERE canonical_url = ?", (canonical_url,)
         ).fetchone()
-        return None if row is None else _job_from_row(row)
+        return None if row is None else _job_from_row(self._connection, row)
+
+    def get_by_identity_key(self, key: str) -> Job | None:
+        row = self._connection.execute(
+            """
+            SELECT j.* FROM job_identity_keys i
+            JOIN jobs j ON j.id = i.job_id
+            WHERE i.key = ?
+            """,
+            (key,),
+        ).fetchone()
+        return None if row is None else _job_from_row(self._connection, row)
+
+    def add_identity_key(self, identity: JobIdentityKey) -> bool:
+        existing = self._connection.execute(
+            "SELECT job_id FROM job_identity_keys WHERE key = ?", (identity.key,)
+        ).fetchone()
+        if existing is not None:
+            return bool(existing["job_id"] == identity.job_id)
+        self._connection.execute(
+            """
+            INSERT INTO job_identity_keys (key, job_id, key_kind, created_at)
+            VALUES (?, ?, ?, ?)
+            """,
+            (
+                identity.key,
+                identity.job_id,
+                identity.kind.value,
+                _datetime_text(identity.created_at),
+            ),
+        )
+        return True
+
+    def list_identity_keys(self, job_id: str) -> Sequence[JobIdentityKey]:
+        rows = self._connection.execute(
+            """
+            SELECT * FROM job_identity_keys
+            WHERE job_id = ? ORDER BY key_kind, key
+            """,
+            (job_id,),
+        ).fetchall()
+        return tuple(
+            JobIdentityKey(
+                key=row["key"],
+                job_id=row["job_id"],
+                kind=JobIdentityKind(row["key_kind"]),
+                created_at=_datetime_value(row["created_at"]),
+            )
+            for row in rows
+        )
 
     def update(self, job: Job, *, expected_revision: int) -> bool:
         cursor = self._connection.execute(
@@ -239,7 +315,7 @@ class SQLiteJobsRepository:
             UPDATE jobs SET
                 canonical_url = ?, title = ?, company = ?, location = ?,
                 description = ?, source = ?, source_metadata_json = ?, revision = ?,
-                created_at = ?, updated_at = ?
+                created_at = ?, updated_at = ?, current_version_id = ?
             WHERE id = ? AND revision = ?
             """,
             (*_job_parameters(job)[1:], job.id, expected_revision),
@@ -257,8 +333,8 @@ class SQLiteJobCasesRepository:
             INSERT INTO job_cases (
                 id, profile_id, job_id, decision, application_status,
                 current_outcome, submitted_at, submitted_artifact_id, revision,
-                created_at, updated_at
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                created_at, updated_at, current_decision_event_id
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             _case_parameters(case),
         )
@@ -293,7 +369,8 @@ class SQLiteJobCasesRepository:
             UPDATE job_cases SET
                 profile_id = ?, job_id = ?, decision = ?, application_status = ?,
                 current_outcome = ?, submitted_at = ?, submitted_artifact_id = ?,
-                revision = ?, created_at = ?, updated_at = ?
+                revision = ?, created_at = ?, updated_at = ?,
+                current_decision_event_id = ?
             WHERE id = ? AND revision = ?
             """,
             (*_case_parameters(case)[1:], case.id, expected_revision),
@@ -309,8 +386,12 @@ class SQLiteReviewsRepository:
         self._connection.execute(
             """
             INSERT INTO review_versions (
-                id, job_case_id, fingerprint, analyzer_version, created_at
-            ) VALUES (?, ?, ?, ?, ?)
+                id, job_case_id, fingerprint, analyzer_version, created_at,
+                agent_run_id, job_version_id, profile_version_id,
+                evidence_version_id, answer_set_fingerprint,
+                screen_set_fingerprint, recommended_decision,
+                legacy_input_status, confidence, positioning, self_critique
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             _review_parameters(review),
         )
@@ -333,8 +414,8 @@ class SQLiteReviewsRepository:
             """
             INSERT INTO review_questions (
                 review_version_id, id, position, prompt, category, required,
-                qualifying_answer
-            ) VALUES (?, ?, ?, ?, ?, ?, ?)
+                qualifying_answer, source_anchor
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 (
@@ -345,8 +426,29 @@ class SQLiteReviewsRepository:
                     question.category.value,
                     int(question.required),
                     question.qualifying_answer.value,
+                    question.source_anchor,
                 )
                 for position, question in enumerate(review.questions)
+            ),
+        )
+        self._connection.executemany(
+            """
+            INSERT INTO review_requirements (
+                review_version_id, position, requirement_key, text_value,
+                evidence, required, source_anchor
+            ) VALUES (?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                (
+                    review.id,
+                    position,
+                    requirement.key,
+                    requirement.text,
+                    requirement.evidence,
+                    int(requirement.required),
+                    requirement.source_anchor,
+                )
+                for position, requirement in enumerate(review.requirements)
             ),
         )
 
@@ -422,6 +524,7 @@ class SQLiteResumeRunsRepository:
         self._connection = connection
 
     def add(self, run: ResumeRun) -> None:
+        _catalog_run_artifacts(self._connection, run)
         self._connection.execute(
             """
             INSERT INTO resume_runs (
@@ -429,12 +532,21 @@ class SQLiteResumeRunsRepository:
                 input_fingerprint, stage, generator_version, validator_version,
                 compiler_version, artifact_id, artifact_checksum, artifact_uri,
                 artifact_media_type, artifact_size_bytes, error_message, created_at,
-                updated_at
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                updated_at, agent_run_id, parent_resume_run_id,
+                feedback_review_event_id, gate_decision_event_id, job_version_id,
+                profile_version_id, answer_set_fingerprint, headline,
+                selection_artifact_id, tailored_source_bundle_artifact_id,
+                render_receipt_artifact_id,
+                review_file_artifact_id, compile_log_artifact_id,
+                ats_text_artifact_id, rendered_page_count, renderer_source_revision,
+                render_tool_versions_json, render_output_checksums_json
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
+                      ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             _resume_run_parameters(run),
         )
         _replace_resume_children(self._connection, run)
+        _insert_resume_selection(self._connection, run)
 
     def get(self, run_id: str) -> ResumeRun | None:
         row = self._connection.execute(
@@ -475,6 +587,7 @@ class SQLiteResumeRunsRepository:
         return tuple(_resume_run_from_row(self._connection, row) for row in rows)
 
     def update(self, run: ResumeRun) -> None:
+        _catalog_run_artifacts(self._connection, run)
         cursor = self._connection.execute(
             """
             UPDATE resume_runs SET
@@ -483,6 +596,15 @@ class SQLiteResumeRunsRepository:
                 validator_version = ?, compiler_version = ?, artifact_id = ?,
                 artifact_checksum = ?, artifact_uri = ?, artifact_media_type = ?,
                 artifact_size_bytes = ?, error_message = ?, created_at = ?, updated_at = ?
+                , agent_run_id = ?, parent_resume_run_id = ?,
+                feedback_review_event_id = ?, gate_decision_event_id = ?,
+                job_version_id = ?, profile_version_id = ?,
+                answer_set_fingerprint = ?, headline = ?, selection_artifact_id = ?,
+                tailored_source_bundle_artifact_id = ?,
+                render_receipt_artifact_id = ?, review_file_artifact_id = ?,
+                compile_log_artifact_id = ?, ats_text_artifact_id = ?,
+                rendered_page_count = ?, renderer_source_revision = ?,
+                render_tool_versions_json = ?, render_output_checksums_json = ?
             WHERE id = ?
             """,
             (*_resume_run_parameters(run)[1:], run.id),
@@ -490,6 +612,15 @@ class SQLiteResumeRunsRepository:
         if cursor.rowcount != 1:
             raise KeyError(f"Resume run does not exist: {run.id}")
         _replace_resume_children(self._connection, run)
+        selection_count = self._connection.execute(
+            """
+            SELECT count(*) FROM resume_selected_experiences
+            WHERE resume_run_id = ?
+            """,
+            (run.id,),
+        ).fetchone()[0]
+        if selection_count == 0 and run.selected_experiences:
+            _insert_resume_selection(self._connection, run)
 
 
 class SQLiteApplicationsRepository:
@@ -616,6 +747,7 @@ def _profile_parameters(profile: SearchProfile) -> tuple[object, ...]:
         profile.active_evidence_version_id,
         _datetime_text(profile.created_at),
         _datetime_text(profile.updated_at),
+        profile.current_version_id,
     )
 
 
@@ -634,6 +766,7 @@ def _resume_source_parameters(source: ResumeSource) -> tuple[object, ...]:
         source.revision,
         _datetime_text(source.created_at),
         _datetime_text(source.updated_at),
+        _datetime_text(source.trust_acknowledged_at),
     )
 
 
@@ -645,6 +778,7 @@ def _resume_source_from_row(row: sqlite3.Row) -> ResumeSource:
         repository=row["repository"],
         ref=row["ref"],
         document_path=row["document_path"],
+        trust_acknowledged_at=_datetime_value(row["trust_acknowledged_at"]),
         last_synced_revision=row["last_synced_revision"],
         last_synced_checksum=row["last_synced_checksum"],
         last_synced_evidence_version_id=row["last_synced_evidence_version_id"],
@@ -656,24 +790,74 @@ def _resume_source_from_row(row: sqlite3.Row) -> ResumeSource:
 
 
 def _profile_from_row(connection: sqlite3.Connection, row: sqlite3.Row) -> SearchProfile:
+    version = None
+    if row["current_version_id"] is not None:
+        from .authoritative_repositories import SQLiteProfileVersionsRepository
+
+        version = SQLiteProfileVersionsRepository(connection).get(row["current_version_id"])
     return SearchProfile(
         id=row["id"],
-        name=row["name"],
-        target_roles=_profile_values(connection, "profile_target_roles", row["id"]),
-        locations=_profile_values(connection, "profile_locations", row["id"]),
-        remote_preference=RemotePreference(row["remote_preference"]),
-        employment_types=_profile_values(connection, "profile_employment_types", row["id"]),
-        seniority=_profile_values(connection, "profile_seniority", row["id"]),
-        annual_salary_floor=row["annual_salary_floor"],
-        salary_currency=row["salary_currency"],
-        include_keywords=_profile_values(connection, "profile_include_keywords", row["id"]),
-        exclude_keywords=_profile_values(connection, "profile_exclude_keywords", row["id"]),
-        constraints=row["constraints_text"],
+        name=row["name"] if version is None else version.name,
+        target_roles=(
+            _profile_values(connection, "profile_target_roles", row["id"])
+            if version is None
+            else version.target_roles
+        ),
+        locations=(
+            _profile_values(connection, "profile_locations", row["id"])
+            if version is None
+            else version.locations
+        ),
+        remote_preference=(
+            RemotePreference(row["remote_preference"])
+            if version is None
+            else version.remote_preference
+        ),
+        employment_types=(
+            _profile_values(connection, "profile_employment_types", row["id"])
+            if version is None
+            else version.employment_types
+        ),
+        seniority=(
+            _profile_values(connection, "profile_seniority", row["id"])
+            if version is None
+            else version.seniority
+        ),
+        annual_salary_floor=(
+            row["annual_salary_floor"] if version is None else version.annual_salary_floor
+        ),
+        salary_currency=row["salary_currency"] if version is None else version.salary_currency,
+        include_keywords=(
+            _profile_values(connection, "profile_include_keywords", row["id"])
+            if version is None
+            else version.include_keywords
+        ),
+        exclude_keywords=(
+            _profile_values(connection, "profile_exclude_keywords", row["id"])
+            if version is None
+            else version.exclude_keywords
+        ),
+        constraints=row["constraints_text"] if version is None else version.constraints,
         revision=row["revision"],
         is_active=bool(row["is_active"]),
         active_evidence_version_id=row["active_evidence_version_id"],
         created_at=_datetime_value(row["created_at"]),
         updated_at=_datetime_value(row["updated_at"]),
+        current_version_id=row["current_version_id"],
+        residence_country=("Ecuador" if version is None else version.residence_country),
+        timezone=("America/Guayaquil" if version is None else version.timezone),
+        target_hq_countries=(() if version is None else version.target_hq_countries),
+        startup_required=False if version is None else version.startup_required,
+        accepted_remote_arrangements=(
+            () if version is None else version.accepted_remote_arrangements
+        ),
+        accepted_hiring_arrangements=(
+            () if version is None else version.accepted_hiring_arrangements
+        ),
+        search_queries=(() if version is None else version.search_queries),
+        paper_size="a4paper" if version is None else version.paper_size,
+        page_limit=2 if version is None else version.page_limit,
+        agent_configurations=(() if version is None else version.agent_configurations),
     )
 
 
@@ -690,10 +874,16 @@ def _job_parameters(job: Job) -> tuple[object, ...]:
         job.revision,
         _datetime_text(job.created_at),
         _datetime_text(job.updated_at),
+        job.current_version_id,
     )
 
 
-def _job_from_row(row: sqlite3.Row) -> Job:
+def _job_from_row(connection: sqlite3.Connection, row: sqlite3.Row) -> Job:
+    version = None
+    if row["current_version_id"] is not None:
+        from .authoritative_repositories import SQLiteJobVersionsRepository
+
+        version = SQLiteJobVersionsRepository(connection).get(row["current_version_id"])
     return Job(
         id=row["id"],
         canonical_url=row["canonical_url"],
@@ -706,6 +896,17 @@ def _job_from_row(row: sqlite3.Row) -> Job:
         revision=row["revision"],
         created_at=_datetime_value(row["created_at"]),
         updated_at=_datetime_value(row["updated_at"]),
+        current_version_id=row["current_version_id"],
+        listing_closed=None if version is None else version.listing_closed,
+        hq_country=None if version is None else version.hq_country,
+        startup=None if version is None else version.startup,
+        work_authorization_required=(
+            None if version is None else version.work_authorization_required
+        ),
+        us_only=None if version is None else version.us_only,
+        remote_from_ecuador=None if version is None else version.remote_from_ecuador,
+        remote_arrangement=None if version is None else version.remote_arrangement,
+        hiring_arrangement=None if version is None else version.hiring_arrangement,
     )
 
 
@@ -722,6 +923,7 @@ def _case_parameters(case: JobCase) -> tuple[object, ...]:
         case.revision,
         _datetime_text(case.created_at),
         _datetime_text(case.updated_at),
+        case.current_decision_event_id,
     )
 
 
@@ -739,10 +941,11 @@ def _case_from_row(row: sqlite3.Row) -> JobCase:
         revision=row["revision"],
         created_at=_datetime_value(row["created_at"]),
         updated_at=_datetime_value(row["updated_at"]),
+        current_decision_event_id=row["current_decision_event_id"],
     )
 
 
-def _evidence_from_row(row: sqlite3.Row) -> ResumeEvidenceVersion:
+def _evidence_from_row(connection: sqlite3.Connection, row: sqlite3.Row) -> ResumeEvidenceVersion:
     return ResumeEvidenceVersion(
         id=row["id"],
         profile_id=row["profile_id"],
@@ -767,6 +970,14 @@ def _evidence_from_row(row: sqlite3.Row) -> ResumeEvidenceVersion:
         source_repository=row["source_repository"],
         source_ref=row["source_ref"],
         source_document_path=row["source_document_path"],
+        contract_schema_version=row["contract_schema_version"],
+        canonical_evidence_artifact=_cataloged_artifact(
+            connection, row["canonical_evidence_artifact_id"]
+        ),
+        source_bundle_artifact=_cataloged_artifact(connection, row["source_bundle_artifact_id"]),
+        renderer_protocol_version=row["renderer_protocol_version"],
+        renderer_version=row["renderer_version"],
+        contract_checksum=row["contract_checksum"],
     )
 
 
@@ -777,6 +988,17 @@ def _review_parameters(review: ReviewVersion) -> tuple[object, ...]:
         review.fingerprint,
         review.analyzer_version,
         _datetime_text(review.created_at),
+        review.agent_run_id,
+        review.job_version_id,
+        review.profile_version_id,
+        review.evidence_version_id,
+        review.answer_set_fingerprint,
+        review.screen_set_fingerprint,
+        review.recommended_decision.value,
+        review.legacy_input_status,
+        review.confidence,
+        review.positioning,
+        review.self_critique,
     )
 
 
@@ -794,6 +1016,13 @@ def _review_from_row(connection: sqlite3.Connection, row: sqlite3.Row) -> Review
         SELECT * FROM review_findings
         WHERE review_version_id = ?
         ORDER BY kind, position
+        """,
+        (row["id"],),
+    ).fetchall()
+    requirement_rows = connection.execute(
+        """
+        SELECT * FROM review_requirements
+        WHERE review_version_id = ? ORDER BY position
         """,
         (row["id"],),
     ).fetchall()
@@ -815,10 +1044,32 @@ def _review_from_row(connection: sqlite3.Connection, row: sqlite3.Row) -> Review
                 category=QuestionCategory(question["category"]),
                 required=bool(question["required"]),
                 qualifying_answer=Answer(question["qualifying_answer"]),
+                source_anchor=question["source_anchor"],
             )
             for question in question_rows
         ),
         created_at=_required_datetime(row["created_at"]),
+        agent_run_id=row["agent_run_id"],
+        job_version_id=row["job_version_id"],
+        profile_version_id=row["profile_version_id"],
+        evidence_version_id=row["evidence_version_id"],
+        answer_set_fingerprint=row["answer_set_fingerprint"],
+        screen_set_fingerprint=row["screen_set_fingerprint"],
+        recommended_decision=Decision(row["recommended_decision"]),
+        legacy_input_status=row["legacy_input_status"],
+        requirements=tuple(
+            ReviewRequirement(
+                key=item["requirement_key"],
+                text=item["text_value"],
+                evidence=item["evidence"],
+                required=bool(item["required"]),
+                source_anchor=item["source_anchor"],
+            )
+            for item in requirement_rows
+        ),
+        confidence=row["confidence"],
+        positioning=row["positioning"],
+        self_critique=row["self_critique"],
     )
 
 
@@ -842,6 +1093,28 @@ def _resume_run_parameters(run: ResumeRun) -> tuple[object, ...]:
         run.error_message,
         _datetime_text(run.created_at),
         _datetime_text(run.updated_at),
+        run.agent_run_id,
+        run.parent_resume_run_id,
+        run.feedback_review_event_id,
+        run.gate_decision_event_id,
+        run.job_version_id,
+        run.profile_version_id,
+        run.answer_set_fingerprint,
+        run.headline,
+        None if run.selection_artifact is None else run.selection_artifact.id,
+        (
+            None
+            if run.tailored_source_bundle_artifact is None
+            else run.tailored_source_bundle_artifact.id
+        ),
+        None if run.render_receipt_artifact is None else run.render_receipt_artifact.id,
+        None if run.review_file_artifact is None else run.review_file_artifact.id,
+        None if run.compile_log_artifact is None else run.compile_log_artifact.id,
+        None if run.ats_text_artifact is None else run.ats_text_artifact.id,
+        run.rendered_page_count,
+        run.renderer_source_revision,
+        _json_dump(run.render_tool_versions),
+        _json_dump(run.render_output_checksums),
     )
 
 
@@ -860,6 +1133,37 @@ def _resume_run_from_row(connection: sqlite3.Connection, row: sqlite3.Row) -> Re
         SELECT * FROM resume_validation_findings
         WHERE resume_run_id = ?
         ORDER BY position
+        """,
+        (row["id"],),
+    ).fetchall()
+    experience_rows = connection.execute(
+        """
+        SELECT * FROM resume_selected_experiences
+        WHERE resume_run_id = ? ORDER BY position
+        """,
+        (row["id"],),
+    ).fetchall()
+    selected_experiences = tuple(
+        ResumeExperienceSelection(
+            experience_id=item["experience_id"],
+            bullet_ids=tuple(
+                bullet["bullet_id"]
+                for bullet in connection.execute(
+                    """
+                    SELECT bullet_id FROM resume_selected_bullets
+                    WHERE resume_run_id = ? AND experience_position = ?
+                    ORDER BY position
+                    """,
+                    (row["id"], item["position"]),
+                ).fetchall()
+            ),
+        )
+        for item in experience_rows
+    )
+    skill_rows = connection.execute(
+        """
+        SELECT skill_id FROM resume_selected_skills
+        WHERE resume_run_id = ? ORDER BY position
         """,
         (row["id"],),
     ).fetchall()
@@ -899,6 +1203,31 @@ def _resume_run_from_row(connection: sqlite3.Connection, row: sqlite3.Row) -> Re
         error_message=row["error_message"],
         created_at=_datetime_value(row["created_at"]),
         updated_at=_datetime_value(row["updated_at"]),
+        agent_run_id=row["agent_run_id"],
+        parent_resume_run_id=row["parent_resume_run_id"],
+        feedback_review_event_id=row["feedback_review_event_id"],
+        gate_decision_event_id=row["gate_decision_event_id"],
+        job_version_id=row["job_version_id"],
+        profile_version_id=row["profile_version_id"],
+        answer_set_fingerprint=row["answer_set_fingerprint"],
+        headline=row["headline"],
+        selected_bullet_ids=tuple(
+            bullet_id for experience in selected_experiences for bullet_id in experience.bullet_ids
+        ),
+        selected_skill_ids=tuple(item["skill_id"] for item in skill_rows),
+        selection_artifact=_cataloged_artifact(connection, row["selection_artifact_id"]),
+        tailored_source_bundle_artifact=_cataloged_artifact(
+            connection, row["tailored_source_bundle_artifact_id"]
+        ),
+        render_receipt_artifact=_cataloged_artifact(connection, row["render_receipt_artifact_id"]),
+        selected_experiences=selected_experiences,
+        review_file_artifact=_cataloged_artifact(connection, row["review_file_artifact_id"]),
+        compile_log_artifact=_cataloged_artifact(connection, row["compile_log_artifact_id"]),
+        ats_text_artifact=_cataloged_artifact(connection, row["ats_text_artifact_id"]),
+        rendered_page_count=row["rendered_page_count"],
+        renderer_source_revision=row["renderer_source_revision"],
+        render_tool_versions=_json_load(row["render_tool_versions_json"]),
+        render_output_checksums=_json_load(row["render_output_checksums_json"]),
     )
 
 
@@ -945,6 +1274,107 @@ def _replace_resume_children(connection: sqlite3.Connection, run: ResumeRun) -> 
             (run.id, position, item.severity.value, item.message, item.location)
             for position, item in enumerate(run.validation_findings)
         ),
+    )
+
+
+def _insert_resume_selection(connection: sqlite3.Connection, run: ResumeRun) -> None:
+    connection.executemany(
+        """
+        INSERT INTO resume_selected_experiences (
+            resume_run_id, position, experience_id
+        ) VALUES (?, ?, ?)
+        """,
+        (
+            (run.id, position, item.experience_id)
+            for position, item in enumerate(run.selected_experiences)
+        ),
+    )
+    connection.executemany(
+        """
+        INSERT INTO resume_selected_bullets (
+            resume_run_id, experience_position, position, bullet_id
+        ) VALUES (?, ?, ?, ?)
+        """,
+        (
+            (run.id, experience_position, bullet_position, bullet_id)
+            for experience_position, experience in enumerate(run.selected_experiences)
+            for bullet_position, bullet_id in enumerate(experience.bullet_ids)
+        ),
+    )
+    connection.executemany(
+        """
+        INSERT INTO resume_selected_skills (resume_run_id, position, skill_id)
+        VALUES (?, ?, ?)
+        """,
+        ((run.id, position, skill_id) for position, skill_id in enumerate(run.selected_skill_ids)),
+    )
+
+
+def _catalog_run_artifacts(connection: sqlite3.Connection, run: ResumeRun) -> None:
+    for artifact in (
+        run.artifact,
+        run.selection_artifact,
+        run.tailored_source_bundle_artifact,
+        run.render_receipt_artifact,
+        run.review_file_artifact,
+        run.compile_log_artifact,
+        run.ats_text_artifact,
+    ):
+        if artifact is not None:
+            _catalog_artifact(connection, artifact)
+
+
+def _catalog_artifact(connection: sqlite3.Connection, artifact: ArtifactRef) -> None:
+    connection.execute(
+        """
+        INSERT INTO artifacts (
+            id, checksum, uri, media_type, size_bytes, created_at, legacy
+        ) VALUES (?, ?, ?, ?, ?, CURRENT_TIMESTAMP, ?)
+        ON CONFLICT (id) DO NOTHING
+        """,
+        (
+            artifact.id,
+            artifact.checksum,
+            artifact.uri,
+            artifact.media_type,
+            artifact.size_bytes,
+            int(len(artifact.checksum) != 64),
+        ),
+    )
+    stored = connection.execute(
+        "SELECT checksum, uri, media_type, size_bytes FROM artifacts WHERE id = ?",
+        (artifact.id,),
+    ).fetchone()
+    if stored is None or (
+        stored["checksum"],
+        stored["uri"],
+        stored["media_type"],
+        stored["size_bytes"],
+    ) != (
+        artifact.checksum,
+        artifact.uri,
+        artifact.media_type,
+        artifact.size_bytes,
+    ):
+        raise ValueError(
+            f"artifact ID {artifact.id!r} was reused with different immutable metadata"
+        )
+
+
+def _cataloged_artifact(
+    connection: sqlite3.Connection, artifact_id: str | None
+) -> ArtifactRef | None:
+    if artifact_id is None:
+        return None
+    row = connection.execute("SELECT * FROM artifacts WHERE id = ?", (artifact_id,)).fetchone()
+    if row is None:
+        raise ValueError(f"cataloged artifact is missing: {artifact_id}")
+    return ArtifactRef(
+        id=row["id"],
+        checksum=row["checksum"],
+        uri=row["uri"],
+        media_type=row["media_type"],
+        size_bytes=row["size_bytes"],
     )
 
 

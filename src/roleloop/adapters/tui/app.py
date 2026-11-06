@@ -12,7 +12,7 @@ from textual.app import App, ComposeResult
 from textual.widgets import LoadingIndicator, Static
 
 from .messages import OperationFinished, OperationProgress
-from .modals import ConfirmActionModal, EvidencePathModal, ProfileModal
+from .modals import ConfirmActionModal, ProfileModal, ResumeSourceModal
 from .presentation import as_items, enum_text, field, item_id, operation_error, progress_parts
 from .protocols import RoleLoopFacade
 from .review import JobReviewScreen
@@ -40,11 +40,18 @@ class RoleLoopApp(App[None]):
 
     def on_mount(self) -> None:
         self.run_worker(
-            self._bootstrap,  # type: ignore[arg-type]
+            self._bootstrap,
             group="bootstrap",
             exclusive=True,
             exit_on_error=False,
         )
+
+    def on_unmount(self) -> None:
+        """Release authoritative process ownership after Textual workers stop."""
+
+        close = getattr(self.services, "close", None)
+        if callable(close):
+            close()
 
     async def invoke(self, method_name: str, *args: Any, **kwargs: Any) -> Any:
         """Invoke a sync or async facade method without blocking Textual."""
@@ -72,7 +79,9 @@ class RoleLoopApp(App[None]):
             if "not found" not in str(error).lower() and "active" not in str(error).lower():
                 self.query_one("#startup-state", Static).update(operation_error(error))
         if summary is None:
-            values = await self.push_screen_wait(ProfileModal(onboarding=True))
+            defaults = await self.invoke_optional("get_startup_defaults") or {}
+            profile_defaults = field(defaults, "profile", default=None)
+            values = await self.push_screen_wait(ProfileModal(profile_defaults, onboarding=True))
             if values is None:
                 self.exit()
                 return
@@ -83,14 +92,15 @@ class RoleLoopApp(App[None]):
                     profile_id = item_id(profiles[0], "profile_id")
                 if profile_id:
                     await self.invoke("activate_profile", profile_id)
-                evidence_request = await self.push_screen_wait(EvidencePathModal(optional=True))
-                if evidence_request is not None:
+                source_defaults = field(defaults, "resume_source", default=None)
+                source_request = await self.push_screen_wait(ResumeSourceModal(source_defaults))
+                if source_request is not None:
                     try:
-                        await self.invoke("import_evidence", evidence_request)
+                        await self.invoke("configure_resume_source", source_request)
                     except BaseException as error:
                         self.notify(
                             operation_error(error),
-                            title="Evidence not imported",
+                            title="Master résumé not configured",
                             severity="error",
                             timeout=8,
                         )
@@ -127,9 +137,7 @@ class RoleLoopApp(App[None]):
         self.active_operations[key] = label
         self._show_progress(label, "queued")
         self.run_worker(
-            partial(  # type: ignore[arg-type]
-                self._run_operation, key, label, method_name, args, job_id
-            ),
+            partial(self._run_operation, key, label, method_name, args, job_id),
             group=f"operation:{key}",
             exclusive=False,
             exit_on_error=False,
@@ -149,11 +157,12 @@ class RoleLoopApp(App[None]):
 
         try:
             result = await self.invoke(method_name, *args, progress=progress)
-            stage = enum_text(field(result, "stage"), "")
+            operation_result = field(result, "resume_run", default=result)
+            stage = enum_text(field(operation_result, "stage"), "")
             if stage in {"failed", "interrupted"}:
                 detail = str(
                     field(
-                        result,
+                        operation_result,
                         "error_message",
                         "error",
                         default=f"{label} ended as {stage}.",
@@ -230,7 +239,7 @@ class RoleLoopApp(App[None]):
 
     def refresh_workspace(self) -> None:
         self.run_worker(
-            self._refresh_workspace,  # type: ignore[arg-type]
+            self._refresh_workspace,
             group="active-profile-refresh",
             exclusive=True,
             exit_on_error=False,
@@ -258,7 +267,7 @@ class RoleLoopApp(App[None]):
         if not self.active_operations:
             self.exit()
             return
-        self.run_worker(self._confirm_quit, exit_on_error=False)  # type: ignore[arg-type]
+        self.run_worker(self._confirm_quit, exit_on_error=False)
 
     async def _confirm_quit(self) -> None:
         operations = ", ".join(self.active_operations.values())

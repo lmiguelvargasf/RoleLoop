@@ -63,15 +63,6 @@ class InboxView(Horizontal):
         ("Not submitted", "not_submitted"),
         ("Submitted", "submitted"),
     )
-    OUTCOME_OPTIONS = (
-        ("Any outcome", ""),
-        ("No outcome", "none"),
-        ("Interviewing", "interviewing"),
-        ("Offer", "offer"),
-        ("Rejected", "rejected"),
-        ("Withdrawn", "withdrawn"),
-        ("No response", "no_response"),
-    )
 
     def __init__(self, *, id: str | None = None) -> None:
         super().__init__(id=id)
@@ -123,13 +114,6 @@ class InboxView(Horizontal):
                 id="filter-application",
                 classes="facet-select",
             )
-            yield Select(
-                self.OUTCOME_OPTIONS,
-                value="",
-                allow_blank=False,
-                id="filter-outcome",
-                classes="facet-select",
-            )
             yield Button("Clear filters", id="clear-filters")
             yield Button("Apply / close filters", id="close-filters")
 
@@ -160,7 +144,6 @@ class InboxView(Horizontal):
             "Decision",
             "Résumé",
             "Application",
-            "Outcome",
         )
         self.refresh_data()
 
@@ -174,7 +157,6 @@ class InboxView(Horizontal):
             "decision",
             "resume",
             "application",
-            "outcome",
         ):
             value = self.query_one(f"#filter-{name}", Select).value
             if value not in (None, ""):
@@ -186,7 +168,7 @@ class InboxView(Horizontal):
         generation = self._request_generation
         self.query_one("#inbox-state", Static).update("Loading inbox…")
         self.run_worker(
-            partial(self._load_jobs, generation),  # type: ignore[arg-type]
+            partial(self._load_jobs, generation),
             group="inbox-read",
             exclusive=True,
             exit_on_error=False,
@@ -222,7 +204,6 @@ class InboxView(Horizontal):
                 enum_text(field(row, "decision")),
                 enum_text(field(row, "resume_status", "resume")),
                 enum_text(field(row, "application_status", "application")),
-                enum_text(field(row, "outcome"), "none"),
                 key=job_id,
             )
         state = self.query_one("#inbox-state", Static)
@@ -340,9 +321,7 @@ class InboxView(Horizontal):
         if not self.selected_job_id or self._mutation_busy:
             return
         self.run_worker(
-            partial(  # type: ignore[arg-type]
-                self._set_decision, self.selected_job_id, decision
-            ),
+            partial(self._set_decision, self.selected_job_id, decision),
             exit_on_error=False,
         )
 

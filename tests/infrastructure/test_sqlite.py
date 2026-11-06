@@ -47,11 +47,15 @@ def test_database_applies_packaged_migration_and_required_pragmas(tmp_path: Path
     assert first.execute("PRAGMA journal_mode").fetchone()[0] == "wal"
     assert first.execute("PRAGMA foreign_keys").fetchone()[0] == 1
     assert first.execute("PRAGMA busy_timeout").fetchone()[0] == 2_345
-    assert [row[0] for row in first.execute("SELECT version FROM schema_migrations")] == [1, 2]
+    assert [row[0] for row in first.execute("SELECT version FROM schema_migrations")] == list(
+        range(1, 8)
+    )
     first.close()
 
     second = database.connect()
-    assert [row[0] for row in second.execute("SELECT version FROM schema_migrations")] == [1, 2]
+    assert [row[0] for row in second.execute("SELECT version FROM schema_migrations")] == list(
+        range(1, 8)
+    )
     second.close()
 
 
@@ -112,7 +116,9 @@ def test_existing_version_one_database_migrates_without_losing_evidence(
     connection.close()
 
     upgraded = SQLiteDatabase(path).connect()
-    assert [row[0] for row in upgraded.execute("SELECT version FROM schema_migrations")] == [1, 2]
+    assert [row[0] for row in upgraded.execute("SELECT version FROM schema_migrations")] == list(
+        range(1, 8)
+    )
     evidence = upgraded.execute(
         """
         SELECT extracted_text, resume_source_id, source_revision,
@@ -138,7 +144,7 @@ def test_schema_rejects_unknown_fixed_enum_values(tmp_path: Path) -> None:
         )
 
 
-def test_only_opaque_provider_and_event_metadata_use_json_columns(tmp_path: Path) -> None:
+def test_json_columns_are_limited_to_explicit_collections_and_receipts(tmp_path: Path) -> None:
     connection = SQLiteDatabase(tmp_path / "roleloop.sqlite3").connect()
     tables = [
         row["name"]
@@ -154,6 +160,18 @@ def test_only_opaque_provider_and_event_metadata_use_json_columns(tmp_path: Path
 
     assert json_columns == {
         ("jobs", "source_metadata_json"),
+        ("resume_runs", "render_output_checksums_json"),
+        ("resume_runs", "render_tool_versions_json"),
+        ("search_profile_versions", "accepted_hiring_arrangements_json"),
+        ("search_profile_versions", "accepted_remote_arrangements_json"),
+        ("search_profile_versions", "employment_types_json"),
+        ("search_profile_versions", "exclude_keywords_json"),
+        ("search_profile_versions", "include_keywords_json"),
+        ("search_profile_versions", "locations_json"),
+        ("search_profile_versions", "search_queries_json"),
+        ("search_profile_versions", "seniority_json"),
+        ("search_profile_versions", "target_hq_countries_json"),
+        ("search_profile_versions", "target_roles_json"),
         ("workflow_events", "metadata_json"),
     }
 

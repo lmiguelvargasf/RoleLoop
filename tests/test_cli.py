@@ -1,8 +1,10 @@
 from __future__ import annotations
 
 import json
+import sqlite3
 from dataclasses import dataclass
 from datetime import UTC, datetime
+from pathlib import Path
 from typing import Any
 
 import pytest
@@ -10,16 +12,18 @@ import pytest
 from roleloop.adapters.cli import main
 from roleloop.application import (
     ActiveProfileSummary,
+    ConcurrentInstanceError,
     NotFoundError,
     ProgressUpdate,
     ProviderUnavailableError,
     ResumeSourceDraft,
 )
+from roleloop.application.dto import ApplicationStageDraft, SubmitApplicationDraft
 from roleloop.domain import (
+    ApplicationStage,
     ApplicationStatus,
     Decision,
     EligibilityStatus,
-    Outcome,
     RemotePreference,
     ResumeSource,
     ResumeSourceKind,
@@ -51,6 +55,7 @@ class SyncedEvidence:
 class FakeService:
     def __init__(self) -> None:
         self.calls: list[tuple[Any, ...]] = []
+        self.closed = False
         profile = SearchProfile(
             id="profile-1",
             name="Core search",
@@ -60,6 +65,9 @@ class FakeService:
         )
         self.summary: ActiveProfileSummary | None = ActiveProfileSummary(profile, None, {})
         self.resume_source: ResumeSource | None = None
+
+    def close(self) -> None:
+        self.closed = True
 
     def get_active_profile_summary(self) -> ActiveProfileSummary | None:
         return self.summary
@@ -71,6 +79,11 @@ class FakeService:
 
     def add_job_url(self, profile_id: str, url: str) -> Item:
         self.calls.append(("add_job_url", profile_id, url))
+        return Item()
+
+    def inspect_job_url(self, profile_id: str, url: str, *, progress: Any) -> Item:
+        self.calls.append(("inspect_job_url", profile_id, url))
+        progress.report(ProgressUpdate("scout", "complete", "inspected original page"))
         return Item()
 
     def list_inbox(self, profile_id: str, **kwargs: Any) -> tuple[Item, ...]:
@@ -85,13 +98,51 @@ class FakeService:
         self.calls.append(("decide_job", profile_id, job_id, decision))
         return Item(decision=decision)
 
-    def mark_applied(self, profile_id: str, job_id: str) -> Item:
-        self.calls.append(("mark_applied", profile_id, job_id))
+    def get_answer_history(
+        self,
+        profile_id: str,
+        job_id: str,
+        question_id: str | None = None,
+    ) -> tuple[dict[str, str], ...]:
+        self.calls.append(("get_answer_history", profile_id, job_id, question_id))
+        return ({"job_id": job_id, "question_id": question_id or "all"},)
+
+    def submit_application(
+        self, profile_id: str, job_id: str, draft: SubmitApplicationDraft
+    ) -> Item:
+        self.calls.append(("submit_application", profile_id, job_id, draft))
         return Item(application_status=ApplicationStatus.SUBMITTED)
 
-    def record_outcome(self, profile_id: str, job_id: str, outcome: Outcome) -> Item:
-        self.calls.append(("record_outcome", profile_id, job_id, outcome))
+    def record_application_stage(
+        self, profile_id: str, job_id: str, draft: ApplicationStageDraft
+    ) -> Item:
+        self.calls.append(("record_application_stage", profile_id, job_id, draft))
         return Item(application_status=ApplicationStatus.SUBMITTED)
+
+    def resolve_followup(
+        self,
+        profile_id: str,
+        follow_up_id: str,
+        *,
+        note: str = "",
+        command_id: str | None = None,
+    ) -> dict[str, str]:
+        self.calls.append(("resolve_followup", profile_id, follow_up_id, note, command_id))
+        return {"follow_up_id": follow_up_id, "disposition": "completed"}
+
+    def reschedule_followup(
+        self,
+        profile_id: str,
+        follow_up_id: str,
+        due_at: datetime,
+        *,
+        note: str = "",
+        command_id: str | None = None,
+    ) -> dict[str, Any]:
+        self.calls.append(
+            ("reschedule_followup", profile_id, follow_up_id, due_at, note, command_id)
+        )
+        return {"id": "replacement-follow-up", "due_at": due_at}
 
     def get_resume_source(self, profile_id: str) -> ResumeSource | None:
         self.calls.append(("get_resume_source", profile_id))
@@ -127,6 +178,78 @@ class FakeService:
         )
         return SyncedEvidence()
 
+    def preview_legacy_import(self, draft: Any) -> dict[str, Any]:
+        self.calls.append(("preview_legacy_import", draft))
+        return {
+            "source_job_count": draft.source_job_count,
+            "source_event_count": draft.source_event_count,
+            "sources": draft.sources,
+        }
+
+    def apply_legacy_import(
+        self, profile_id: str, draft: Any, *, command_id: str | None = None
+    ) -> dict[str, Any]:
+        self.calls.append(("apply_legacy_import", profile_id, draft, command_id))
+        return {"id": "legacy-batch-1", "source_job_count": draft.source_job_count}
+
+
+def _write_legacy_database(path: Path, *, jobs_table: str) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    state_column = "stage" if jobs_table == "job_runs" else "status"
+    with sqlite3.connect(path) as connection:
+        connection.executescript(
+            f"""
+            CREATE TABLE {jobs_table} (
+                job_id TEXT PRIMARY KEY,
+                canonical_url TEXT NOT NULL UNIQUE,
+                company TEXT NOT NULL,
+                title TEXT NOT NULL,
+                {state_column} TEXT NOT NULL,
+                revision INTEGER NOT NULL,
+                state_json TEXT NOT NULL,
+                created_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL
+            );
+            CREATE TABLE events (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                job_id TEXT NOT NULL,
+                occurred_at TEXT NOT NULL,
+                node TEXT NOT NULL,
+                event_type TEXT NOT NULL,
+                detail_json TEXT NOT NULL
+            );
+            """
+        )
+        connection.execute(
+            f"""INSERT INTO {jobs_table}
+                (job_id, canonical_url, company, title, {state_column}, revision,
+                 state_json, created_at, updated_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+            (
+                "legacy-job",
+                f"https://jobs.example.test/{jobs_table}",
+                "Example Co",
+                "Platform Engineer",
+                "review",
+                1,
+                json.dumps({"job": {"description": "Build reliable services."}}),
+                "2026-01-01T00:00:00+00:00",
+                "2026-01-02T00:00:00+00:00",
+            ),
+        )
+        connection.execute(
+            """INSERT INTO events
+               (job_id, occurred_at, node, event_type, detail_json)
+               VALUES (?, ?, ?, ?, ?)""",
+            (
+                "legacy-job",
+                "2026-01-02T00:00:00+00:00",
+                "reviewer",
+                "reviewed",
+                "{}",
+            ),
+        )
+
 
 def test_no_arguments_launches_tui_without_building_headless_service() -> None:
     launched: list[bool] = []
@@ -136,6 +259,23 @@ def test_no_arguments_launches_tui_without_building_headless_service() -> None:
 
     assert main([], service_factory=fail_factory, tui_launcher=lambda: launched.append(True)) == 0
     assert launched == [True]
+
+
+def test_no_arguments_reports_typed_tui_startup_lock_failure_without_traceback(
+    capsys: Any,
+) -> None:
+    def locked_launcher() -> None:
+        raise ConcurrentInstanceError(
+            "Another RoleLoop process is already using this data directory."
+        )
+
+    assert main([], tui_launcher=locked_launcher) == 4
+    captured = capsys.readouterr()
+    assert captured.out == ""
+    assert captured.err == (
+        "roleloop: Another RoleLoop process is already using this data directory.\n"
+    )
+    assert "Traceback" not in captured.err
 
 
 @pytest.mark.parametrize(
@@ -188,13 +328,13 @@ def test_find_uses_default_or_explicit_positive_limit(
     assert "discovery [complete]: found one" in captured.err
 
 
-def test_add_passes_the_url_without_fetching(capsys: Any) -> None:
+def test_add_routes_the_url_through_explicit_scout_inspection(capsys: Any) -> None:
     service = FakeService()
 
     assert main(["add", "https://example.com/jobs/42"], service_factory=lambda: service) == 0
 
     assert service.calls[-1] == (
-        "add_job_url",
+        "inspect_job_url",
         "profile-1",
         "https://example.com/jobs/42",
     )
@@ -260,6 +400,27 @@ def test_async_review_provider_failure_uses_json_error_contract(capsys: Any) -> 
     assert captured.err == ""
 
 
+def test_answer_history_dispatches_each_identifier_once(capsys: Any) -> None:
+    service = FakeService()
+
+    assert (
+        main(
+            ["answer-history", "job-1", "question-1", "--json"],
+            service_factory=lambda: service,
+        )
+        == 0
+    )
+
+    assert service.calls[-1] == (
+        "get_answer_history",
+        "profile-1",
+        "job-1",
+        "question-1",
+    )
+    payload = json.loads(capsys.readouterr().out)
+    assert payload["data"] == [{"job_id": "job-1", "question_id": "question-1"}]
+
+
 @pytest.mark.parametrize("decision", [Decision.TAILOR, Decision.WATCH, Decision.SKIP])
 def test_decide_maps_every_cli_value_to_domain_enum(decision: Decision, capsys: Any) -> None:
     service = FakeService()
@@ -276,29 +437,116 @@ def test_decide_maps_every_cli_value_to_domain_enum(decision: Decision, capsys: 
     assert f"Decision recorded: {decision.value}" in capsys.readouterr().out
 
 
-def test_applied_maps_to_submission_workflow(capsys: Any) -> None:
-    service = FakeService()
-
-    assert main(["applied", "job-1"], service_factory=lambda: service) == 0
-
-    assert service.calls[-1] == ("mark_applied", "profile-1", "job-1")
-    assert "Application marked submitted" in capsys.readouterr().out
-
-
-@pytest.mark.parametrize("outcome", list(Outcome))
-def test_outcome_maps_every_supported_value(outcome: Outcome, capsys: Any) -> None:
+def test_application_submit_requires_and_maps_first_follow_up(capsys: Any) -> None:
     service = FakeService()
 
     assert (
         main(
-            ["outcome", "job-1", outcome.value],
+            ["application", "submit", "job-1", "--follow-up", "2026-08-20"],
             service_factory=lambda: service,
         )
         == 0
     )
 
-    assert service.calls[-1] == ("record_outcome", "profile-1", "job-1", outcome)
-    assert f"Outcome recorded: {outcome.value}" in capsys.readouterr().out
+    call = service.calls[-1]
+    assert call[:3] == ("submit_application", "profile-1", "job-1")
+    assert isinstance(call[3], SubmitApplicationDraft)
+    assert call[3].follow_up_at.isoformat() == "2026-08-20T00:00:00-05:00"
+    assert "Recorded manual submission" in capsys.readouterr().out
+
+
+def test_application_stage_maps_fixed_stage_and_explicit_no_follow_up(capsys: Any) -> None:
+    service = FakeService()
+
+    assert (
+        main(
+            [
+                "application",
+                "stage",
+                "job-1",
+                "technical_interview",
+                "--no-follow-up",
+            ],
+            service_factory=lambda: service,
+        )
+        == 0
+    )
+
+    call = service.calls[-1]
+    assert call[:3] == ("record_application_stage", "profile-1", "job-1")
+    assert call[3] == ApplicationStageDraft(
+        stage=ApplicationStage.TECHNICAL_INTERVIEW,
+        no_follow_up=True,
+    )
+    assert "Recorded application stage technical_interview" in capsys.readouterr().out
+
+
+@pytest.mark.parametrize(
+    ("arguments", "expected_prefix"),
+    [
+        (
+            [
+                "followups",
+                "resolve",
+                "follow-up-1",
+                "--note",
+                "Acknowledged",
+                "--command-id",
+                "resolve-1",
+            ],
+            (
+                "resolve_followup",
+                "profile-1",
+                "follow-up-1",
+                "Acknowledged",
+                "resolve-1",
+            ),
+        ),
+        (
+            [
+                "followups",
+                "reschedule",
+                "follow-up-1",
+                "2026-08-27",
+                "--note",
+                "Wait",
+                "--command-id",
+                "reschedule-1",
+            ],
+            (
+                "reschedule_followup",
+                "profile-1",
+                "follow-up-1",
+                datetime.fromisoformat("2026-08-27T00:00:00-05:00"),
+                "Wait",
+                "reschedule-1",
+            ),
+        ),
+    ],
+)
+def test_followup_commands_dispatch_the_active_profile(
+    arguments: list[str], expected_prefix: tuple[Any, ...], capsys: Any
+) -> None:
+    service = FakeService()
+
+    assert main(arguments, service_factory=lambda: service) == 0
+
+    assert service.calls[-1] == expected_prefix
+    assert "follow-up-1" in capsys.readouterr().out
+
+
+@pytest.mark.parametrize(
+    ("arguments", "replacement"),
+    [
+        (["applied", "job-1"], "application submit"),
+        (["outcome", "job-1", "offer"], "application stage"),
+    ],
+)
+def test_pre_v1_application_aliases_fail_with_policy_guidance(
+    arguments: list[str], replacement: str, capsys: Any
+) -> None:
+    assert main(arguments, service_factory=FakeService) == 2
+    assert replacement in capsys.readouterr().err
 
 
 def test_resume_source_configure_maps_explicit_git_settings(capsys: Any) -> None:
@@ -316,6 +564,7 @@ def test_resume_source_configure_maps_explicit_git_settings(capsys: Any) -> None
                 "resume/master.md",
                 "--ref",
                 "release",
+                "--trust-contract",
             ],
             service_factory=lambda: service,
         )
@@ -328,14 +577,15 @@ def test_resume_source_configure_maps_explicit_git_settings(capsys: Any) -> None
         ResumeSourceDraft(
             repository="/work/master-resume",
             kind=ResumeSourceKind.LOCAL_GIT,
-            document_path="resume/master.md",
+            document_path="roleloop_contract/v1/cli.py",
             ref="release",
+            trust_repository=True,
         ),
         None,
     )
     output = capsys.readouterr().out
-    assert "Configured master résumé source" in output
-    assert "resume-source sync" in output
+    assert "Configured and trusted the fixed master-résumé contract" in output
+    assert "Analyze will sync it automatically" in output
 
 
 def test_resume_source_reconfigure_passes_optimistic_revision(capsys: Any) -> None:
@@ -360,6 +610,7 @@ def test_resume_source_reconfigure_passes_optimistic_revision(capsys: Any) -> No
                 "remote_git",
                 "--document-path",
                 "cv/resume.md",
+                "--trust-contract",
             ],
             service_factory=lambda: service,
         )
@@ -418,6 +669,73 @@ def test_resume_source_sync_supports_async_progress_and_json(capsys: Any) -> Non
     assert "resume_source_sync [complete]" in captured.err
 
 
+def test_legacy_preview_reads_both_manifests_without_mutating_sources(
+    tmp_path: Path, capsys: Any
+) -> None:
+    first = tmp_path / ".job-agent" / "state.sqlite3"
+    second = tmp_path / ".job-agent" / "state-v2.sqlite3"
+    _write_legacy_database(first, jobs_table="job_runs")
+    _write_legacy_database(second, jobs_table="jobs")
+    before = {path: path.read_bytes() for path in (first, second)}
+    service = FakeService()
+
+    assert (
+        main(
+            ["legacy", "import-master-state", str(tmp_path), "--preview", "--json"],
+            service_factory=lambda: service,
+        )
+        == 0
+    )
+
+    payload = json.loads(capsys.readouterr().out)["data"]
+    assert payload["source_job_count"] == 2
+    assert payload["source_event_count"] == 2
+    assert [source["database_name"] for source in payload["sources"]] == [
+        "state.sqlite3",
+        "state-v2.sqlite3",
+    ]
+    assert service.calls[-1][0] == "preview_legacy_import"
+    assert {path: path.read_bytes() for path in (first, second)} == before
+
+
+def test_legacy_apply_can_use_configured_local_repository_and_command_id(
+    tmp_path: Path, capsys: Any
+) -> None:
+    database = tmp_path / ".job-agent" / "state-v2.sqlite3"
+    _write_legacy_database(database, jobs_table="jobs")
+    before = database.read_bytes()
+    service = FakeService()
+    service.resume_source = ResumeSource(
+        id="source-1",
+        profile_id="profile-1",
+        kind=ResumeSourceKind.LOCAL_GIT,
+        repository=str(tmp_path),
+        ref="HEAD",
+        document_path="roleloop_contract/v1/cli.py",
+    )
+
+    assert (
+        main(
+            [
+                "legacy",
+                "import-master-state",
+                "--apply",
+                "--command-id",
+                "legacy-import-1",
+            ],
+            service_factory=lambda: service,
+        )
+        == 0
+    )
+
+    call = service.calls[-1]
+    assert call[0:2] == ("apply_legacy_import", "profile-1")
+    assert call[2].source_job_count == 1
+    assert call[3] == "legacy-import-1"
+    assert "original databases were left unchanged" in capsys.readouterr().out
+    assert database.read_bytes() == before
+
+
 def test_no_profile_returns_onboarding_validation_error(capsys: Any) -> None:
     service = FakeService()
     service.summary = None
@@ -449,11 +767,29 @@ def test_json_errors_use_stable_envelope(capsys: Any) -> None:
     }
 
 
+def test_cli_releases_service_ownership_after_success_and_failure(capsys: Any) -> None:
+    successful = FakeService()
+    assert main(["inbox", "--json"], service_factory=lambda: successful) == 0
+    assert successful.closed is True
+
+    class MissingService(FakeService):
+        def list_inbox(self, profile_id: str, **kwargs: Any) -> tuple[Item, ...]:
+            del profile_id, kwargs
+            raise NotFoundError("Profile disappeared")
+
+    failed = MissingService()
+    assert main(["inbox", "--json"], service_factory=lambda: failed) == 3
+    assert failed.closed is True
+    capsys.readouterr()
+
+
 def test_unexpected_json_failure_still_emits_a_machine_envelope(capsys: Any) -> None:
+    secret = "sk-proj-FAKE-NEVER-LOG-THIS"
+
     class BrokenService(FakeService):
         def list_inbox(self, profile_id: str, **kwargs: Any) -> tuple[Item, ...]:
             del profile_id, kwargs
-            raise RuntimeError("database cable unplugged")
+            raise RuntimeError(f"database cable unplugged while using {secret}")
 
     assert main(["inbox", "--json"], service_factory=BrokenService) == 1
 
@@ -466,4 +802,6 @@ def test_unexpected_json_failure_still_emits_a_machine_envelope(capsys: Any) -> 
             "message": "RoleLoop encountered an unexpected failure.",
         },
     }
-    assert "unexpected failure: database cable unplugged" in captured.err
+    assert "unexpected failure" in captured.err.lower()
+    assert secret not in captured.out
+    assert secret not in captured.err
