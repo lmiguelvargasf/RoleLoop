@@ -315,6 +315,12 @@ function base(
     firstSeenAt: new Date().toISOString(),
     updatedAt: new Date().toISOString(),
     ...data,
+    ...(typeof data.description === "string" && data.description.length > 50000
+      ? {
+          description: data.description.slice(0, 50000),
+          descriptionTruncated: true,
+        }
+      : {}),
   });
 }
 export async function discover(
@@ -324,7 +330,7 @@ export async function discover(
   if (
     source.provider !== "hackernews" &&
     source.provider !== "jobicy" &&
-    !/^[a-zA-Z0-9_-]{1,100}$/.test(source.board)
+    !/^[a-zA-Z0-9][a-zA-Z0-9._-]{0,99}$/.test(source.board)
   )
     throw new Error(
       "Use the public job-board identifier, such as acme, rather than a full URL.",

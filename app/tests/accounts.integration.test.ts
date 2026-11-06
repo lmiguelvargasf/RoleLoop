@@ -1,5 +1,5 @@
 import { randomBytes, randomUUID } from "node:crypto";
-import { beforeAll, afterAll, describe, expect, it } from "vitest";
+import { beforeAll, afterAll, describe, expect, it, vi } from "vitest";
 import type { FastifyInstance } from "fastify";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import type { AccountContext } from "../src/shared/types.js";
@@ -228,6 +228,72 @@ integration(
         expect(own.json().profile.source).toBeNull();
         expect(own.json().profile.cache).toBeNull();
         expect(own.json().status.studioUrl).toBe("");
+      }
+    });
+    it("reports source health after successful and failed discovery without publishing a worker task", async () => {
+      const actor = await account("Source health test");
+      const { createWorkspaceStore } = await import("../src/server/store.js");
+      const { processRun } = await import("../src/server/service.js");
+      const { demoOpportunities } = await import("./fixtures.js");
+      const connectors = await import("../src/domain/connectors.js");
+      const store = createWorkspaceStore({
+        workspaceId: actor.workspaceId,
+        client: db,
+      });
+      const source = {
+        id: "source-health-test",
+        provider: "greenhouse" as const,
+        label: "Test board",
+        board: "test",
+        enabled: true,
+      };
+      await store.updateWorkspace({ sources: [source] });
+      const spy = vi
+        .spyOn(connectors, "discover")
+        .mockResolvedValue([
+          {
+            ...demoOpportunities()[0],
+            id: randomUUID(),
+            sourceId: source.id,
+            sourceKey: `test:${randomUUID()}`,
+            salaryMax: 1,
+            salaryMin: 1,
+          },
+        ]);
+      const run = {
+        id: randomUUID(),
+        workspaceId: actor.workspaceId,
+        action: "discover" as const,
+        status: "running" as const,
+        progress: 0,
+        message: "Isolated source test",
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+      };
+      try {
+        await processRun(store, run, async () => {});
+        const result = await app.inject({
+          url: "/api/bootstrap",
+          headers: headers(actor, actor.workspaceId),
+        });
+        expect(result.statusCode, result.body).toBe(200);
+        expect(result.json().sourceHealth[source.id]).toMatchObject({
+          status: "success",
+          found: 1,
+          evaluated: 1,
+        });
+        spy.mockRejectedValue(new Error("Board no longer available"));
+        await expect(processRun(store, run, async () => {})).rejects.toThrow(
+          /All selected sources failed/,
+        );
+        const failed =
+          await store.runtime<Record<string, unknown>>("source-health");
+        expect(failed![source.id]).toMatchObject({
+          status: "error",
+          error: "Board no longer available",
+        });
+      } finally {
+        spy.mockRestore();
       }
     });
     it("captures requirements and keeps application milestones and follow-ups through status changes", async () => {

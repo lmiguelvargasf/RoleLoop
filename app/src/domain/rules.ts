@@ -35,6 +35,7 @@ export const opportunityFingerprint = (op: Opportunity) =>
     company: op.company,
     title: op.title,
     description: op.description,
+    ...(op.descriptionTruncated ? { descriptionTruncated: true } : {}),
     url: op.url,
     companyCountry: op.companyCountry,
     remoteScope: op.remoteScope,
@@ -219,6 +220,10 @@ export function assessOpportunity(
   if (industryMatches.length)
     reasons.push(
       `Preferred industry signal: ${industryMatches.join(", ")}. Raises list priority without changing evidence scores; this is a keyword signal, not verified company classification.`,
+    );
+  if (op.descriptionTruncated)
+    unknowns.push(
+      "The description was shortened. Review the complete source listing before applying.",
     );
   const candidateCountry = normalizeCountry(prefs.country);
   if (!candidateCountry) unknowns.push("Your working country is missing.");

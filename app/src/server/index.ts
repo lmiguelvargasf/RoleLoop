@@ -306,6 +306,7 @@ export async function buildServer() {
     company: true,
     title: true,
     description: true,
+    descriptionTruncated: true,
     url: true,
     companyUrl: true,
     location: true,
@@ -331,9 +332,11 @@ export async function buildServer() {
       .object({ url: z.string().url().max(2000) })
       .parse(req.body);
     const page = await safeFetchText(url);
-    const description = plainText(page.text).slice(0, 50000);
+    const fullDescription = plainText(page.text);
+    const description = fullDescription.slice(0, 50000);
     return {
       description,
+      descriptionTruncated: fullDescription.length > 50000,
       requirements: extractRequirements(description),
       remoteScope: remoteScope(description),
     };

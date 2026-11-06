@@ -147,6 +147,7 @@ export const OpportunitySchema = z.object({
   company: z.string(),
   title: z.string(),
   description: z.string().max(50000),
+  descriptionTruncated: z.boolean().default(false),
   url: z.string().max(2000),
   companyUrl: z.string().default(""),
   source: z.string(),
@@ -293,7 +294,15 @@ export interface AuthConfig {
   anonKey: string;
   setupAvailable: boolean;
 }
+export interface SourceHealth {
+  checkedAt: string;
+  status: "success" | "error";
+  found: number;
+  evaluated: number;
+  error?: string;
+}
 export interface Bootstrap extends Workspace {
+  sourceHealth?: Record<string, SourceHealth>;
   opportunities: Opportunity[];
   drafts: Draft[];
   runs: Run[];

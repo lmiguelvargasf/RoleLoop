@@ -54,12 +54,34 @@ Supabase Studio and Mailpit are shared local developer tools. RoleLoop account p
 
 1. Open **Resume** and upload a text-based PDF or Word (.docx) CV up to 2 MB. Review searchable records for experience, projects, education, certifications, listed skills and languages. Expand a record to inspect its original statements and source passage. Preview or download the original, and replace it to correct career information. Resume evidence becomes available for matching when extraction finishes; new drafts require a ready extraction.
 2. Set your salary, working country, search dates and matching preference in **Search preferences**. Working country is used for remote eligibility and location details in drafts. Dates follow your computer’s timezone automatically.
-3. Open **Discovery sources → Add recommended sources** in an existing workspace. New accounts start with GitLab, Mozilla and Jobicy. The company boards include official US company-country references; Jobicy broadens remote discovery without treating job location as employer headquarters. Expand a source to edit or use **Save & discover now**. Additional company sources accept an Ashby, Greenhouse or Lever careers URL or identifier.
+3. Open **Discovery sources → Add researched sources** in an existing workspace. New accounts start with nine researched US employer boards and Jobicy. The company boards include official US company-country references; Jobicy broadens remote discovery without treating job location as employer headquarters. Use the settings icon to edit, the switch to pause, and **Search enabled sources** to search them together. Each source reports the last run’s listing count, evaluation count or error. Additional company sources accept an Ashby, Greenhouse or Lever careers URL or identifier.
 4. Review discovered roles against your working country, salary floor and actual experience. Use **Add role** to paste a description or **Read job page** to capture a readable public page. Requirements are extracted automatically unless you supply an override. Optional details stay collapsed until needed. Pages requiring login or JavaScript may need pasted text.
 5. Prepare and review a draft, download it, and use **Open listing / apply** to apply on the employer or source site. Save **Applied** in Application progress; set a next action, follow-up date and recruiter notes. Update to Interview, Offer, Rejected or Withdrawn as the process advances. Application progress survives listing refreshes, and recorded interview/offer milestones remain available after rejection.
 6. Use the status filters, follow-up count and **Results by source** to review outcomes. Counts cover the currently loaded opportunities (up to 300), not lifetime totals. A job match percentage describes the extracted requirements and is not a probability of an interview. Company country, hiring eligibility and compensation remain separate checks.
 
-Screenshots from an isolated demonstration account: [Discovery sources](docs/screenshots/roleloop-discovery-sources.png), [job capture](docs/screenshots/roleloop-job-capture.png), [application tracking](docs/screenshots/roleloop-application-tracking.png). No real application was submitted for these examples.
+Screenshots from an isolated demonstration account: [Discovery sources](docs/screenshots/roleloop-discovery-sources.png), [researched library](docs/screenshots/roleloop-source-library.png), [job capture](docs/screenshots/roleloop-job-capture.png), [application tracking](docs/screenshots/roleloop-application-tracking.png). No real application was submitted for these examples.
+
+## Discovery source research
+
+The source library was researched and its nine employer connectors fully imported on **6 November 2026**. These are working sources with official US company references and remote openings across professions; a board check does not establish a candidate’s eligibility or predict an offer. Counts are a dated snapshot, including roles with country restrictions and possible onsite requirements.
+
+| Employer | Connection | Listings at check | Official careers |
+| --- | --- | ---: | --- |
+| GitLab | Greenhouse | 245 | https://about.gitlab.com/jobs/ |
+| Mozilla | Greenhouse | 113 | https://www.mozilla.org/en-US/careers/ |
+| Automattic | Greenhouse | 11 | https://automattic.com/work-with-us/jobs/ |
+| Buffer | Ashby | 2 | https://buffer.com/journey |
+| Zapier | Ashby | 10 | https://zapier.com/jobs |
+| Ashby | Ashby | 74 | https://www.ashbyhq.com/careers |
+| Linear | Ashby | 32 | https://linear.app/careers |
+| Kraken | Ashby | 89 | https://www.kraken.com/careers |
+| Superside | Lever | 14 | https://careers.superside.com/ |
+
+Company-country reference links, coverage notes, board identifiers and check dates are maintained in `app/src/shared/discovery.ts` and exposed in the source library. Ashby board identifiers can contain dots (Kraken uses `kraken.com`). Oversized descriptions are imported as bounded excerpts with an explicit review flag; they cannot automatically qualify for drafting.
+
+[Jobicy](https://jobicy.com/jobs-rss-feed) adds a seven-day remote feed with hourly shared caching; employer country stays unverified. [We Work Remotely](https://weworkremotely.com/), [Wellfound](https://wellfound.com/jobs), [YC Work at a Startup](https://www.ycombinator.com/jobs) and [LinkedIn Jobs](https://www.linkedin.com/jobs/) are available as manual research links. Their listings are brought into Add role using the employer URL or pasted text; these links are not automatic integrations.
+
+Older board URLs that failed or returned no jobs were excluded, including the empty Automattic `automatticjobs` board and Deel’s old Ashby feed. The functioning Automattic board is `automatticcareers`. Source selection is intentionally bounded: retain sources that produce relevant leads and interviews, pause those that do not, and keep hiring country and compensation checks independent of employer location.
 
 ## Résumé AI
 

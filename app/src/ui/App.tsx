@@ -51,15 +51,10 @@ import type {
   Preferences,
   Profile,
   RunAction,
-  Source,
 } from "../shared/types";
 import { api, date, downloadFile, safeUrl, uid, words, write } from "./api";
-import {
-  recommendedSources,
-  normalizeSource,
-  applicationCounts,
-  followUpDue,
-} from "../shared/discovery";
+import { applicationCounts, followUpDue } from "../shared/discovery";
+import { SourcesPage as Sources } from "./SourcesPage";
 import { ApplicationProgress } from "./ApplicationProgress";
 import { SalaryFields } from "./SalaryFields";
 import { SalaryPolicies } from "./SalaryPolicies";
@@ -497,7 +492,17 @@ export function App({
           />
         )}
         {page === "sources" && (
-          <Sources initial={data.sources} perform={perform} busy={busy} />
+          <Sources
+            initial={data.sources}
+            health={data.sourceHealth}
+            searching={data.runs.some(
+              (r) =>
+                r.action === "discover" &&
+                ["queued", "running"].includes(r.status),
+            )}
+            perform={perform}
+            busy={busy}
+          />
         )}
         {page === "activity" && (
           <ActivityPage events={data.events} data={data} />
@@ -1262,6 +1267,7 @@ function OpportunityForm({
     company: existing?.company || "",
     title: existing?.title || "",
     description: existing?.description || "",
+    descriptionTruncated: existing?.descriptionTruncated ?? false,
     url: existing?.url || "",
     companyUrl: existing?.companyUrl || "",
     location: existing?.location || "Unknown",
@@ -1294,11 +1300,13 @@ function OpportunityForm({
     try {
       const result = await write<{
         description: string;
+        descriptionTruncated: boolean;
         remoteScope: Opportunity["remoteScope"];
       }>("/opportunities/capture", { url: form.url });
       setForm((p) => ({
         ...p,
         description: result.description,
+        descriptionTruncated: result.descriptionTruncated,
         remoteScope: result.remoteScope,
       }));
     } catch (error) {
@@ -1687,268 +1695,6 @@ function PreferencesEditor({
           disabled={busy}
         />
         <AutomationPreferences preferences={prefs} onChange={set} busy={busy} />
-      </form>
-    </section>
-  );
-}
-
-function Sources({
-  initial,
-  perform,
-  busy,
-}: {
-  initial: Source[];
-  perform: Perform;
-  busy: boolean;
-}) {
-  const [sources, setSources] = useState(initial);
-  const [newSourceId, setNewSourceId] = useState<string | null>(null);
-  const update = (id: string, patch: Partial<Source>) =>
-    setSources((p) => p.map((s) => (s.id === id ? { ...s, ...patch } : s)));
-  return (
-    <section className="page form-page">
-      <div className="page-heading">
-        <div>
-          <div className="eyebrow">WHERE OPPORTUNITIES BEGIN</div>
-          <h1>Discovery sources</h1>
-          <p>Connect public company boards and startup launch feeds.</p>
-        </div>
-        <button
-          className="button"
-          onClick={() => {
-            const id = uid();
-            setNewSourceId(id);
-            setSources((p) => [
-              ...p,
-              { id, provider: "ashby", label: "", board: "", enabled: true },
-            ]);
-          }}
-        >
-          <Plus size={16} />
-          Add source
-        </button>
-      </div>
-      <div className="notice neutral">
-        <Radio size={18} />
-        <span>
-          For job boards, use the company identifier from its Ashby, Greenhouse
-          or Lever URL. Startup launches are leads to research; location,
-          funding and hiring eligibility remain unverified until supported.
-        </span>
-      </div>
-      <p className="muted">
-        Start with US employers GitLab and Mozilla, plus Jobicy for broader
-        remote discovery. Each role still needs its hiring countries and salary
-        checked. Jobicy covers the last seven days and refreshes at most hourly.
-      </p>
-      <button
-        className="button"
-        disabled={busy}
-        onClick={async () => {
-          const next = [...sources];
-          for (const source of recommendedSources)
-            if (
-              !next.some(
-                (s) =>
-                  s.provider === source.provider && s.board === source.board,
-              )
-            )
-              next.push(source);
-          if (
-            await perform(
-              () =>
-                write(
-                  "/sources",
-                  { sources: next.map(normalizeSource) },
-                  "PUT",
-                ),
-              "Recommended sources saved.",
-            )
-          )
-            setSources(next);
-        }}
-      >
-        Add recommended sources
-      </button>
-      <form
-        onSubmit={(e) => {
-          e.preventDefault();
-          void perform(
-            () =>
-              write(
-                "/sources",
-                { sources: sources.map(normalizeSource) },
-                "PUT",
-              ),
-            "Sources saved.",
-          );
-        }}
-      >
-        {sources.map((source) => (
-          <details
-            className="source-editor"
-            key={source.id}
-            open={newSourceId === source.id}
-          >
-            <summary className="source-editor-top">
-              <span className="source-icon">
-                {source.provider === "hackernews" ? (
-                  <Rocket size={20} />
-                ) : (
-                  <Briefcase size={20} />
-                )}
-              </span>
-              <h2>{source.label || "New discovery source"}</h2>
-              <small>
-                {source.provider} · {source.enabled ? "Enabled" : "Paused"}
-              </small>
-              <IconButton
-                label={`Remove ${source.label || "source"}`}
-                onClick={() =>
-                  setSources((p) => p.filter((s) => s.id !== source.id))
-                }
-              >
-                <Trash2 size={16} />
-              </IconButton>
-            </summary>
-            <div className="form-grid">
-              <Field label="Display name">
-                <input
-                  required
-                  value={source.label}
-                  onChange={(e) => update(source.id, { label: e.target.value })}
-                  placeholder="Acme careers"
-                />
-              </Field>
-              <Field label="Provider">
-                <select
-                  value={source.provider}
-                  onChange={(e) =>
-                    update(source.id, {
-                      provider: e.target.value as Source["provider"],
-                      companyCountry: undefined,
-                      countrySource: undefined,
-                    })
-                  }
-                >
-                  <option value="jobicy">Jobicy · remote jobs</option>
-                  <option value="ashby">Ashby</option>
-                  <option value="greenhouse">Greenhouse</option>
-                  <option value="lever">Lever</option>
-                  <option value="hackernews">
-                    Hacker News · Show HN launches
-                  </option>
-                </select>
-              </Field>
-              <Field
-                label={
-                  ["hackernews", "jobicy"].includes(source.provider)
-                    ? "Search keyword (optional)"
-                    : "Company board URL or identifier"
-                }
-                hint={
-                  ["hackernews", "jobicy"].includes(source.provider)
-                    ? "A keyword to narrow the feed, such as developer tools."
-                    : "Example: acme from jobs.ashbyhq.com/acme"
-                }
-                wide
-              >
-                <input
-                  value={source.board}
-                  required={!["hackernews", "jobicy"].includes(source.provider)}
-                  onChange={(e) =>
-                    update(source.id, {
-                      board: e.target.value,
-                      companyCountry: undefined,
-                      countrySource: undefined,
-                    })
-                  }
-                />
-              </Field>
-              {!["hackernews", "jobicy"].includes(source.provider) && (
-                <>
-                  <Field label="Company country">
-                    <input
-                      value={source.companyCountry ?? ""}
-                      placeholder="United States"
-                      onChange={(e) =>
-                        update(source.id, { companyCountry: e.target.value })
-                      }
-                    />
-                  </Field>
-                  <Field
-                    label="Country evidence URL"
-                    hint="Official company page supporting the country; hiring countries are checked per role."
-                  >
-                    <input
-                      type="url"
-                      value={source.countrySource ?? ""}
-                      onChange={(e) =>
-                        update(source.id, {
-                          countrySource: e.target.value || undefined,
-                        })
-                      }
-                    />
-                  </Field>
-                </>
-              )}
-              <label className="checkbox-field wide">
-                <input
-                  type="checkbox"
-                  checked={source.enabled}
-                  onChange={(e) =>
-                    update(source.id, { enabled: e.target.checked })
-                  }
-                />
-                <span>Include in discovery</span>
-              </label>
-            </div>
-            <div className="source-actions">
-              <button
-                type="button"
-                className="text-button"
-                disabled={busy || !source.enabled || !source.label}
-                onClick={async () => {
-                  if (
-                    await perform(() =>
-                      write(
-                        "/sources",
-                        { sources: sources.map(normalizeSource) },
-                        "PUT",
-                      ),
-                    )
-                  )
-                    await perform(
-                      () =>
-                        write("/runs", {
-                          action: "discover",
-                          sourceId: source.id,
-                        }),
-                      "Discovery queued.",
-                    );
-                }}
-              >
-                <Play size={14} />
-                Save & discover now
-              </button>
-            </div>
-          </details>
-        ))}
-        {!sources.length && (
-          <Empty
-            title="Connect your first source"
-            detail="Add a company job board or a startup launch feed above."
-          />
-        )}
-        <div className="form-save">
-          <span className="muted">
-            Public sources only · evidence preserved
-          </span>
-          <button className="button primary" disabled={busy}>
-            <Save size={16} />
-            Save sources
-          </button>
-        </div>
       </form>
     </section>
   );

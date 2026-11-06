@@ -7,6 +7,7 @@ import {
   type Opportunity,
   type Run,
   type Workspace,
+  type SourceHealth,
 } from "../shared/types.js";
 import {
   assessOpportunity,
@@ -38,15 +39,23 @@ export const RunInput = z.object({
   draftId: z.string().optional(),
 });
 export async function bootstrap(store: WorkspaceStore): Promise<Bootstrap> {
-  const [workspace, opportunities, drafts, runs, events, heartbeat] =
-    await Promise.all([
-      store.getWorkspace(),
-      store.list("opportunities"),
-      store.list("drafts"),
-      store.list("runs", 100),
-      store.list("events", 60),
-      getGlobalRuntime<{ at: string }>("worker"),
-    ]);
+  const [
+    workspace,
+    opportunities,
+    drafts,
+    runs,
+    events,
+    heartbeat,
+    sourceHealth,
+  ] = await Promise.all([
+    store.getWorkspace(),
+    store.list("opportunities"),
+    store.list("drafts"),
+    store.list("runs", 100),
+    store.list("events", 60),
+    getGlobalRuntime<{ at: string }>("worker"),
+    store.runtime<Record<string, SourceHealth>>("source-health"),
+  ]);
   // Refresh cached assessments after a CV change or a retired salary policy.
   const currentOpportunities = await Promise.all(
     opportunities.map((op) =>
@@ -68,6 +77,7 @@ export async function bootstrap(store: WorkspaceStore): Promise<Bootstrap> {
   const active = connection?.profiles.find((p) => p.id === connection.activeId);
   return {
     ...workspace,
+    sourceHealth: sourceHealth ?? {},
     opportunities: orderOpportunities(
       currentOpportunities,
       workspace.preferences,
@@ -301,6 +311,12 @@ export async function processRun(
     );
     if (!sources.length)
       throw new Error("Add and enable a source before running discovery.");
+    const recordHealth = async (id: string, health: SourceHealth) => {
+      const previous =
+        (await store.runtime<Record<string, SourceHealth>>("source-health")) ??
+        {};
+      await store.setRuntime("source-health", { ...previous, [id]: health });
+    };
     const shortlist: Opportunity[] = [];
     let imported = 0,
       failed = 0;
@@ -309,6 +325,7 @@ export async function processRun(
         Math.round((index / sources.length) * 80),
         `Reading ${source.label}`,
       );
+      const before = imported;
       try {
         let opportunities: Opportunity[];
         if (source.provider === "jobicy") {
@@ -386,7 +403,20 @@ export async function processRun(
           imported++;
           shortlist.push(op);
         }
+        await recordHealth(source.id, {
+          checkedAt: new Date().toISOString(),
+          status: "success",
+          found: opportunities.length,
+          evaluated: imported - before,
+        });
       } catch (error) {
+        await recordHealth(source.id, {
+          checkedAt: new Date().toISOString(),
+          status: "error",
+          found: 0,
+          evaluated: imported - before,
+          error: error instanceof Error ? error.message : "Source failed",
+        });
         failed++;
         await store.event(
           `${source.label}: ${error instanceof Error ? error.message : "Source failed"}`,

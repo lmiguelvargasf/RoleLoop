@@ -6,6 +6,8 @@ import {
 } from "../src/domain/connectors.js";
 import {
   normalizeSource,
+  addRecommendedSources,
+  sourceLibrary,
   recommendedSources,
   applicationCounts,
 } from "../src/shared/discovery.js";
@@ -14,6 +16,123 @@ import { demoWorkspace, demoOpportunities } from "./fixtures.js";
 afterEach(() => vi.unstubAllGlobals());
 
 describe("practical discovery", () => {
+  it("adds researched employers without replacing custom or paused sources", () => {
+    const paused = {
+      ...recommendedSources[0],
+      id: "my-gitlab",
+      label: "My saved board",
+      enabled: false,
+      board: "https://job-boards.greenhouse.io/gitlab",
+    };
+    const existing = [
+      paused,
+      {
+        id: "custom",
+        label: "Custom",
+        provider: "lever" as const,
+        board: "my-company",
+        enabled: true,
+      },
+    ];
+    const merged = addRecommendedSources(existing);
+    expect(merged.find((s) => s.id === paused.id)).toMatchObject({
+      label: "My saved board",
+      enabled: false,
+      board: "gitlab",
+    });
+    expect(merged).toHaveLength(recommendedSources.length + 1);
+    expect(addRecommendedSources(merged)).toEqual(merged);
+    expect(new Set(merged.map((s) => s.id)).size).toBe(merged.length);
+  });
+  it("keeps valid dotted Ashby boards while rejecting path traversal", async () => {
+    const source = recommendedSources.find((s) => s.board === "kraken.com")!;
+    expect(
+      normalizeSource({
+        ...source,
+        board: "https://jobs.ashbyhq.com/kraken.com",
+      }).board,
+    ).toBe("kraken.com");
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue(new Response(JSON.stringify({ jobs: [] }))),
+    );
+    await expect(
+      discover(source, demoWorkspace().preferences),
+    ).resolves.toEqual([]);
+    expect(() => normalizeSource({ ...source, board: "../private" })).toThrow();
+  });
+  it("imports oversized descriptions with explicit uncertainty rather than failing a whole board", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi
+        .fn()
+        .mockResolvedValue(
+          new Response(
+            JSON.stringify({
+              jobs: [
+                {
+                  id: "long",
+                  title: "Engineer",
+                  descriptionPlain:
+                    "Requirements\nReact experience\n" + "a".repeat(60000),
+                  jobUrl: "https://jobs.ashbyhq.com/ashby/long",
+                },
+              ],
+            }),
+          ),
+        ),
+    );
+    const workspace = demoWorkspace();
+    const [op] = await discover(
+      recommendedSources.find((s) => s.board === "ashby")!,
+      workspace.preferences,
+    );
+    expect(op.description).toHaveLength(50000);
+    expect(op.descriptionTruncated).toBe(true);
+    const assessment = assessOpportunity(
+      op,
+      workspace.profile,
+      workspace.preferences,
+    );
+    expect(assessment.recommendation).toBe("review");
+    expect(assessment.unknowns.join(" ")).toContain("shortened");
+  });
+  it("records source provenance across providers without claiming a feed employer is US-based", () => {
+    expect(new Set(sourceLibrary.map((r) => r.source.provider))).toEqual(
+      new Set(["greenhouse", "ashby", "lever", "jobicy"]),
+    );
+    for (const entry of sourceLibrary.filter(
+      (r) => r.source.provider !== "jobicy",
+    )) {
+      expect(entry.source.countrySource).toMatch(/^https:\/\//);
+      expect(entry.source.companyCountry).toBe("United States");
+      expect(entry.checkedAt).toBeTruthy();
+      expect(entry.observedListings).toBeGreaterThan(0);
+    }
+    expect(
+      sourceLibrary.find((r) => r.source.provider === "jobicy")!.source
+        .companyCountry,
+    ).toBeUndefined();
+  });
+  it("avoids ID collisions and refuses additions beyond workspace limits", () => {
+    const collision = {
+      ...recommendedSources[0],
+      board: "another",
+      id: recommendedSources[1].id,
+    };
+    const merged = addRecommendedSources([collision]);
+    expect(new Set(merged.map((s) => s.id)).size).toBe(merged.length);
+    expect(() =>
+      addRecommendedSources(
+        Array.from({ length: 50 }, (_, i) => ({
+          ...collision,
+          id: `id-${i}`,
+          board: `company-${i}`,
+        })),
+      ),
+    ).toThrow(/50/);
+  });
+
   it("keeps nontechnical requirements and ignores section headings", () => {
     const requirements = extractRequirements(
       "Requirements\nMust manage enterprise sales accounts\nExcellent communication skills\nNice to have\nSalesforce experience\nBenefits\nFree lunches",
@@ -88,13 +207,11 @@ describe("practical discovery", () => {
   it("accepts large trusted boards beyond the previous 2 MB cap", async () => {
     vi.stubGlobal(
       "fetch",
-      vi
-        .fn()
-        .mockResolvedValue(
-          new Response(JSON.stringify({ jobs: [] }), {
-            headers: { "content-length": "3000000" },
-          }),
-        ),
+      vi.fn().mockResolvedValue(
+        new Response(JSON.stringify({ jobs: [] }), {
+          headers: { "content-length": "3000000" },
+        }),
+      ),
     );
     expect(
       await discover(recommendedSources[0], demoWorkspace().preferences),
