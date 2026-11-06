@@ -151,11 +151,7 @@ export async function buildServer() {
     const buffer = Buffer.from(input.data, "base64");
     const store = requestStore(req);
     const workspace = await store.getWorkspace();
-    const result = await extractResume(
-      input.name,
-      buffer,
-      workspace.preferences,
-    );
+    const result = await extractResume(input.name, buffer);
     const id = randomUUID();
     const source = {
       id,

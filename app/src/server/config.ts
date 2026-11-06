@@ -24,10 +24,6 @@ export const settings = {
   supabaseAnonKey: process.env.SUPABASE_ANON_KEY || "",
   apiPort: Number(process.env.API_PORT || 4310),
   appUrl: localUrl(process.env.APP_URL || "http://127.0.0.1:5173", "App"),
-  ollamaUrl: localUrl(
-    process.env.OLLAMA_URL || "http://127.0.0.1:11434",
-    "Ollama",
-  ),
   smtpPort: Number(process.env.MAILPIT_PORT || 54335),
   studioUrl: "http://127.0.0.1:54333",
   mailpitUrl: "http://127.0.0.1:54334",

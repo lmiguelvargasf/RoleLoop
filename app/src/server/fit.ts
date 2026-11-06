@@ -61,12 +61,7 @@ export async function assessWithAI(
   workspace: Workspace,
 ): Promise<Assessment> {
   const base = assessOpportunity(op, workspace.profile, workspace.preferences);
-  if (
-    !settings.openaiKey &&
-    workspace.preferences.modelMode !== "ollama" &&
-    !workspace.profile.source
-  )
-    return base;
+  if (!settings.openaiKey && !workspace.profile.source) return base;
   if (!workspace.profile.evidence.some((e) => e.verified)) return base;
   try {
     const raw = await structuredAI(
@@ -84,7 +79,6 @@ export async function assessWithAI(
         evidence: workspace.profile.evidence.filter((e) => e.verified),
         currentlyLearning: workspace.profile.learning,
       },
-      workspace.preferences,
     );
     const fit = validateFit(raw, op, workspace);
     const assessment = assessOpportunity(

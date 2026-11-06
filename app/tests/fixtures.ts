@@ -66,8 +66,6 @@ export function demoWorkspace(): Workspace {
       scheduleEnabled: false,
       scheduleMinutes: 120,
       dailyLimit: 10,
-      modelMode: "templates",
-      ollamaModel: "",
     },
     sources: [
       {

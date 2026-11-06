@@ -99,8 +99,6 @@ export function emptyWorkspace(user: User): Workspace {
       scheduleEnabled: false,
       scheduleMinutes: 120,
       dailyLimit: 10,
-      modelMode: "templates",
-      ollamaModel: "",
     },
     sources: [{
       id: "hn-startups",

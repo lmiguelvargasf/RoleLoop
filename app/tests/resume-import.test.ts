@@ -50,18 +50,17 @@ it("keeps only source quotations, unconfirmed until reviewed", () => {
   );
 });
 it("rejects unsupported, corrupt and oversized documents before AI", async () => {
-  const prefs = demoWorkspace().preferences;
+  await expect(extractResume("file.exe", Buffer.from("abc"))).rejects.toThrow(
+    ".pdf or .docx",
+  );
   await expect(
-    extractResume("file.exe", Buffer.from("abc"), prefs),
-  ).rejects.toThrow(".pdf or .docx");
-  await expect(
-    extractResume("cv.pdf", Buffer.alloc(2 * 1024 * 1024 + 1), prefs),
+    extractResume("cv.pdf", Buffer.alloc(2 * 1024 * 1024 + 1)),
   ).rejects.toThrow("2 MB");
   await expect(
-    extractResume("cv.pdf", Buffer.from("not a PDF"), prefs),
+    extractResume("cv.pdf", Buffer.from("not a PDF")),
   ).rejects.toThrow("could not be opened");
   await expect(
-    extractResume("cv.docx", Buffer.from("not Word"), prefs),
+    extractResume("cv.docx", Buffer.from("not Word")),
   ).rejects.toThrow("could not be opened");
 });
 it("rejects a Word ZIP bomb before decompression", () => {
@@ -74,18 +73,16 @@ it("rejects a Word ZIP bomb before decompression", () => {
 });
 it("uses strict structured hosted output with storage disabled", async () => {
   settings.openaiKey = "test-only";
-  const fetcher = vi
-    .fn()
-    .mockResolvedValue(
-      new Response(
-        JSON.stringify({
-          status: "completed",
-          output: [
-            { content: [{ type: "output_text", text: '{"value":"ok"}' }] },
-          ],
-        }),
-      ),
-    );
+  const fetcher = vi.fn().mockResolvedValue(
+    new Response(
+      JSON.stringify({
+        status: "completed",
+        output: [
+          { content: [{ type: "output_text", text: '{"value":"ok"}' }] },
+        ],
+      }),
+    ),
+  );
   vi.stubGlobal("fetch", fetcher);
   expect(
     await structuredAI(
@@ -93,9 +90,9 @@ it("uses strict structured hosted output with storage disabled", async () => {
       "test",
       "Instructions",
       {},
-      demoWorkspace().preferences,
     ),
   ).toEqual({ value: "ok" });
+  expect(fetcher.mock.calls[0][0]).toBe("https://api.openai.com/v1/responses");
   expect(JSON.parse(fetcher.mock.calls[0][1].body)).toMatchObject({
     store: false,
     text: { format: { strict: true } },
@@ -112,13 +109,7 @@ it("rejects incomplete AI responses", async () => {
       ),
   );
   await expect(
-    structuredAI(
-      z.object({ value: z.string() }),
-      "test",
-      "Instructions",
-      {},
-      demoWorkspace().preferences,
-    ),
+    structuredAI(z.object({ value: z.string() }), "test", "Instructions", {}),
   ).rejects.toThrow("could not finish");
 });
 it("requires existing evidence IDs and complete requirement coverage", () => {
@@ -166,4 +157,40 @@ it("keeps learning outside demonstrated skills and matching", () => {
   expect(
     draft.resume.split("SKILLS\n")[1].split("CURRENTLY LEARNING")[0],
   ).not.toContain("Vue");
+});
+
+it("reports missing OpenAI configuration without attempting any fallback requests", async () => {
+  settings.openaiKey = "";
+  const fetcher = vi.fn();
+  vi.stubGlobal("fetch", fetcher);
+  await expect(
+    structuredAI(z.object({ value: z.string() }), "test", "Instructions", {}),
+  ).rejects.toMatchObject({ statusCode: 503 });
+  expect(fetcher).not.toHaveBeenCalled();
+});
+it("discards retired provider preferences while preserving search settings", async () => {
+  const { PreferencesSchema } = await import("../src/shared/types.js");
+  const preferences = demoWorkspace().preferences;
+  expect(
+    PreferencesSchema.parse({
+      ...preferences,
+      modelMode: "ollama",
+      ollamaModel: "old-model",
+    }),
+  ).toEqual(preferences);
+});
+it("keeps drafts from retired generators readable without changing their text", async () => {
+  const { DraftSchema } = await import("../src/shared/types.js");
+  const workspace = demoWorkspace(),
+    job = demoOpportunities()[0];
+  const draft = createDraft(
+    job,
+    workspace.profile,
+    workspace.preferences,
+    assessOpportunity(job, workspace.profile, workspace.preferences),
+  );
+  const loaded = DraftSchema.parse({ ...draft, generator: "retired-provider" });
+  expect(loaded.generator).toBe("legacy");
+  expect(loaded.resume).toBe(draft.resume);
+  expect(loaded.contentHash).toBe(draft.contentHash);
 });

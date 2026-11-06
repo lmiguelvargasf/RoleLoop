@@ -526,7 +526,7 @@ export function App({
             initial={data.preferences}
             perform={perform}
             busy={busy}
-            ollamaAvailable={data.status.ollamaAvailable}
+            openaiConfigured={data.status.openaiConfigured}
           />
         )}
         {page === "sources" && (
@@ -1457,12 +1457,12 @@ function PreferencesEditor({
   initial,
   perform,
   busy,
-  ollamaAvailable,
+  openaiConfigured,
 }: {
   initial: Preferences;
   perform: Perform;
   busy: boolean;
-  ollamaAvailable: boolean;
+  openaiConfigured: boolean;
 }) {
   const [prefs, setPrefs] = useState(initial);
   const dirty = JSON.stringify(prefs) !== JSON.stringify(initial);
@@ -1597,39 +1597,11 @@ function PreferencesEditor({
                 onChange={(e) => set("dailyLimit", +e.target.value)}
               />
             </Field>
-            <Field
-              label="Draft preparation"
-              hint="Ollama ranks your verified evidence. Final text uses evidence templates to keep claims grounded."
-            >
-              <select
-                value={prefs.modelMode}
-                onChange={(e) =>
-                  set("modelMode", e.target.value as Preferences["modelMode"])
-                }
-              >
-                <option value="templates">
-                  Evidence templates — no model required
-                </option>
-                <option value="ollama">
-                  Ollama evidence ranking + templates
-                </option>
-              </select>
-            </Field>
-            <Field
-              label="Ollama model"
-              hint={
-                ollamaAvailable
-                  ? "Ollama is available locally."
-                  : "Ollama is not currently reachable. Templates work without it."
-              }
-            >
-              <input
-                value={prefs.ollamaModel}
-                onChange={(e) => set("ollamaModel", e.target.value)}
-                placeholder="Installed model name"
-                disabled={prefs.modelMode !== "ollama"}
-              />
-            </Field>
+            <p className="wide">
+              {openaiConfigured
+                ? "OpenAI powers résumé import and experience-based matching. Drafts use your confirmed career facts."
+                : "OpenAI is not configured. Ask your administrator to enable résumé import and AI matching."}
+            </p>
           </div>
         </section>
       </form>
@@ -1964,9 +1936,11 @@ function DraftDetail({
               ? "Application package"
               : "Founder outreach"}{" "}
             ·{" "}
-            {draft.generator === "templates"
-              ? "Evidence templates"
-              : "Local AI"}
+            {draft.generator === "openai"
+              ? "OpenAI-assisted"
+              : draft.generator === "legacy"
+                ? "Previous generator"
+                : "Evidence templates"}
           </p>
         </div>
         <IconButton

@@ -17,7 +17,7 @@ import {
 import { discover, research } from "../domain/connectors.js";
 import { getGlobalRuntime, type WorkspaceStore } from "./store.js";
 import { assertApproved, assertFresh } from "./guards.js";
-import { generateDraft, ollamaAvailable } from "./model.js";
+import { generateDraft } from "./model.js";
 import { resumePdf, sendToLocalInbox } from "./documents.js";
 import { assessWithAI } from "./fit.js";
 import { settings } from "./config.js";
@@ -29,7 +29,7 @@ export const RunInput = z.object({
   draftId: z.string().optional(),
 });
 export async function bootstrap(store: WorkspaceStore): Promise<Bootstrap> {
-  const [workspace, opportunities, drafts, runs, events, heartbeat, model] =
+  const [workspace, opportunities, drafts, runs, events, heartbeat] =
     await Promise.all([
       store.getWorkspace(),
       store.list("opportunities"),
@@ -37,7 +37,6 @@ export async function bootstrap(store: WorkspaceStore): Promise<Bootstrap> {
       store.list("runs", 100),
       store.list("events", 60),
       getGlobalRuntime<{ at: string }>("worker"),
-      ollamaAvailable(),
     ]);
   // Refresh ready jobs saved under the removed missing-salary inclusion policy.
   const currentOpportunities = await Promise.all(
@@ -64,8 +63,8 @@ export async function bootstrap(store: WorkspaceStore): Promise<Bootstrap> {
       database: true,
       worker: !!heartbeat && Date.now() - Date.parse(heartbeat.at) < 15000,
       testMode: true,
-      modelMode: workspace.preferences.modelMode,
-      ollamaAvailable: model,
+      openaiConfigured: !!settings.openaiKey,
+      openaiModel: settings.openaiModel,
       studioUrl: settings.studioUrl,
       mailpitUrl: settings.mailpitUrl,
     },

@@ -26,12 +26,7 @@ async function main() {
     process.exitCode = 1;
     return;
   }
-  for (const key of [
-    "SUPABASE_URL",
-    "SUPABASE_STUDIO_URL",
-    "MAILPIT_URL",
-    "OLLAMA_URL",
-  ]) {
+  for (const key of ["SUPABASE_URL", "SUPABASE_STUDIO_URL", "MAILPIT_URL"]) {
     if (
       env[key] &&
       !["127.0.0.1", "localhost", "[::1]"].includes(new URL(env[key]).hostname)
@@ -99,21 +94,11 @@ async function main() {
     socket.once("error", () => finish(false));
     socket.once("timeout", () => finish(false));
   });
-  try {
-    const response = await fetch(
-      `${env.OLLAMA_URL || "http://127.0.0.1:11434"}/api/tags`,
-      { signal: AbortSignal.timeout(1500) },
-    );
-    console.log(
-      response.ok
-        ? "OK Optional Ollama service"
-        : "OPTIONAL Ollama unavailable; evidence templates remain usable",
-    );
-  } catch {
-    console.log(
-      "OPTIONAL Ollama unavailable; evidence templates remain usable",
-    );
-  }
+  console.log(
+    process.env.OPENAI_API_KEY || env.OPENAI_API_KEY
+      ? "OK OpenAI key configured (connection not tested)"
+      : "OPTIONAL OpenAI key missing; résumé import and AI matching need OPENAI_API_KEY",
+  );
   try {
     const { stdout } = await promisify(execFile)(
       "docker",

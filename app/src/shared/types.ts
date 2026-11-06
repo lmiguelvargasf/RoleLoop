@@ -54,8 +54,6 @@ export const PreferencesSchema = z.object({
   scheduleEnabled: z.boolean().default(false),
   scheduleMinutes: z.number().int().min(15).max(1440).default(120),
   dailyLimit: z.number().int().min(1).max(100).default(10),
-  modelMode: z.enum(["templates", "ollama"]).default("templates"),
-  ollamaModel: z.string().max(100).default(""),
 });
 export const SourceSchema = z.object({
   id: z.string(),
@@ -162,7 +160,10 @@ export const DraftSchema = z.object({
   contentHash: z.string(),
   artifactPath: z.string().nullable().default(null),
   testReceipt: z.string().nullable().default(null),
-  generator: z.enum(["templates", "ollama"]).default("templates"),
+  generator: z
+    .enum(["templates", "openai", "legacy"])
+    .catch("legacy")
+    .default("templates"),
 });
 export type Profile = z.infer<typeof ProfileSchema>;
 export type Preferences = z.infer<typeof PreferencesSchema>;
@@ -223,8 +224,8 @@ export interface Bootstrap extends Workspace {
     database: boolean;
     worker: boolean;
     testMode: true;
-    modelMode: string;
-    ollamaAvailable: boolean;
+    openaiConfigured: boolean;
+    openaiModel: string;
     studioUrl: string;
     mailpitUrl: string;
   };

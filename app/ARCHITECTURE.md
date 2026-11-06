@@ -10,7 +10,7 @@ flowchart LR
   WORKER --> HN["Show HN + public websites\nStartup research leads"]
   ATS --> RULES["Eligibility + dates + salary\nVerified evidence coverage"]
   HN --> RESEARCH["Company facts + contact source\nExploratory relevance"]
-  RULES --> DRAFT["Evidence templates\nOptional Ollama ranking"]
+  RULES --> DRAFT["Evidence templates\nOpenAI evidence selection"]
   RESEARCH --> DRAFT
   DRAFT --> DB
   UI --> REVIEW["Review exact draft\nHash-bound approval"]
@@ -25,7 +25,7 @@ The worker claims durable database rows with `FOR UPDATE SKIP LOCKED`. A renewab
 
 Job coverage uses verified evidence for each requirement, with essential requirements weighted at 80% where both essential and preferred requirements exist. A matching skill does not prove years of experience, credentials or legal eligibility. Startup relevance is a separate exploration measure. Unknown facts remain review items; explicit contradictions are exclusions. Publication timestamps are distinct from discovery timestamps.
 
-Sources and website content are untrusted data. Bounded public-website requests validate and pin DNS, reject private/reserved addresses, validate every redirect, and cap response size/time. The model endpoint is restricted to localhost and refuses redirects. Model output can only select existing evidence IDs. HTML is escaped before PDF rendering and the document browser blocks network requests.
+Sources and website content are untrusted data. Bounded public-website requests validate and pin DNS, reject private/reserved addresses, validate every redirect, and cap response size/time. AI requests use the fixed OpenAI Responses endpoint and refuse redirects. Model output can only select existing evidence IDs. HTML is escaped before PDF rendering and the document browser blocks network requests.
 
 Approval binds the profile, preferences, source opportunity, and exact draft text. Draft mutations revoke approval. Execution checks these values again before local simulation. No code path submits a real application or sends external mail. This is a testing foundation; future real delivery should use provider-specific adapters and separately defined authorization.
 

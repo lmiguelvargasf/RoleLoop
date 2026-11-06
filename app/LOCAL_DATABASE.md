@@ -22,7 +22,7 @@ Setup uses Supabase CLI **2.117.0**, downloading that exact CLI through `npx` wh
 | Mailpit SMTP capture | 127.0.0.1:54335 |
 | Shadow database, when needed | 127.0.0.1:54330 |
 
-Mailpit captures test email locally. Messages accepted by this SMTP service are visible in the test inbox; they are not delivered to real recipients. Ollama is optional and is checked at `http://127.0.0.1:11434`.
+Mailpit captures test email locally. Messages accepted by this SMTP service are visible in the test inbox; they are not delivered to real recipients. OpenAI is the only AI provider. Set `OPENAI_API_KEY` in the server environment for résumé import and AI matching.
 
 ## Network binding on Docker Desktop
 

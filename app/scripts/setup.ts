@@ -174,6 +174,7 @@ async function main() {
   } catch {
     /* First run. */
   }
+  delete existing.OLLAMA_URL;
   const values: Record<string, string> = {
     ...existing,
     SUPABASE_URL: apiUrl,
@@ -185,7 +186,6 @@ async function main() {
     MAILPIT_URL: "http://127.0.0.1:54334",
     MAILPIT_HOST: "127.0.0.1",
     MAILPIT_PORT: "54335",
-    OLLAMA_URL: existing.OLLAMA_URL || "http://127.0.0.1:11434",
   };
   await mkdir(resolve(appDir, ".local"), { recursive: true });
   await writeFile(
