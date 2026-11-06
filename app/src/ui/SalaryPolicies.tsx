@@ -169,9 +169,7 @@ export function SalaryPolicies({
   const reviewMinimum = salaryReviewMinimum(minimumSalary);
   const minimum = salaryFlexibility ? reviewMinimum : minimumSalary;
   const threshold = currency.format(minimum);
-  const exampleLower = Math.floor((minimum * 0.9) / 10000) * 10000;
-  const exampleUpper = Math.ceil((minimum * 1.1) / 10000) * 10000;
-  const exampleRange = `${currency.format(exampleLower)}–${currency.format(exampleUpper)}`;
+  const allowance = salaryFlexibility ? " with your 10% allowance" : "";
 
   return (
     <div className="salary-policies">
@@ -182,19 +180,15 @@ export function SalaryPolicies({
         options={[
           {
             value: "overlap",
-            label: `Highest pay: ${threshold} or more`,
+            label: "Allow a lower starting salary",
             description:
-              minimum > 0
-                ? `Keep ${exampleRange}/year for review: you could negotiate ${threshold} or more.`
-                : "Keep jobs when the highest salary in their range meets your minimum.",
+              `The range must still reach ${threshold}/year${allowance}. Starting below your minimum means review.`,
           },
           {
             value: "strict",
-            label: `Starting pay: ${threshold} or more`,
+            label: "Require my minimum as starting pay",
             description:
-              minimum > 0
-                ? `Exclude ${exampleRange}/year: its starting pay is below ${threshold}.`
-                : "Only keep jobs when the lowest salary in their range meets your minimum.",
+              `The range must start at ${threshold}/year or higher${allowance}. Otherwise, exclude the job.`,
           },
         ]}
       />
