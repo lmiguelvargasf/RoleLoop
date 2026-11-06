@@ -72,8 +72,13 @@ export function TargetRolesInput({
           </button>
         </div>
         {roles.length > 0 ? (
-          <ul className="role-overview-list" aria-label="Target role preview">
-            {roles.slice(0, 6).map((role, index) => (
+          <ul
+            className="role-overview-list"
+            aria-label="Target role titles"
+            aria-describedby={roles.length > 6 ? `${id}-scroll-hint` : undefined}
+            tabIndex={roles.length > 6 ? 0 : undefined}
+          >
+            {roles.map((role, index) => (
               <li key={`${role}-${index}`}>{role}</li>
             ))}
           </ul>
@@ -83,14 +88,9 @@ export function TargetRolesInput({
           </p>
         )}
         {roles.length > 6 && (
-          <button
-            type="button"
-            className="role-overview-more"
-            onClick={() => setOpen(true)}
-            disabled={disabled}
-          >
-            +{roles.length - 6} more titles
-          </button>
+          <p className="role-overview-hint" id={`${id}-scroll-hint`}>
+            Scroll to see all {roles.length} titles
+          </p>
         )}
       </div>
       {open &&

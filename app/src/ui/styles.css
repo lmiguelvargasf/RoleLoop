@@ -1143,9 +1143,21 @@ code {
   display: grid;
   grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
   gap: 0 24px;
-  margin: 0;
-  padding: 0 20px 6px;
+  margin: 0 0 6px;
+  padding: 0 20px;
+  overflow-y: auto;
+  overscroll-behavior-y: contain;
+  scrollbar-width: thin;
+  scrollbar-color: #c4d0dc transparent;
   list-style: none;
+}
+.role-overview-list[tabindex="0"] {
+  /* Three two-column rows keep at most six titles visible. */
+  max-height: 123px;
+}
+.role-overview-list:focus-visible {
+  outline: 3px solid #49aab4;
+  outline-offset: -3px;
 }
 .role-overview-list li {
   padding: 11px 0;
@@ -1156,20 +1168,13 @@ code {
   line-height: 1.5;
   overflow-wrap: anywhere;
 }
-.role-overview-more {
-  display: block;
-  width: 100%;
+.role-overview-hint {
   padding: 11px 20px 13px;
-  border: 0;
   background: #f9fbfc;
   color: #397380;
-  text-align: left;
   font-size: 11px;
   font-weight: 500;
-  transition: background 0.16s;
-}
-.role-overview-more:hover {
-  background: #eef6f7;
+  line-height: 1.5;
 }
 .role-overview-empty {
   padding: 0 20px 20px;
@@ -1462,9 +1467,13 @@ code {
   }
   .role-overview-list {
     grid-template-columns: minmax(0, 1fr);
-    padding: 0 16px 4px;
+    margin-bottom: 4px;
+    padding: 0 16px;
   }
-  .role-overview-more {
+  .role-overview-list[tabindex="0"] {
+    max-height: 246px;
+  }
+  .role-overview-hint {
     padding-left: 16px;
   }
   .roles-editor {
