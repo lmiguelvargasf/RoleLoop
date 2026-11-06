@@ -121,7 +121,10 @@ export function createDraft(
     },
     {
       question: "What are your salary expectations?",
-      answer: `My target is USD ${prefs.targetSalary.toLocaleString("en-US")} annually in base compensation, subject to the role and employment arrangement.`,
+      answer:
+        prefs.targetSalary === null
+          ? "I am open to discussing base compensation based on the role, responsibilities, and employment arrangement."
+          : `My target is USD ${prefs.targetSalary.toLocaleString("en-US")} annually in base compensation, subject to the role and employment arrangement.`,
     },
   ];
   const stamp = new Date().toISOString();

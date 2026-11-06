@@ -1,8 +1,9 @@
-import { useId, useState } from "react";
+import { useId, useRef, useState } from "react";
+import type { Preferences } from "../shared/types";
 
 type SalaryPeriod = "annual" | "monthly";
 type SalaryKey = "minimumSalary" | "targetSalary";
-type Salaries = Record<SalaryKey, number>;
+type Salaries = Pick<Preferences, SalaryKey>;
 
 const currency = new Intl.NumberFormat("en-US", {
   style: "currency",
@@ -19,12 +20,16 @@ export function SalaryFields({
   minimumSalary,
   targetSalary,
   onChange,
-}: Salaries & { onChange: (key: SalaryKey, annual: number) => void }) {
+}: Salaries & {
+  onChange: <K extends SalaryKey>(key: K, annual: Preferences[K]) => void;
+}) {
   const id = useId();
   const [period, setPeriod] = useState<SalaryPeriod>("annual");
+  const [showTarget, setShowTarget] = useState(targetSalary !== null);
+  const addTargetButton = useRef<HTMLButtonElement>(null);
   const [amounts, setAmounts] = useState({
     minimumSalary: String(minimumSalary),
-    targetSalary: String(targetSalary),
+    targetSalary: targetSalary === null ? "" : String(targetSalary),
   });
   const salaries = { minimumSalary, targetSalary };
   const otherPeriod = period === "annual" ? "Monthly" : "Annual";
@@ -38,9 +43,91 @@ export function SalaryFields({
       minimumSalary:
         amounts.minimumSalary === "" ? "" : editableAmount(minimumSalary, next),
       targetSalary:
-        amounts.targetSalary === "" ? "" : editableAmount(targetSalary, next),
+        amounts.targetSalary === "" || targetSalary === null
+          ? ""
+          : editableAmount(targetSalary, next),
     });
     setPeriod(next);
+  }
+
+  function removeTarget() {
+    onChange("targetSalary", null);
+    setAmounts((current) => ({ ...current, targetSalary: "" }));
+    setShowTarget(false);
+    requestAnimationFrame(() => addTargetButton.current?.focus());
+  }
+
+  function salaryField(key: SalaryKey) {
+    const isMinimum = key === "minimumSalary";
+    const label = isMinimum
+      ? `Minimum acceptable ${period} salary`
+      : `Target ${period} salary (optional)`;
+    const annual = salaries[key];
+    const equivalent =
+      annual === null ? null : period === "annual" ? annual / 12 : annual;
+    const valid =
+      amounts[key] !== "" &&
+      Number.isFinite(Number(amounts[key])) &&
+      Number(amounts[key]) >= 0;
+    const fieldId = `${id}-${key}`;
+    return (
+      <div className="salary-field" id={`${fieldId}-field`}>
+        <div className="salary-field-heading">
+          <label htmlFor={fieldId}>{label}</label>
+          {!isMinimum && (
+            <button
+              type="button"
+              className="text-button"
+              onClick={removeTarget}
+              aria-label="Remove target salary"
+            >
+              Remove
+            </button>
+          )}
+        </div>
+        <div className="salary-input">
+          <span aria-hidden="true">$</span>
+          <input
+            id={fieldId}
+            type="number"
+            inputMode="decimal"
+            required={isMinimum}
+            min={isMinimum ? 0 : editableAmount(minimumSalary, period)}
+            step="0.01"
+            aria-label={`${label} (USD)`}
+            aria-describedby={`${fieldId}-hint ${fieldId}-equivalent`}
+            autoFocus={!isMinimum && targetSalary === null}
+            value={amounts[key]}
+            onChange={(event) => {
+              const raw = event.target.value;
+              setAmounts((current) => ({ ...current, [key]: raw }));
+              if (raw === "" && !isMinimum) {
+                onChange("targetSalary", null);
+              } else if (raw !== "" && Number.isFinite(Number(raw))) {
+                const annual = Number(raw) * (period === "monthly" ? 12 : 1);
+                onChange(
+                  key,
+                  Math.round((annual + Number.EPSILON) * 100) / 100,
+                );
+              }
+            }}
+          />
+          <span aria-hidden="true">/ {unit}</span>
+        </div>
+        <div className="salary-equivalent" id={`${fieldId}-equivalent`}>
+          <span>{otherPeriod} equivalent</span>
+          <output htmlFor={fieldId} aria-live="off">
+            {valid && equivalent !== null ? currency.format(equivalent) : "—"}
+            <span> / {otherUnit}</span>
+          </output>
+        </div>
+        <p className="salary-hint" id={`${fieldId}-hint`}>
+          {isMinimum
+            ? "No upper limit. Higher-paying roles are always welcome."
+            : "Guides salary-expectation answers. It never limits your matches."}
+        </p>
+      </div>
+    );
   }
 
   return (
@@ -65,56 +152,26 @@ export function SalaryFields({
         </fieldset>
         <span className="salary-conversion-note">12 months per year · USD</span>
       </div>
-      {(["minimumSalary", "targetSalary"] as const).map((key) => {
-        const label = key === "minimumSalary" ? "Minimum" : "Target";
-        const annual = salaries[key];
-        const equivalent = period === "annual" ? annual / 12 : annual;
-        const valid = amounts[key] !== "" && Number(amounts[key]) >= 0;
-        const fieldId = `${id}-${key}`;
-        return (
-          <div className="salary-field" key={key}>
-            <label className="field" htmlFor={fieldId}>
-              <span>
-                {label} {period} salary
-              </span>
-              <span className="salary-input">
-                <span aria-hidden="true">$</span>
-                <input
-                  id={fieldId}
-                  type="number"
-                  inputMode="decimal"
-                  required
-                  min="0"
-                  step="0.01"
-                  aria-label={`${label} ${period} salary (USD)`}
-                  aria-describedby={`${fieldId}-equivalent`}
-                  value={amounts[key]}
-                  onChange={(event) => {
-                    const raw = event.target.value;
-                    setAmounts((current) => ({ ...current, [key]: raw }));
-                    if (raw !== "" && Number.isFinite(Number(raw))) {
-                      const annual =
-                        Number(raw) * (period === "monthly" ? 12 : 1);
-                      onChange(
-                        key,
-                        Math.round((annual + Number.EPSILON) * 100) / 100,
-                      );
-                    }
-                  }}
-                />
-                <span aria-hidden="true">/ {unit}</span>
-              </span>
-            </label>
-            <div className="salary-equivalent" id={`${fieldId}-equivalent`}>
-              <span>{otherPeriod} equivalent</span>
-              <output htmlFor={fieldId} aria-live="off">
-                {valid ? currency.format(equivalent) : "—"}
-                <span> / {otherUnit}</span>
-              </output>
-            </div>
+      <div className="salary-fields">
+        {salaryField("minimumSalary")}
+        {showTarget ? (
+          salaryField("targetSalary")
+        ) : (
+          <div className="salary-target-option">
+            <button
+              ref={addTargetButton}
+              type="button"
+              className="text-button"
+              onClick={() => setShowTarget(true)}
+            >
+              Add a target salary
+            </button>
+            <p className="salary-hint">
+              Optional. Use it to guide salary-expectation answers.
+            </p>
           </div>
-        );
-      })}
+        )}
+      </div>
     </>
   );
 }

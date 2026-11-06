@@ -143,6 +143,45 @@ integration(
         expect(own.json().status.studioUrl).toBe("");
       }
     });
+    it("saves a minimum alone, adds or clears a target, and validates an explicit target", async () => {
+      const actor = await account("Salary preferences test");
+      const own = await app.inject({
+        url: "/api/bootstrap",
+        headers: headers(actor, actor.workspaceId),
+      });
+      expect(own.statusCode, own.body).toBe(200);
+      const preferences = own.json().preferences;
+      expect(preferences.targetSalary).toBeNull();
+      for (const targetSalary of [undefined, 200000, null]) {
+        const response = await app.inject({
+          method: "PUT",
+          url: "/api/preferences",
+          headers: headers(actor, actor.workspaceId),
+          payload: { ...preferences, minimumSalary: 150000, targetSalary },
+        });
+        expect(response.statusCode, response.body).toBe(200);
+        expect(response.json().targetSalary).toBe(targetSalary ?? null);
+        const saved = await app.inject({
+          url: "/api/bootstrap",
+          headers: headers(actor, actor.workspaceId),
+        });
+        expect(saved.statusCode, saved.body).toBe(200);
+        expect(saved.json().preferences).toMatchObject({
+          minimumSalary: 150000,
+          targetSalary: targetSalary ?? null,
+        });
+      }
+      const invalid = await app.inject({
+        method: "PUT",
+        url: "/api/preferences",
+        headers: headers(actor, actor.workspaceId),
+        payload: { ...preferences, minimumSalary: 150000, targetSalary: 140000 },
+      });
+      expect(invalid.statusCode).toBe(400);
+      expect(invalid.json().error).toContain(
+        "Target salary must be at least the minimum salary",
+      );
+    });
     it("blocks cross-workspace reads, updates, exports and direct database access", async () => {
       const created = await app.inject({
         method: "POST",

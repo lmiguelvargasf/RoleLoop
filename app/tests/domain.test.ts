@@ -10,6 +10,7 @@ import {
   profileFingerprint,
 } from "../src/domain/rules.js";
 import { createDraft } from "../src/domain/templates.js";
+import { PreferencesSchema } from "../src/shared/types.js";
 
 const now = new Date("2026-11-05T17:00:00Z");
 function setup() {
@@ -195,6 +196,34 @@ describe("evidence and eligibility", () => {
   });
 });
 describe("salary policies", () => {
+  it("accepts an unset target and preserves existing targets", () => {
+    const { preferences } = setup();
+    expect(PreferencesSchema.parse(preferences).targetSalary).toBe(120000);
+    expect(
+      PreferencesSchema.parse({ ...preferences, targetSalary: null })
+        .targetSalary,
+    ).toBeNull();
+    const { targetSalary, ...minimumOnly } = preferences;
+    expect(PreferencesSchema.parse(minimumOnly).targetSalary).toBeNull();
+  });
+  it.each([null, 120000])(
+    "keeps higher-paying roles eligible with target %s",
+    (targetSalary) => {
+      const { profile, preferences, job } = setup();
+      job.salaryMin = 180000;
+      job.salaryMax = 250000;
+      for (const salaryPolicy of ["overlap", "strict"] as const) {
+        expect(
+          assessOpportunity(
+            job,
+            profile,
+            { ...preferences, targetSalary, salaryPolicy },
+            now,
+          ).recommendation,
+        ).toBe("ready");
+      }
+    },
+  );
   it("routes overlapping salary to negotiation, rather than claiming the floor is guaranteed", () => {
     const { profile, preferences, job } = setup();
     job.salaryMin = 80000;
@@ -242,6 +271,31 @@ describe("salary policies", () => {
   });
 });
 describe("truthful drafts and change fingerprints", () => {
+  it.each([null, 120000, 0])(
+    "uses target %s for salary answers without volunteering the minimum",
+    (targetSalary) => {
+      const { profile, preferences, job } = setup();
+      preferences.targetSalary = targetSalary;
+      if (targetSalary === 0) preferences.minimumSalary = 0;
+      const draft = createDraft(
+        job,
+        profile,
+        preferences,
+        assessOpportunity(job, profile, preferences, now),
+      );
+      const answer = draft.answers.find((a) =>
+        a.question.includes("salary expectations"),
+      )?.answer;
+      if (targetSalary === null) {
+        expect(answer).toContain("open to discussing base compensation");
+        expect(answer).not.toContain("90,000");
+      } else {
+        expect(answer).toContain(
+          `My target is USD ${targetSalary.toLocaleString("en-US")}`,
+        );
+      }
+    },
+  );
   it("omits unverified experience and keeps supplied achievements exact", () => {
     const { profile, preferences, job } = setup();
     profile.evidence.push({

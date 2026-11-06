@@ -24,7 +24,7 @@ export const ProfileSchema = z.object({
 export const PreferencesSchema = z.object({
   roles: z.array(z.string()),
   minimumSalary: z.number().min(0),
-  targetSalary: z.number().min(0),
+  targetSalary: z.number().min(0).nullable().default(null),
   salaryPolicy: z.enum(["overlap", "strict"]),
   missingSalary: z.enum(["review", "exclude", "include"]),
   lookback: z.number().int().min(0).max(365),

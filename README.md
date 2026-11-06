@@ -62,7 +62,7 @@ Supabase Studio and Mailpit are shared local developer tools. RoleLoop account p
 - Public ATS-board imports, launch-feed startup discovery, manual opportunity entry and bounded public-website research.
 - Source deduplication with refreshed source facts and preservation of explicit user corrections.
 - Separate job requirement coverage and startup relevance indicators. An 85–90% job threshold is configurable; the app does not manufacture experience to reach it or claim an external ATS score.
-- Salary floor/target, overlap/strict salary policy, undisclosed-pay handling, remote-country checks and inclusive posting-date windows. Unknown publication dates remain unknown. Older posts can be excluded or retained with lower freshness priority.
+- Salary minimum with no upper limit, an optional target for application answers, overlap/strict salary policy, undisclosed-pay handling, remote-country checks and inclusive posting-date windows. Unknown publication dates remain unknown. Older posts can be excluded or retained with lower freshness priority.
 - Evidence-based résumé ordering, application answers, cover letters and founder email drafts. Optional local Ollama ranks existing evidence; it does not invent free-form career claims. Templates work without a model or API key.
 - Draft review and editing; regeneration is required after source, profile or preference changes.
 - PDF/text/JSON export and private Supabase artifact storage.

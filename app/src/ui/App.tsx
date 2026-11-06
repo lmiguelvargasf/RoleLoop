@@ -55,6 +55,7 @@ import type {
 } from "../shared/types";
 import { api, date, downloadFile, safeUrl, uid, words, write } from "./api";
 import { SalaryFields } from "./SalaryFields";
+import { TargetRolesInput } from "./TargetRolesInput";
 
 type Page =
   | "jobs"
@@ -1683,7 +1684,6 @@ function PreferencesEditor({
   ollamaAvailable: boolean;
 }) {
   const [prefs, setPrefs] = useState(initial),
-    [roles, setRoles] = useState(initial.roles.join(", ")),
     [industries, setIndustries] = useState(initial.industries.join(", "));
   const set = <K extends keyof Preferences>(key: K, value: Preferences[K]) =>
     setPrefs((p) => ({ ...p, [key]: value }));
@@ -1705,7 +1705,6 @@ function PreferencesEditor({
                 "/preferences",
                 {
                   ...prefs,
-                  roles: words(roles),
                   industries: words(industries),
                 },
                 "PUT",
@@ -1719,13 +1718,18 @@ function PreferencesEditor({
             <h2>Roles & location</h2>
           </div>
           <div className="form-grid">
-            <Field
-              label="Target roles"
-              hint="Separate titles with commas."
-              wide
-            >
-              <input value={roles} onChange={(e) => setRoles(e.target.value)} />
-            </Field>
+            <TargetRolesInput
+              roles={prefs.roles}
+              disabled={busy}
+              onSave={async (roles) => {
+                const saved = await perform(async () => {
+                  const { preferences } = await api<Bootstrap>("/bootstrap");
+                  await write("/preferences", { ...preferences, roles }, "PUT");
+                }, "Target roles saved.");
+                if (saved) set("roles", roles);
+                return saved;
+              }}
+            />
             <Field label="Working country">
               <input
                 required
@@ -1752,8 +1756,8 @@ function PreferencesEditor({
           <div className="form-section-heading">
             <h2>Compensation</h2>
             <p>
-              Set your base salary in either period. The other amount updates
-              automatically.
+              Set the lowest base salary you would accept. Enter a monthly or
+              annual amount to see its equivalent.
             </p>
           </div>
           <div className="form-grid compensation-grid">

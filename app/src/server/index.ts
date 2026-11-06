@@ -172,7 +172,10 @@ export async function buildServer() {
         { statusCode: 400 },
       );
     }
-    if (preferences.targetSalary < preferences.minimumSalary)
+    if (
+      preferences.targetSalary !== null &&
+      preferences.targetSalary < preferences.minimumSalary
+    )
       throw Object.assign(
         new Error("Target salary must be at least the minimum salary."),
         { statusCode: 400 },
