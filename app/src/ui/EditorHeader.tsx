@@ -9,7 +9,7 @@ export function EditorHeader({
 }: {
   titleId: string;
   title: string;
-  description: string;
+  description?: string;
   dirty: boolean;
   busy: boolean;
 }) {
@@ -17,7 +17,7 @@ export function EditorHeader({
     <header className="editor-header">
       <div className="editor-heading">
         <h1 id={titleId}>{title}</h1>
-        <p>{description}</p>
+        {description && <p>{description}</p>}
       </div>
       <div className="editor-actions">
         <span

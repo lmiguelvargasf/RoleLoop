@@ -1,5 +1,12 @@
 import { useRef, useState } from "react";
-import { FileText, Upload, Download, Check, LoaderCircle } from "lucide-react";
+import {
+  FileText,
+  Upload,
+  Download,
+  Check,
+  LoaderCircle,
+  ChevronRight,
+} from "lucide-react";
 import type { Profile } from "../shared/types";
 import { api, downloadFile, words, write } from "./api";
 import { EditorHeader } from "./EditorHeader";
@@ -93,77 +100,85 @@ export function ProfileEditor({ initial, busy, perform }: Props) {
         <EditorHeader
           titleId="profile-title"
           title="My profile"
-          description="One career profile. A résumé for every next move."
           dirty={dirty}
           busy={busy || importing}
         />
-        <section className="resume-source-panel" aria-label="Master résumé">
-          <div className="resume-source-symbol">
-            <FileText size={28} />
+        <section
+          className="form-section profile-source"
+          aria-labelledby="resume-source-title"
+        >
+          <div className="form-section-heading">
+            <h2 id="resume-source-title">Master résumé</h2>
+            <p>Upload a CV to update your career details.</p>
           </div>
-          <div className="resume-source-copy">
-            <span className="eyebrow">YOUR MASTER RÉSUMÉ</span>
-            <h2>
-              {pending
-                ? "Your profile is ready to review"
-                : profile.source?.name || "Start with your experience"}
-            </h2>
-            <p>
-              {pending
-                ? "Check the overview and career details below. Saving confirms these facts for matching and drafts."
-                : profile.source
-                  ? "Your original stays private. Upload an updated CV whenever your experience changes."
-                  : "Upload your complete CV. We’ll organize the details and use them to tailor your applications."}
-            </p>
-            <small>
-              {profile.source
-                ? `Imported ${new Date(profile.source.importedAt).toLocaleDateString()} · `
-                : ""}
-              PDF or Word · up to 2 MB · readable text
-            </small>
-          </div>
-          <div className="resume-source-actions">
-            <input
-              ref={fileInput}
-              type="file"
-              accept=".pdf,.docx"
-              hidden
-              aria-label="Upload résumé"
-              onChange={(e) => void upload(e.target.files?.[0])}
+          <div className="resume-document" aria-busy={importing}>
+            <FileText
+              size={22}
+              className="resume-document-icon"
+              aria-hidden="true"
             />
-            <button
-              className="button primary"
-              type="button"
-              disabled={busy || importing}
-              onClick={() => fileInput.current?.click()}
-            >
-              {importing ? (
-                <LoaderCircle size={16} className="spin" />
-              ) : (
-                <Upload size={16} />
+            <div className="resume-document-copy">
+              <span
+                className="resume-document-name"
+                title={profile.source?.name}
+              >
+                {profile.source?.name || "No CV attached"}
+              </span>
+              <span className="resume-document-meta" role="status">
+                {importing
+                  ? "Reading CV…"
+                  : pending
+                    ? "Review required before saving"
+                    : profile.source
+                      ? `Imported ${new Intl.DateTimeFormat(undefined, { month: "short", day: "numeric", year: "numeric" }).format(new Date(profile.source.importedAt))}`
+                      : "PDF or Word · Up to 2 MB"}
+              </span>
+            </div>
+            <div className="resume-document-actions">
+              <input
+                ref={fileInput}
+                type="file"
+                accept=".pdf,.docx"
+                hidden
+                aria-label="Upload résumé"
+                onChange={(e) => void upload(e.target.files?.[0])}
+              />
+              {profile.source && (
+                <button
+                  className="button"
+                  type="button"
+                  disabled={busy || importing}
+                  onClick={() =>
+                    void perform(() =>
+                      downloadFile(
+                        `/profile/sources/${profile.source!.id}/${profile.source!.kind}`,
+                        profile.source!.name,
+                      ),
+                    )
+                  }
+                >
+                  <Download size={15} aria-hidden="true" />
+                  Download
+                </button>
               )}
-              {importing
-                ? "Reading your CV…"
-                : profile.source
-                  ? "Replace CV"
-                  : "Upload CV"}
-            </button>
-            {profile.source && (
               <button
                 className="button"
                 type="button"
-                onClick={() =>
-                  void perform(() =>
-                    downloadFile(
-                      `/profile/sources/${profile.source!.id}/${profile.source!.kind}`,
-                      profile.source!.name,
-                    ),
-                  )
-                }
+                disabled={busy || importing}
+                onClick={() => fileInput.current?.click()}
               >
-                <Download size={15} /> Original
+                {importing ? (
+                  <LoaderCircle size={15} className="spin" aria-hidden="true" />
+                ) : (
+                  <Upload size={15} aria-hidden="true" />
+                )}
+                {importing
+                  ? "Reading…"
+                  : profile.source
+                    ? "Replace CV"
+                    : "Upload CV"}
               </button>
-            )}
+            </div>
           </div>
         </section>
         {error && (
@@ -211,8 +226,8 @@ export function ProfileEditor({ initial, busy, perform }: Props) {
         )}
         <section className="form-section">
           <div className="form-section-heading">
-            <h2>Professional overview</h2>
-            <p>Your introduction and contact details.</p>
+            <h2>Personal details</h2>
+            <p>Shown on your application documents.</p>
           </div>
           <div className="form-grid">
             {(
@@ -226,6 +241,17 @@ export function ProfileEditor({ initial, busy, perform }: Props) {
               <label className="field" key={key}>
                 <span>{label}</span>
                 <input
+                  name={key}
+                  autoComplete={
+                    key === "name"
+                      ? "name"
+                      : key === "email"
+                        ? "email"
+                        : key === "portfolio"
+                          ? "url"
+                          : "organization-title"
+                  }
+                  spellCheck={key !== "email" && key !== "portfolio"}
                   required={key === "name"}
                   type={
                     key === "email"
@@ -240,9 +266,10 @@ export function ProfileEditor({ initial, busy, perform }: Props) {
               </label>
             ))}
             <label className="field wide">
-              <span>About you</span>
+              <span>Summary</span>
               <textarea
-                rows={3}
+                rows={4}
+                name="summary"
                 value={profile.summary}
                 onChange={(e) => set("summary", e.target.value)}
               />
@@ -252,14 +279,12 @@ export function ProfileEditor({ initial, busy, perform }: Props) {
                 Currently learning <small>Optional</small>
               </span>
               <input
+                name="learning"
                 value={profile.learning}
                 onChange={(e) => set("learning", e.target.value)}
-                placeholder="For example: learning Vue through a personal project"
+                placeholder="e.g. Vue through a personal project"
               />
-              <small>
-                Used to discuss learning gaps. These skills are labelled as
-                learning in your drafts.
-              </small>
+              <small>Listed as learning in generated résumés.</small>
             </label>
           </div>
         </section>
@@ -268,6 +293,7 @@ export function ProfileEditor({ initial, busy, perform }: Props) {
           open={pending || undefined}
         >
           <summary>
+            <ChevronRight size={16} aria-hidden="true" />
             <span>Career details</span>
             <small>
               {profile.evidence.length}{" "}
@@ -275,122 +301,125 @@ export function ProfileEditor({ initial, busy, perform }: Props) {
               {profile.skills.length} skills
             </small>
           </summary>
-          <p className="career-details-intro">
-            The facts behind your matches and drafts. Expand an entry to make a
-            correction.
-          </p>
-          <label className="field">
-            <span>Skills from your CV</span>
-            <input
-              value={profile.skills.join(", ")}
-              onChange={(e) => set("skills", words(e.target.value))}
-            />
-          </label>
-          {profile.evidence.map((entry, index) => (
-            <details className="career-entry" key={entry.id}>
-              <summary>
-                <span>
-                  {entry.role || entry.category || "Experience"}
-                  {entry.company ? ` · ${entry.company}` : ""}
-                </span>
-                <small>{entry.period || `Entry ${index + 1}`}</small>
-              </summary>
-              <div className="form-grid">
-                {(
-                  [
-                    ["role", "Role / qualification"],
-                    ["company", "Company / institution"],
-                    ["period", "Period"],
-                  ] as const
-                ).map(([key, label]) => (
-                  <label className="field" key={key}>
-                    <span>{label}</span>
+          <div className="career-details-content">
+            <p className="career-details-intro">
+              The facts behind your matches and drafts. Expand an entry to make
+              a correction.
+            </p>
+            <label className="field">
+              <span>Skills from your CV</span>
+              <input
+                value={profile.skills.join(", ")}
+                onChange={(e) => set("skills", words(e.target.value))}
+              />
+            </label>
+            {profile.evidence.map((entry, index) => (
+              <details className="career-entry" key={entry.id}>
+                <summary>
+                  <ChevronRight size={14} aria-hidden="true" />
+                  <span>
+                    {entry.role || entry.category || "Experience"}
+                    {entry.company ? ` · ${entry.company}` : ""}
+                  </span>
+                  <small>{entry.period || `Entry ${index + 1}`}</small>
+                </summary>
+                <div className="form-grid">
+                  {(
+                    [
+                      ["role", "Role / qualification"],
+                      ["company", "Company / institution"],
+                      ["period", "Period"],
+                    ] as const
+                  ).map(([key, label]) => (
+                    <label className="field" key={key}>
+                      <span>{label}</span>
+                      <input
+                        value={entry[key]}
+                        onChange={(e) =>
+                          set(
+                            "evidence",
+                            profile.evidence.map((item) =>
+                              item.id === entry.id
+                                ? { ...item, [key]: e.target.value }
+                                : item,
+                            ),
+                          )
+                        }
+                      />
+                    </label>
+                  ))}
+                  <label className="field">
+                    <span>Related skills</span>
                     <input
-                      value={entry[key]}
+                      defaultValue={entry.skills.join(", ")}
                       onChange={(e) =>
                         set(
                           "evidence",
                           profile.evidence.map((item) =>
                             item.id === entry.id
-                              ? { ...item, [key]: e.target.value }
+                              ? { ...item, skills: words(e.target.value) }
                               : item,
                           ),
                         )
                       }
                     />
                   </label>
-                ))}
-                <label className="field">
-                  <span>Related skills</span>
-                  <input
-                    defaultValue={entry.skills.join(", ")}
-                    onChange={(e) =>
-                      set(
-                        "evidence",
-                        profile.evidence.map((item) =>
-                          item.id === entry.id
-                            ? { ...item, skills: words(e.target.value) }
-                            : item,
-                        ),
-                      )
-                    }
-                  />
-                </label>
-                <label className="field wide">
-                  <span>Details</span>
-                  <textarea
-                    required
-                    rows={3}
-                    value={entry.text}
-                    onChange={(e) =>
-                      set(
-                        "evidence",
-                        profile.evidence.map((item) =>
-                          item.id === entry.id
-                            ? { ...item, text: e.target.value }
-                            : item,
-                        ),
-                      )
-                    }
-                  />
-                </label>
-                <button
-                  type="button"
-                  className="button"
-                  onClick={() =>
-                    set(
-                      "evidence",
-                      profile.evidence.filter((item) => item.id !== entry.id),
-                    )
-                  }
-                >
-                  Remove entry
-                </button>
-                {!pending && (
-                  <label className="checkbox-field">
-                    <input
-                      type="checkbox"
-                      checked={entry.verified}
+                  <label className="field wide">
+                    <span>Details</span>
+                    <textarea
+                      required
+                      rows={3}
+                      value={entry.text}
                       onChange={(e) =>
                         set(
                           "evidence",
                           profile.evidence.map((item) =>
                             item.id === entry.id
-                              ? { ...item, verified: e.target.checked }
+                              ? { ...item, text: e.target.value }
                               : item,
                           ),
                         )
                       }
                     />
-                    <span>Accurate and available for drafts</span>
                   </label>
-                )}
-              </div>
-            </details>
-          ))}
-          {!profile.evidence.length && (
-            <p>Upload a CV to fill in your career history.</p>
-          )}
+                  <button
+                    type="button"
+                    className="button"
+                    onClick={() =>
+                      set(
+                        "evidence",
+                        profile.evidence.filter((item) => item.id !== entry.id),
+                      )
+                    }
+                  >
+                    Remove entry
+                  </button>
+                  {!pending && (
+                    <label className="checkbox-field">
+                      <input
+                        type="checkbox"
+                        checked={entry.verified}
+                        onChange={(e) =>
+                          set(
+                            "evidence",
+                            profile.evidence.map((item) =>
+                              item.id === entry.id
+                                ? { ...item, verified: e.target.checked }
+                                : item,
+                            ),
+                          )
+                        }
+                      />
+                      <span>Accurate and available for drafts</span>
+                    </label>
+                  )}
+                </div>
+              </details>
+            ))}
+            {!profile.evidence.length && (
+              <p>Upload a CV to fill in your career history.</p>
+            )}
+          </div>
         </details>
         {dirty && (
           <div className="resume-save-footer">

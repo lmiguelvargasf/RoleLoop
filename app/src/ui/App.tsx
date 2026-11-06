@@ -59,6 +59,7 @@ import { FreshnessPreferences } from "./FreshnessPreferences";
 import { MatchingPreferences } from "./MatchingPreferences";
 import { TargetRolesInput } from "./TargetRolesInput";
 import { IndustryInterests } from "./IndustryInterests";
+import { AutomationPreferences } from "./AutomationPreferences";
 import { ProfileEditor } from "./ProfileEditor";
 import { EditorHeader } from "./EditorHeader";
 import {
@@ -526,7 +527,6 @@ export function App({
             initial={data.preferences}
             perform={perform}
             busy={busy}
-            openaiConfigured={data.status.openaiConfigured}
           />
         )}
         {page === "sources" && (
@@ -1457,12 +1457,10 @@ function PreferencesEditor({
   initial,
   perform,
   busy,
-  openaiConfigured,
 }: {
   initial: Preferences;
   perform: Perform;
   busy: boolean;
-  openaiConfigured: boolean;
 }) {
   const [prefs, setPrefs] = useState(initial);
   const dirty = JSON.stringify(prefs) !== JSON.stringify(initial);
@@ -1563,47 +1561,7 @@ function PreferencesEditor({
           onChange={set}
           disabled={busy}
         />
-        <section className="form-section">
-          <div className="form-section-heading">
-            <h2>Local automation</h2>
-            <p>
-              Scheduled work runs while the app and your computer are awake.
-            </p>
-          </div>
-          <div className="form-grid">
-            <label className="checkbox-field wide">
-              <input
-                type="checkbox"
-                checked={prefs.scheduleEnabled}
-                onChange={(e) => set("scheduleEnabled", e.target.checked)}
-              />
-              <span>Automatically refresh enabled discovery sources</span>
-            </label>
-            <Field label="Refresh every (minutes)">
-              <input
-                type="number"
-                min="15"
-                max="1440"
-                value={prefs.scheduleMinutes}
-                onChange={(e) => set("scheduleMinutes", +e.target.value)}
-              />
-            </Field>
-            <Field label="Daily draft limit">
-              <input
-                type="number"
-                min="1"
-                max="100"
-                value={prefs.dailyLimit}
-                onChange={(e) => set("dailyLimit", +e.target.value)}
-              />
-            </Field>
-            <p className="wide">
-              {openaiConfigured
-                ? "OpenAI powers résumé import and experience-based matching. Drafts use your confirmed career facts."
-                : "Connect ChatGPT under Account & access to enable résumé import and AI matching."}
-            </p>
-          </div>
-        </section>
+        <AutomationPreferences preferences={prefs} onChange={set} busy={busy} />
       </form>
     </section>
   );

@@ -4151,45 +4151,56 @@ textarea {
   }
 }
 
-/* A document-led profile: one source, a quiet overview, details on demand. */
-.resume-source-panel {
+/* Profile document controls follow the same columns as the editable details. */
+.profile-source .form-section-heading p {
+  max-width: 24ch;
+}
+.profile-page .form-section-heading p,
+.automation-preferences .form-section-heading p {
+  color: #627487;
+}
+.resume-document {
   display: flex;
   align-items: center;
-  gap: 24px;
-  padding: 30px;
-  border: 1px solid #c9dce1;
-  border-left: 4px solid #207487;
-  background: #f4fafb;
-  border-radius: 12px;
+  gap: 14px;
+  min-width: 0;
+  padding: 18px 20px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--paper);
 }
-.resume-source-symbol {
-  color: #207487;
+.resume-document-icon {
+  color: #627487;
   flex-shrink: 0;
 }
-.resume-source-copy {
-  flex: 1;
-  min-width: 0;
-}
-.resume-source-copy h2 {
-  margin: 7px 0;
-  font-size: 22px;
-  letter-spacing: -0.5px;
-  overflow-wrap: anywhere;
-}
-.resume-source-copy p {
-  max-width: 56ch;
-  color: #52636c;
-  margin: 0 0 10px;
-  line-height: 1.6;
-}
-.resume-source-copy small {
-  color: #63747d;
-}
-.resume-source-actions {
+.resume-document-copy {
   display: flex;
   flex-direction: column;
+  gap: 5px;
+  min-width: 0;
+  flex: 1;
+}
+.resume-document-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--ink);
+  font-size: 13px;
+  font-weight: 550;
+}
+.resume-document-meta {
+  color: #627487;
+  font-size: 11px;
+  line-height: 1.5;
+}
+.resume-document-actions {
+  display: flex;
+  align-items: center;
   gap: 8px;
   flex-shrink: 0;
+}
+.resume-document-actions .button {
+  box-shadow: none;
 }
 .resume-import-error {
   color: #9c2530;
@@ -4210,47 +4221,66 @@ textarea {
 .resume-import-review .button {
   margin-top: 12px;
 }
+.profile-page .career-details {
+  display: block;
+  border-top: 1px solid var(--line);
+  padding: 18px 0;
+}
 .career-details > summary,
 .career-entry > summary {
-  cursor: pointer;
   display: flex;
-  justify-content: space-between;
   align-items: center;
-  gap: 16px;
-  padding: 12px 0;
-  list-style: revert;
+  gap: 12px;
+  min-height: 44px;
+  cursor: pointer;
+  list-style: none;
 }
-.career-details > summary span {
-  font-size: 18px;
-  font-weight: 650;
+.career-details > summary::-webkit-details-marker,
+.career-entry > summary::-webkit-details-marker {
+  display: none;
 }
-.career-details summary::before {
-  content: "+";
-  color: #207487;
-  font-size: 20px;
+.career-details > summary > svg,
+.career-entry > summary > svg {
+  flex-shrink: 0;
+  color: #627487;
+  transition: transform 140ms ease;
 }
-.career-details[open] > summary::before,
-.career-entry[open] > summary::before {
-  content: "−";
+.career-details[open] > summary > svg,
+.career-entry[open] > summary > svg {
+  transform: rotate(90deg);
 }
-.career-details summary span {
+.career-details > summary > span {
   flex: 1;
+  font-size: 14px;
+  font-weight: 600;
 }
-.career-details summary small {
-  color: #64747e;
+.career-details > summary > small,
+.career-entry > summary > small {
+  flex-shrink: 0;
+  color: #627487;
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+}
+.career-details-content {
+  margin: 16px 0 0 245px;
+  min-width: 0;
 }
 .career-details-intro {
-  color: #62727b;
-  margin: 10px 0 24px;
+  color: #627487;
+  font-size: 12px;
+  margin-bottom: 20px;
 }
 .career-entry {
-  border-top: 1px solid #e1e8eb;
+  border-top: 1px solid var(--line);
   margin-top: 16px;
   padding-top: 8px;
 }
-.career-entry > summary span {
-  font-size: 14px;
-  font-weight: 600;
+.career-entry > summary > span {
+  flex: 1;
+  min-width: 0;
+  font-size: 13px;
+  font-weight: 550;
+  overflow-wrap: anywhere;
 }
 .career-entry .form-grid {
   margin-top: 16px;
@@ -4274,23 +4304,78 @@ textarea {
   font-size: 12px;
   font-weight: 400;
 }
-@media (max-width: 760px) {
-  .resume-source-panel {
-    align-items: flex-start;
-    flex-wrap: wrap;
-    padding: 22px;
-    gap: 16px;
+@media (max-width: 1180px) {
+  .career-details-content {
+    margin-left: 185px;
   }
-  .resume-source-actions {
+}
+@media (max-width: 970px) {
+  .career-details-content {
+    margin-left: 0;
+  }
+}
+@media (max-width: 900px) {
+  .resume-document {
+    flex-wrap: wrap;
+  }
+  .resume-document-copy {
+    flex-basis: calc(100% - 38px);
+  }
+  .resume-document-actions {
     width: 100%;
-    flex-direction: row;
+    padding-left: 36px;
   }
-  .resume-source-copy {
-    flex-basis: 70%;
+}
+@media (max-width: 600px) {
+  .resume-document {
+    padding: 16px;
   }
-  .career-details > summary,
-  .career-entry > summary {
+  .resume-document-actions {
+    padding-left: 0;
+  }
+  .resume-document-actions .button {
+    min-height: 44px;
+  }
+  .career-details > summary {
     flex-wrap: wrap;
+    gap: 8px;
+  }
+  .career-entry > summary > small {
+    max-width: 100px;
+    text-align: right;
+  }
+}
+.automation-status {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  grid-column: 1/-1;
+  padding: 14px 0 0;
+  border-top: 1px solid var(--line);
+  color: #627487;
+}
+.automation-status > svg {
+  flex-shrink: 0;
+  margin-top: 2px;
+}
+.automation-status > div {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+.automation-status strong {
+  color: #465c70;
+  font-size: 11px;
+  font-weight: 550;
+}
+.automation-status span {
+  font-size: 11px;
+  line-height: 1.6;
+}
+@media (prefers-reduced-motion: reduce) {
+  .career-details > summary > svg,
+  .career-entry > summary > svg {
+    transition: none;
   }
 }
 
@@ -4353,5 +4438,30 @@ textarea {
   .chatgpt-connection .section-heading {
     flex-wrap: wrap;
     gap: 12px;
+  }
+}
+
+.automation-preferences .field > span {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+}
+.automation-preferences .field > span small {
+  color: #627487;
+}
+@media (max-width: 600px) {
+  .automation-preferences .checkbox-field {
+    min-height: 44px;
+    font-size: 13px;
+  }
+  .automation-preferences input[type="number"] {
+    min-height: 44px;
+    font-size: 16px;
+  }
+  .automation-preferences .field > span,
+  .automation-status strong,
+  .automation-status span {
+    font-size: 12px;
   }
 }
