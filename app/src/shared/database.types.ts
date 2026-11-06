@@ -157,6 +157,7 @@ export type Database = {
           created_at: string
           id: string
           payload: Json
+          requested_by: string | null
           status: string
           updated_at: string
           workspace_id: string
@@ -165,6 +166,7 @@ export type Database = {
           created_at?: string
           id: string
           payload: Json
+          requested_by?: string | null
           status: string
           updated_at?: string
           workspace_id: string
@@ -173,6 +175,7 @@ export type Database = {
           created_at?: string
           id?: string
           payload?: Json
+          requested_by?: string | null
           status?: string
           updated_at?: string
           workspace_id?: string
@@ -315,6 +318,7 @@ export type Database = {
           created_at: string
           id: string
           payload: Json
+          requested_by: string | null
           status: string
           updated_at: string
           workspace_id: string
@@ -332,6 +336,7 @@ export type Database = {
           created_at: string
           id: string
           payload: Json
+          requested_by: string | null
           status: string
           updated_at: string
           workspace_id: string

@@ -177,6 +177,7 @@ async function main() {
         const store = createWorkspaceStore({
           workspaceId: run.workspaceId,
           client: db,
+          actorUserId: run.requestedBy,
         });
         if (stopping) {
           await update(store, run, {
@@ -191,6 +192,18 @@ async function main() {
             throw new Error(
               "Claim this workspace with an account before running its tasks.",
             );
+          if (run.requestedBy) {
+            const membership = await db
+              .from("workspace_members")
+              .select("user_id")
+              .eq("workspace_id", run.workspaceId)
+              .eq("user_id", run.requestedBy)
+              .maybeSingle();
+            if (membership.error || !membership.data)
+              throw new Error(
+                "The requesting account no longer has access to this workspace.",
+              );
+          }
           await update(store, run, {
             status: "running",
             progress: 5,

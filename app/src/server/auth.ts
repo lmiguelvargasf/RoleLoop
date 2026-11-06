@@ -100,13 +100,15 @@ export function emptyWorkspace(user: User): Workspace {
       scheduleMinutes: 120,
       dailyLimit: 10,
     },
-    sources: [{
-      id: "hn-startups",
-      provider: "hackernews",
-      label: "Show HN · startup leads",
-      board: "",
-      enabled: true,
-    }],
+    sources: [
+      {
+        id: "hn-startups",
+        provider: "hackernews",
+        label: "Show HN · startup leads",
+        board: "",
+        enabled: true,
+      },
+    ],
   };
 }
 export async function ensurePersonalWorkspace(
@@ -178,6 +180,7 @@ export async function workspaceAccess(
     store: createWorkspaceStore({
       workspaceId: id.data,
       client: identity.client,
+      actorUserId: identity.user.id,
     }),
     role: result.data.role as WorkspaceAccess["role"],
   };

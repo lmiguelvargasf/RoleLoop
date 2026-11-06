@@ -97,7 +97,7 @@ async function main() {
   console.log(
     process.env.OPENAI_API_KEY || env.OPENAI_API_KEY
       ? "OK OpenAI key configured (connection not tested)"
-      : "OPTIONAL OpenAI key missing; résumé import and AI matching need OPENAI_API_KEY",
+      : "OPTIONAL API key missing; connect ChatGPT in Account & access for subscription usage",
   );
   try {
     const { stdout } = await promisify(execFile)(

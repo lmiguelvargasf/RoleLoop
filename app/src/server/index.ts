@@ -15,6 +15,7 @@ import * as auth from "./auth.js";
 import * as service from "./service.js";
 import { allowedOrigin } from "./guards.js";
 import { UploadSchema, extractResume } from "./resume-import.js";
+import * as chatgpt from "./chatgpt.js";
 import { resumePdf } from "./documents.js";
 
 declare module "fastify" {
@@ -34,6 +35,7 @@ function requestStore(req: FastifyRequest) {
 
 export async function buildServer() {
   const app = Fastify({ bodyLimit: 250_000, logger: false });
+  app.addHook("onClose", async () => chatgpt.stopChatGPTLogins());
   app.decorateRequest("identity", null);
   app.decorateRequest("workspaceStore", null);
   app.addHook("onRequest", async (req, reply) => {
@@ -138,6 +140,47 @@ export async function buildServer() {
   app.post("/api/admin/users", async (req) =>
     auth.createAccount(identity(req), req.body),
   );
+  app.get("/api/account/chatgpt", async (req) =>
+    chatgpt.chatgptStatus(identity(req).user.id),
+  );
+  app.post("/api/account/chatgpt/connect", async (req) => {
+    const input = z
+      .object({ profileId: z.string().uuid().optional() })
+      .parse(req.body);
+    return chatgpt.startChatGPTLogin(identity(req).user.id, input.profileId);
+  });
+  app.post("/api/account/chatgpt/select", async (req) => {
+    const input = z
+      .object({
+        profileId: z.string().uuid(),
+        model: z.string().min(1).max(200).optional(),
+      })
+      .parse(req.body);
+    await chatgpt.selectChatGPT(
+      identity(req).user.id,
+      input.profileId,
+      input.model,
+    );
+    return chatgpt.chatgptStatus(identity(req).user.id);
+  });
+  app.post("/api/account/chatgpt/models", async (req) => {
+    await chatgpt.listChatGPTModels(identity(req).user.id);
+    return chatgpt.chatgptStatus(identity(req).user.id);
+  });
+  app.post("/api/account/chatgpt/retry", async (req) => {
+    await chatgpt.retryChatGPT(identity(req).user.id);
+    return chatgpt.chatgptStatus(identity(req).user.id);
+  });
+  app.post("/api/account/chatgpt/use-api", async (req) => {
+    await chatgpt.useAPIKey(identity(req).user.id);
+    return chatgpt.chatgptStatus(identity(req).user.id);
+  });
+  app.post("/api/account/chatgpt/disconnect", async (req) => {
+    const { profileId } = z
+      .object({ profileId: z.string().uuid() })
+      .parse(req.body);
+    return chatgpt.disconnectChatGPT(identity(req).user.id, profileId);
+  });
   app.get("/api/bootstrap", async (req) => {
     const data = await service.bootstrap(requestStore(req));
     if (!identity(req).isAdmin) {
@@ -151,7 +194,11 @@ export async function buildServer() {
     const buffer = Buffer.from(input.data, "base64");
     const store = requestStore(req);
     const workspace = await store.getWorkspace();
-    const result = await extractResume(input.name, buffer);
+    const result = await extractResume(
+      input.name,
+      buffer,
+      identity(req).user.id,
+    );
     const id = randomUUID();
     const source = {
       id,

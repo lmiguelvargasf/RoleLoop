@@ -110,6 +110,83 @@ integration(
       if (app) await app.close();
     }, 30000);
 
+    it("keeps ChatGPT connection actions scoped to the signed-in account", async () => {
+      const anonymous = await app.inject({
+        url: "/api/account/chatgpt",
+        headers: headers(),
+      });
+      expect(anonymous.statusCode).toBe(401);
+      const own = await app.inject({
+        url: "/api/account/chatgpt",
+        headers: headers(alice),
+      });
+      expect(own.statusCode).toBe(200);
+      expect(own.json().profiles).toEqual([]);
+      const foreign = await app.inject({
+        method: "POST",
+        url: "/api/account/chatgpt/select",
+        headers: headers(bob),
+        payload: { profileId: randomUUID(), userId: alice.id },
+      });
+      expect(foreign.statusCode).toBe(404);
+      expect(JSON.stringify(own.json())).not.toMatch(
+        /access_token|refresh_token|id_token/,
+      );
+    });
+    it("stamps immutable billing identities independently of supplied payloads", async () => {
+      const id = randomUUID();
+      try {
+        const result = await alice.client
+          .from("runs")
+          .insert({
+            id,
+            workspace_id: alice.workspaceId,
+            status: "completed",
+            requested_by: bob.id,
+            payload: {
+              id,
+              action: "discover",
+              requestedBy: bob.id,
+              status: "completed",
+            },
+          })
+          .select("requested_by")
+          .single();
+        expect(result.error).toBeNull();
+        expect(result.data?.requested_by).toBe(alice.id);
+        await db
+          .from("workspace_members")
+          .insert({
+            workspace_id: alice.workspaceId,
+            user_id: bob.id,
+            role: "manager",
+          });
+        const tampered = await bob.client
+          .from("runs")
+          .update({ status: "queued", payload: { action: "discover" } })
+          .eq("id", id);
+        expect(tampered.error?.code).toBe("42501");
+        const changed = await alice.client
+          .from("runs")
+          .update({ requested_by: bob.id })
+          .eq("id", id);
+        expect(changed.error?.code).toBe("42501");
+        const { createWorkspaceStore } = await import("../src/server/store.js");
+        const store = createWorkspaceStore({
+          workspaceId: alice.workspaceId,
+          client: db,
+        });
+        expect((await store.get("runs", id)).requestedBy).toBe(alice.id);
+      } finally {
+        await db.from("runs").delete().eq("id", id);
+        await db
+          .from("workspace_members")
+          .delete()
+          .eq("workspace_id", alice.workspaceId)
+          .eq("user_id", bob.id);
+      }
+    });
+
     it("does not expose sample loading or local test actions", async () => {
       for (const url of [
         "/api/seed",

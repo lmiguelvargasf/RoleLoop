@@ -175,6 +175,7 @@ export type Requirement = z.infer<typeof RequirementSchema>;
 export type RunAction =
   "discover" | "analyze" | "draft" | "simulate" | "research";
 export interface Run {
+  requestedBy?: string;
   id: string;
   workspaceId?: string;
   action: RunAction;
@@ -229,4 +230,22 @@ export interface Bootstrap extends Workspace {
     studioUrl: string;
     mailpitUrl: string;
   };
+}
+
+export interface ChatGPTConnection {
+  mode: "api" | "chatgpt";
+  activeId?: string;
+  apiConfigured: boolean;
+  pending: boolean;
+  error?: string;
+  profiles: {
+    id: string;
+    label: string;
+    email?: string;
+    connected: boolean;
+    planEnabled: boolean;
+    model?: string;
+    error?: string;
+    models: { slug: string; displayName: string }[];
+  }[];
 }

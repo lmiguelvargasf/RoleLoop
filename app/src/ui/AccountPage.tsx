@@ -18,6 +18,7 @@ import type {
   WorkspaceAccess,
 } from "../shared/types";
 import type { ManagedUser, WorkspaceMember } from "./account-types";
+import { ChatGPTConnectionPanel } from "./ChatGPTConnectionPanel";
 import { api, write } from "./api";
 
 export function AccountPage({
@@ -222,6 +223,7 @@ export function AccountPage({
           </button>
         </div>
       </section>
+      <ChatGPTConnectionPanel key={account.user.id} />
       <section className="form-section">
         <div className="section-heading">
           <div>

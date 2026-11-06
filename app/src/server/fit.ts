@@ -59,9 +59,10 @@ export function validateFit(
 export async function assessWithAI(
   op: Opportunity,
   workspace: Workspace,
+  userId?: string,
 ): Promise<Assessment> {
   const base = assessOpportunity(op, workspace.profile, workspace.preferences);
-  if (!settings.openaiKey && !workspace.profile.source) return base;
+  if (!userId && !settings.openaiKey && !workspace.profile.source) return base;
   if (!workspace.profile.evidence.some((e) => e.verified)) return base;
   try {
     const raw = await structuredAI(
@@ -79,6 +80,7 @@ export async function assessWithAI(
         evidence: workspace.profile.evidence.filter((e) => e.verified),
         currentlyLearning: workspace.profile.learning,
       },
+      userId,
     );
     const fit = validateFit(raw, op, workspace);
     const assessment = assessOpportunity(
@@ -94,14 +96,17 @@ export async function assessWithAI(
       learningGaps: fit.learningGaps,
       relevantEvidenceIds: fit.relevantEvidenceIds,
     };
-  } catch {
+  } catch (error) {
+    const code = (error as { code?: string }).code;
     return {
       ...base,
       recommendation:
         base.recommendation === "excluded" ? "excluded" : "review",
       unknowns: [
         ...base.unknowns,
-        "AI fit is unavailable. This assessment uses skill tags; retry evaluation for experience-based guidance.",
+        code && /^(chatgpt_|subscription_|chatpass_)/.test(code)
+          ? (error as Error).message
+          : "AI fit is unavailable. This assessment uses skill tags; retry evaluation for experience-based guidance.",
       ],
     };
   }

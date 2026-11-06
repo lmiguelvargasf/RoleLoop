@@ -40,3 +40,10 @@ Every opportunity, draft, run, event, and user runtime entry has a workspace ID.
 Documents use workspace-prefixed private object paths. Browser downloads go through a scoped authenticated API; direct Storage reads require membership. Existing legacy objects remain private and authorized downloads re-render their saved drafts. The UI captures account/workspace context for each request, rejects responses from stale contexts, and remounts workspace state after switching. Revocation blocks subsequent API and database access even with an existing JWT.
 
 Tests cover API and direct RLS isolation, manager revocation/escalation, administrator boundaries, queue/source deduplication, private Storage, payload tampering, and initial-owner setup. Integration fixtures are isolated and removed; SQL setup checks use rollback. Studio/Mailpit/Docker remain trusted host-level developer surfaces outside RoleLoop account isolation.
+
+
+## Local ChatGPT plan connections
+
+Each RoleLoop user has a separate protected connection file under `.local/chatgpt/`, with independent issued-client registrations, selected account/model, OAuth credentials and billing choice. Loopback callbacks validate one-time state, PKCE, signed ID-token audience/issuer/nonce and returning subject before activating an account. The frontend receives display metadata only. Subscription inference requires plan-usage consent, uses the account model catalog and streamed Responses with `store: false`, and never falls back to API billing. File locks serialize refreshes across API and worker processes; token replacements are atomic.
+
+The database stamps each run's immutable `requested_by` from the authenticated identity. Workers disregard requester IDs in JSON payloads, recheck workspace membership, and load only that requester's connection. Scheduled tasks have no subscription requester and use API configuration. Tests use signed fixture tokens and mocked OpenAI responses; live connection requires the user to complete sign-in and consent.

@@ -61,6 +61,7 @@ type StoredRow = {
   source_key?: string;
   opportunity_id?: string;
   status?: string;
+  requested_by?: string | null;
   created_at?: string;
   updated_at?: string;
 };
@@ -68,7 +69,8 @@ function columns(table: keyof Payloads) {
   const common = "id,workspace_id,payload";
   if (table === "opportunities") return `${common},kind,source_key,updated_at`;
   if (table === "drafts") return `${common},opportunity_id,updated_at`;
-  if (table === "runs") return `${common},status,created_at,updated_at`;
+  if (table === "runs")
+    return `${common},status,requested_by,created_at,updated_at`;
   return `${common},created_at`;
 }
 
@@ -99,6 +101,7 @@ function decode<T extends keyof Payloads>(
       ...payload,
       id: row.id,
       workspaceId: row.workspace_id,
+      requestedBy: row.requested_by || undefined,
       status: row.status,
       createdAt: row.created_at,
       updatedAt: row.updated_at,
@@ -109,9 +112,11 @@ function decode<T extends keyof Payloads>(
 export function createWorkspaceStore({
   workspaceId,
   client,
+  actorUserId,
 }: {
   workspaceId: string;
   client: SupabaseClient;
+  actorUserId?: string;
 }) {
   if (!workspaceId || !safeId.test(workspaceId))
     throw new Error("A workspace context is required.");
@@ -221,7 +226,10 @@ export function createWorkspaceStore({
       row.source_key = (item as Opportunity).sourceKey;
     }
     if (table === "drafts") row.opportunity_id = (item as Draft).opportunityId;
-    if (table === "runs") row.status = (item as Run).status;
+    if (table === "runs") {
+      row.status = (item as Run).status;
+      row.requested_by = (item as Run).requestedBy || null;
+    }
     // A global-ID upsert can overwrite another tenant when used by a worker.
     // Both updates and their retry stay scoped; a foreign workspace's ID fails insertion.
     const updated = checked(
@@ -335,6 +343,7 @@ export function createWorkspaceStore({
   return {
     db: client,
     workspaceId,
+    actorUserId,
     getWorkspace,
     updateWorkspace,
     list,
@@ -398,5 +407,10 @@ export async function claimRun(): Promise<
   if (!row) return null;
   if (!row.workspace_id)
     throw new Error("Claimed task has no workspace context.");
-  return { ...row.payload, id: row.id, workspaceId: row.workspace_id };
+  return {
+    ...row.payload,
+    id: row.id,
+    workspaceId: row.workspace_id,
+    requestedBy: row.requested_by || undefined,
+  };
 }

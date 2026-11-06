@@ -19,6 +19,7 @@ import { getGlobalRuntime, type WorkspaceStore } from "./store.js";
 import { assertApproved, assertFresh } from "./guards.js";
 import { generateDraft } from "./model.js";
 import { resumePdf, sendToLocalInbox } from "./documents.js";
+import { chatgptStatus } from "./chatgpt.js";
 import { assessWithAI } from "./fit.js";
 import { settings } from "./config.js";
 
@@ -50,6 +51,10 @@ export async function bootstrap(store: WorkspaceStore): Promise<Bootstrap> {
         : op,
     ),
   );
+  const connection = store.actorUserId
+    ? await chatgptStatus(store.actorUserId)
+    : null;
+  const active = connection?.profiles.find((p) => p.id === connection.activeId);
   return {
     ...workspace,
     opportunities: orderOpportunities(
@@ -63,8 +68,14 @@ export async function bootstrap(store: WorkspaceStore): Promise<Bootstrap> {
       database: true,
       worker: !!heartbeat && Date.now() - Date.parse(heartbeat.at) < 15000,
       testMode: true,
-      openaiConfigured: !!settings.openaiKey,
-      openaiModel: settings.openaiModel,
+      openaiConfigured:
+        connection?.mode === "chatgpt"
+          ? !!active?.connected && active.planEnabled
+          : !!settings.openaiKey,
+      openaiModel:
+        connection?.mode === "chatgpt"
+          ? active?.model || "ChatGPT plan"
+          : settings.openaiModel,
       studioUrl: settings.studioUrl,
       mailpitUrl: settings.mailpitUrl,
     },
@@ -120,7 +131,10 @@ export async function enqueue(
     run_payload: run,
   });
   if (error) throw new Error(`Queue: ${error.message}`);
-  return data[0].payload as Run;
+  return {
+    ...data[0].payload,
+    requestedBy: data[0].requested_by || undefined,
+  } as Run;
 }
 export async function analyze(
   store: WorkspaceStore,
@@ -129,7 +143,7 @@ export async function analyze(
   useAI = true,
 ) {
   const assessment = useAI
-    ? await assessWithAI(op, workspace)
+    ? await assessWithAI(op, workspace, store.actorUserId)
     : assessOpportunity(op, workspace.profile, workspace.preferences);
   const progressed = ["drafted", "approved", "tested", "archived"].includes(
     op.stage,

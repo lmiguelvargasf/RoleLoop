@@ -1600,7 +1600,7 @@ function PreferencesEditor({
             <p className="wide">
               {openaiConfigured
                 ? "OpenAI powers résumé import and experience-based matching. Drafts use your confirmed career facts."
-                : "OpenAI is not configured. Ask your administrator to enable résumé import and AI matching."}
+                : "Connect ChatGPT under Account & access to enable résumé import and AI matching."}
             </p>
           </div>
         </section>

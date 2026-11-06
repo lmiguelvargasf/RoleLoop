@@ -57,7 +57,13 @@ Supabase Studio and Mailpit are shared local developer tools. RoleLoop account p
 
 ## Résumé AI
 
-Set `OPENAI_API_KEY` in the server environment (or `app/.env.local`) for hosted extraction and experience-based matching. `OPENAI_MODEL` defaults to `gpt-4o-mini`. Requests use structured outputs with response storage disabled; the résumé text and confirmed career facts are sent to OpenAI when this provider is configured. OpenAI is the only AI provider. An API key is required for CV import and AI matching. Existing template drafting remains available without AI.
+For local subscription usage, open **Account & access → AI connection → Continue with ChatGPT**. Sign in using an eligible Plus or Pro account and approve ChatGPT plan usage. Return to RoleLoop, refresh the available models, and select a model. The selected account powers CV imports and opportunity evaluations you initiate, including queued tasks. **Manage usage** opens ChatGPT's usage controls; **Disconnect** revokes the renewable session and clears local tokens. Multiple ChatGPT accounts can be connected and selected separately.
+
+Connections are private to each RoleLoop user and stored with owner-only filesystem permissions under `app/.local/chatgpt/`. A stable host ID and issued client registrations are retained for reconnects; credentials never enter the frontend, database, or Git. Tokens refresh automatically. Sign-in alone does not enable inference unless the user grants plan usage permission. Failed or disconnected subscription requests never silently switch to API billing. Background schedules use only the server's API configuration.
+
+Alternatively, configure `OPENAI_API_KEY` on the server and choose **Use API billing** when switching from a subscription. `OPENAI_MODEL` defaults to `gpt-4o-mini` for API billing; subscription models come from the connected account. OpenAI is the only AI provider. Requests use structured outputs with response storage disabled; résumé text and confirmed career facts are sent to OpenAI. Subscription responses stream and require a completed terminal event. Template drafting remains available without AI.
+
+This connection follows [Sign in with ChatGPT](https://developers.openai.com/siwc/token-sharing-open-source) for personal local projects and eligible open-source tools. Offering it in a paid or remotely hosted product requires OpenAI approval.
 
 Import supports readable PDF and `.docx`, with a 2 MB file limit, a 30-page PDF limit and a 60,000-character text limit. Scanned or encrypted PDFs need to be exported as readable text first. AI extraction retains source quotations, flags uncertain details, and requires review before activation. Education, projects and certifications can be corrected inside the expandable career details.
 
