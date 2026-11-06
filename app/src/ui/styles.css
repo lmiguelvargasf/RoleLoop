@@ -3996,10 +3996,10 @@ textarea {
   font-weight: 500;
   line-height: 1.3;
 }
-.preferences-page {
+.editor-page {
   padding-top: 0;
 }
-.preferences-header {
+.editor-header {
   position: sticky;
   top: 0;
   z-index: 3;
@@ -4011,30 +4011,30 @@ textarea {
   border-bottom: 1px solid var(--line);
   background: #f6f8fb;
 }
-.preferences-heading {
+.editor-heading {
   min-width: 0;
 }
-.preferences-heading h1 {
+.editor-heading h1 {
   font-size: 24px;
   font-weight: 650;
   line-height: 1.3;
   letter-spacing: -0.7px;
   text-wrap: balance;
 }
-.preferences-heading p {
+.editor-heading p {
   margin-top: 6px;
   color: #627487;
   font-size: 12px;
   text-wrap: pretty;
 }
-.preferences-actions {
+.editor-actions {
   display: flex;
   align-items: center;
   justify-content: flex-end;
   gap: 16px;
   flex-shrink: 0;
 }
-.preferences-save-state {
+.editor-save-state {
   display: inline-flex;
   align-items: center;
   gap: 6px;
@@ -4042,13 +4042,13 @@ textarea {
   font-size: 11px;
   white-space: nowrap;
 }
-.preferences-save-state > svg {
+.editor-save-state > svg {
   flex-shrink: 0;
 }
-.preferences-save-state.is-dirty {
+.editor-save-state.is-dirty {
   color: #80621e;
 }
-.preferences-actions .button:disabled {
+.editor-actions .button:disabled {
   cursor: default;
   opacity: 1;
   color: #697b8d;
@@ -4056,10 +4056,10 @@ textarea {
   border-color: #dce3eb;
   box-shadow: none;
 }
-.preferences-form > .form-section:first-of-type {
+.editor-form > .form-section:first-of-type {
   border-top: 0;
 }
-.preferences-form :is(input, select, textarea, button, summary, [tabindex]) {
+.editor-form :is(input, select, textarea, button, summary, [tabindex]) {
   scroll-margin-top: 130px;
 }
 @media (max-width: 1000px) {
@@ -4068,16 +4068,16 @@ textarea {
   }
 }
 @media (max-width: 850px) {
-  .preferences-header {
+  .editor-header {
     flex-direction: column;
     align-items: stretch;
     gap: 14px;
     padding: 24px 0 20px;
   }
-  .preferences-actions {
+  .editor-actions {
     justify-content: space-between;
   }
-  .preferences-form :is(input, select, textarea, button, summary, [tabindex]) {
+  .editor-form :is(input, select, textarea, button, summary, [tabindex]) {
     scroll-margin-top: 175px;
   }
 }
@@ -4086,20 +4086,32 @@ textarea {
     min-width: 32px;
     min-height: 32px;
   }
-  .preferences-header {
+  .editor-header {
     gap: 16px;
     padding: 22px 0 18px;
   }
-  .preferences-heading h1 {
+  .editor-heading h1 {
     font-size: 23px;
   }
-  .preferences-actions .button {
+  .editor-actions .button {
     min-height: 44px;
     padding: 10px 16px;
     font-size: 12px;
   }
-  .preferences-form :is(input, select, textarea, button, summary, [tabindex]) {
+  .editor-form :is(input, select, textarea, button, summary, [tabindex]) {
     scroll-margin-top: 190px;
+  }
+  .profile-page .form-grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .profile-page .field :is(input, textarea) {
+    min-height: 44px;
+    font-size: 16px;
+  }
+  .profile-page .row-heading .button {
+    min-height: 44px;
+    padding: 10px 12px;
+    font-size: 11px;
   }
   .industry-ranking-options {
     grid-template-columns: minmax(0, 1fr);

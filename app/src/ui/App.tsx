@@ -59,6 +59,7 @@ import { FreshnessPreferences } from "./FreshnessPreferences";
 import { MatchingPreferences } from "./MatchingPreferences";
 import { TargetRolesInput } from "./TargetRolesInput";
 import { IndustryInterests } from "./IndustryInterests";
+import { EditorHeader } from "./EditorHeader";
 import {
   industryPriorityBoost,
   preferredIndustryMatches,
@@ -1454,6 +1455,8 @@ function ProfileEditor({
 }) {
   const [profile, setProfile] = useState<Profile>(initial),
     [skills, setSkills] = useState(initial.skills.join(", "));
+  const editedProfile = { ...profile, skills: words(skills) };
+  const dirty = JSON.stringify(editedProfile) !== JSON.stringify(initial);
   const set = <K extends keyof Profile>(key: K, value: Profile[K]) =>
     setProfile((p) => ({ ...p, [key]: value }));
   const updateEvidence = (id: string, key: string, value: unknown) =>
@@ -1464,30 +1467,31 @@ function ProfileEditor({
       ),
     }));
   return (
-    <section className="page form-page">
-      <div className="page-heading">
-        <div>
-          <div className="eyebrow">THE SOURCE OF TRUTH</div>
-          <h1>My profile</h1>
-          <p>
-            Your verified experience is the foundation of every application.
-          </p>
-        </div>
-      </div>
+    <section
+      className="page form-page editor-page profile-page"
+      aria-labelledby="profile-title"
+    >
       <form
+        className="editor-form"
         onSubmit={(e) => {
           e.preventDefault();
           void perform(
-            () =>
-              write("/profile", { ...profile, skills: words(skills) }, "PUT"),
+            () => write("/profile", editedProfile, "PUT"),
             "Profile saved. Re-evaluate existing opportunities to use these facts.",
           );
         }}
       >
+        <EditorHeader
+          titleId="profile-title"
+          title="My profile"
+          description="Used for matching and application drafts."
+          dirty={dirty}
+          busy={busy}
+        />
         <section className="form-section">
           <div className="form-section-heading">
-            <h2>The essentials</h2>
-            <p>Use the details you want recruiters and founders to see.</p>
+            <h2>Personal details</h2>
+            <p>Contact details to include in your drafts.</p>
           </div>
           <div className="form-grid">
             <Field label="Full name">
@@ -1641,7 +1645,7 @@ function ProfileEditor({
                 <Field label="Related skills">
                   <input
                     defaultValue={evidence.skills.join(", ")}
-                    onBlur={(e) =>
+                    onChange={(e) =>
                       updateEvidence(
                         evidence.id,
                         "skills",
@@ -1681,16 +1685,6 @@ function ProfileEditor({
             </div>
           )}
         </section>
-        <div className="form-save">
-          <span className="muted">
-            <ShieldCheck size={15} />
-            Stored in your local workspace
-          </span>
-          <button className="button primary" disabled={busy}>
-            <Save size={16} />
-            Save profile
-          </button>
-        </div>
       </form>
     </section>
   );
@@ -1713,11 +1707,11 @@ function PreferencesEditor({
     setPrefs((p) => ({ ...p, [key]: value }));
   return (
     <section
-      className="page form-page preferences-page"
+      className="page form-page editor-page preferences-page"
       aria-labelledby="preferences-title"
     >
       <form
-        className="preferences-form"
+        className="editor-form"
         onSubmit={(e) => {
           e.preventDefault();
           void perform(
@@ -1726,34 +1720,13 @@ function PreferencesEditor({
           );
         }}
       >
-        <header className="preferences-header">
-          <div className="preferences-heading">
-            <h1 id="preferences-title">Search preferences</h1>
-            <p>Applies to job opportunities and startup prospects.</p>
-          </div>
-          <div className="preferences-actions">
-            <span
-              className={`preferences-save-state${dirty ? " is-dirty" : ""}`}
-              role="status"
-            >
-              {busy ? (
-                <LoaderCircle size={14} className="spin" aria-hidden="true" />
-              ) : dirty ? (
-                <Pencil size={13} aria-hidden="true" />
-              ) : (
-                <Check size={15} aria-hidden="true" />
-              )}
-              {busy ? "Saving…" : dirty ? "Unsaved changes" : "All changes saved"}
-            </span>
-            <button
-              type="submit"
-              className="button primary"
-              disabled={busy || !dirty}
-            >
-              Save changes
-            </button>
-          </div>
-        </header>
+        <EditorHeader
+          titleId="preferences-title"
+          title="Search preferences"
+          description="Applies to job opportunities and startup prospects."
+          dirty={dirty}
+          busy={busy}
+        />
         <section className="form-section">
           <div className="form-section-heading">
             <h2>Roles & location</h2>
