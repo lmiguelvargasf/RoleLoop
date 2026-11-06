@@ -243,38 +243,41 @@ export function ResumeFacts({ facts }: { facts: Facts }) {
 
   return (
     <section className="resume-facts" aria-labelledby="resume-facts-title">
-      <header className="resume-facts-heading">
-        <div>
-          <h2 id="resume-facts-title">{facts.name || "Extracted details"}</h2>
-          <p>{summary}</p>
+      <header className="form-section resume-facts-heading">
+        <div className="form-section-heading">
+          <h2 id="resume-facts-title">Extracted details</h2>
+          <p>Expand any detail to check its source.</p>
         </div>
-        <div className="resume-search">
-          <Search size={16} aria-hidden="true" />
-          <input
-            ref={searchInput}
-            type="search"
-            name="resume-search"
-            autoComplete="off"
-            value={query}
-            onChange={(event) => setQuery(event.target.value)}
-            placeholder="Find a role, company or skill…"
-            aria-label="Search resume details"
-          />
-          {query && (
-            <button
-              className="icon-button"
-              type="button"
-              onClick={clearSearch}
-              aria-label="Clear search"
-            >
-              <X size={14} aria-hidden="true" />
-            </button>
-          )}
+        <div className="resume-facts-tools">
+          <div className="resume-facts-summary">
+            {facts.name && <h3>{facts.name}</h3>}
+            <p>{summary}</p>
+          </div>
+          <div className="resume-search">
+            <Search size={16} aria-hidden="true" />
+            <input
+              ref={searchInput}
+              type="search"
+              name="resume-search"
+              autoComplete="off"
+              value={query}
+              onChange={(event) => setQuery(event.target.value)}
+              placeholder="Find a role, company or skill…"
+              aria-label="Search resume details"
+            />
+            {query && (
+              <button
+                className="icon-button"
+                type="button"
+                onClick={clearSearch}
+                aria-label="Clear search"
+              >
+                <X size={14} aria-hidden="true" />
+              </button>
+            )}
+          </div>
         </div>
       </header>
-      <p className="resume-evidence-note">
-        Expand any detail to check its source.
-      </p>
       <span className="sr-only" role="status" aria-atomic="true">
         {search
           ? noResults
@@ -297,92 +300,106 @@ export function ResumeFacts({ facts }: { facts: Facts }) {
         <div className="resume-review-sections">
           {(!search || experience.length > 0) && (
             <section
-              className="resume-review-section"
+              className="form-section resume-review-section"
               aria-labelledby="resume-experience-heading"
             >
-              <h3 id="resume-experience-heading">Experience</h3>
-              {group(
-                experience.filter(
-                  (section) => section.category === "experience",
-                ),
-                "Roles",
-              )}
-              {group(
-                experience.filter((section) => section.category === "project"),
-                "Projects",
-              )}
-              {!experience.length && (
-                <p className="resume-section-empty">
-                  No roles or projects were extracted. Check the original resume
-                  if you expected to see them here.
-                </p>
-              )}
+              <div className="form-section-heading">
+                <h3 id="resume-experience-heading">Experience</h3>
+              </div>
+              <div className="resume-section-content">
+                {group(
+                  experience.filter(
+                    (section) => section.category === "experience",
+                  ),
+                  "Roles",
+                )}
+                {group(
+                  experience.filter(
+                    (section) => section.category === "project",
+                  ),
+                  "Projects",
+                )}
+                {!experience.length && (
+                  <p className="resume-section-empty">
+                    No roles or projects were extracted. Check the original
+                    resume if you expected to see them here.
+                  </p>
+                )}
+              </div>
             </section>
           )}
           {(!search ||
             matchingSkills.length > 0 ||
             listedSections.length > 0) && (
             <section
-              className="resume-review-section"
+              className="form-section resume-review-section"
               aria-labelledby="resume-skills-heading"
             >
-              <h3 id="resume-skills-heading">Skills</h3>
-              {(!search || demonstrated.length > 0) &&
-                skillGroup(
-                  demonstrated,
-                  "Demonstrated skills",
-                  "Examples in your experience or qualifications can support stronger matches.",
+              <div className="form-section-heading">
+                <h3 id="resume-skills-heading">Skills</h3>
+              </div>
+              <div className="resume-section-content">
+                {(!search || demonstrated.length > 0) &&
+                  skillGroup(
+                    demonstrated,
+                    "Demonstrated skills",
+                    "Examples in your experience or qualifications can support stronger matches.",
+                  )}
+                {(!search || listed.length > 0) &&
+                  skillGroup(
+                    listed,
+                    "Listed skills",
+                    "Named in your resume without a supporting example. These can support a partial match.",
+                  )}
+                {listedSections.length > 0 && (
+                  <details className="resume-listed-statements">
+                    <summary>Review original skill lists</summary>
+                    {listedSections.map((section) => (
+                      <ResumeEntry
+                        key={section.id}
+                        section={section}
+                        evidence={evidence}
+                      />
+                    ))}
+                  </details>
                 )}
-              {(!search || listed.length > 0) &&
-                skillGroup(
-                  listed,
-                  "Listed skills",
-                  "Named in your resume without a supporting example. These can support a partial match.",
-                )}
-              {listedSections.length > 0 && (
-                <details className="resume-listed-statements">
-                  <summary>Review original skill lists</summary>
-                  {listedSections.map((section) => (
-                    <ResumeEntry
-                      key={section.id}
-                      section={section}
-                      evidence={evidence}
-                    />
-                  ))}
-                </details>
-              )}
+              </div>
             </section>
           )}
           {(!search || qualifications.length > 0 || additional.length > 0) && (
             <section
-              className="resume-review-section"
+              className="form-section resume-review-section"
               aria-labelledby="resume-qualifications-heading"
             >
-              <h3 id="resume-qualifications-heading">Qualifications</h3>
-              {group(
-                qualifications.filter(
-                  (section) => section.category === "education",
-                ),
-                "Education",
-              )}
-              {group(
-                qualifications.filter(
-                  (section) => section.category === "certification",
-                ),
-                "Certifications",
-              )}
-              {group(
-                qualifications.filter(
-                  (section) => section.category === "language",
-                ),
-                "Languages",
-              )}
-              {group(additional, "Additional details")}
-              {!qualifications.length && !additional.length && (
-                <p className="resume-section-empty">
-                  No education, certifications or languages were extracted.
-                </p>
-              )}
+              <div className="form-section-heading">
+                <h3 id="resume-qualifications-heading">Qualifications</h3>
+              </div>
+              <div className="resume-section-content">
+                {group(
+                  qualifications.filter(
+                    (section) => section.category === "education",
+                  ),
+                  "Education",
+                )}
+                {group(
+                  qualifications.filter(
+                    (section) => section.category === "certification",
+                  ),
+                  "Certifications",
+                )}
+                {group(
+                  qualifications.filter(
+                    (section) => section.category === "language",
+                  ),
+                  "Languages",
+                )}
+                {group(additional, "Additional details")}
+                {!qualifications.length && !additional.length && (
+                  <p className="resume-section-empty">
+                    No education, certifications or languages were extracted.
+                  </p>
+                )}
+              </div>
             </section>
           )}
         </div>

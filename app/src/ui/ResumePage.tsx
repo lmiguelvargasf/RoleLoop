@@ -220,16 +220,19 @@ export function ResumePage({ initial: profile, busy, perform }: Props) {
               ? "No extracted details"
               : "No resume yet";
   return (
-    <section className="page resume-page" aria-labelledby="resume-title">
-      <header className="page-heading">
-        <div>
+    <section
+      className="page form-page editor-page resume-page"
+      aria-labelledby="resume-title"
+    >
+      <header className="editor-header">
+        <div className="editor-heading">
           <h1 id="resume-title" ref={heading} tabIndex={-1}>
             Resume
           </h1>
           <p>Your resume, organized for role matching.</p>
         </div>
         <span
-          className={`resume-status${ready && !processing && !warnings.length ? " is-ready" : ""}`}
+          className={`editor-save-state resume-status${ready && !processing && !warnings.length ? " is-ready" : ""}`}
           role="status"
           aria-atomic="true"
         >
@@ -256,59 +259,67 @@ export function ResumePage({ initial: profile, busy, perform }: Props) {
         }}
       />
       {source && (
-        <section className="resume-document" aria-label="Original resume">
-          <FileText size={26} strokeWidth={1.5} aria-hidden="true" />
-          <div className="resume-document-info">
-            <span className="resume-field-label">Original resume</span>
-            <strong>{source.name}</strong>
-            <span>
-              {source.kind.toUpperCase()} <span aria-hidden="true">·</span>{" "}
-              Uploaded{" "}
-              {Number.isFinite(Date.parse(source.importedAt))
-                ? new Intl.DateTimeFormat(undefined, {
-                    month: "short",
-                    day: "numeric",
-                    year: "numeric",
-                  }).format(new Date(source.importedAt))
-                : "date unavailable"}
-            </span>
+        <section
+          className="form-section resume-source-section"
+          aria-labelledby="resume-source-title"
+        >
+          <div className="form-section-heading">
+            <h2 id="resume-source-title">Original resume</h2>
+            <p>The source for your experience, skills and qualifications.</p>
           </div>
-          <div className="resume-document-actions">
-            <button
-              ref={previewTrigger}
-              type="button"
-              className="button"
-              disabled={locked}
-              onClick={() =>
-                void run(async () => {
-                  const blob = await fileBlob(`${sourcePath}?preview=1`);
-                  if (mounted.current)
-                    setPreview({
-                      url: URL.createObjectURL(blob),
-                      kind: source.kind,
-                    });
-                }, "Try Preview again, or download the original.")
-              }
-            >
-              <Eye size={15} aria-hidden="true" />
-              Preview
-            </button>
-            <button
-              type="button"
-              className="icon-button"
-              title="Download original"
-              aria-label="Download original resume"
-              disabled={locked}
-              onClick={() =>
-                void run(
-                  () => downloadFile(sourcePath, source.name),
-                  "Try downloading the original again.",
-                )
-              }
-            >
-              <Download size={18} aria-hidden="true" />
-            </button>
-            {uploadButton("Replace resume", false)}
+          <div className="resume-document">
+            <FileText size={22} strokeWidth={1.5} aria-hidden="true" />
+            <div className="resume-document-info">
+              <strong>{source.name}</strong>
+              <span>
+                {source.kind.toUpperCase()} <span aria-hidden="true">·</span>{" "}
+                Uploaded{" "}
+                {Number.isFinite(Date.parse(source.importedAt))
+                  ? new Intl.DateTimeFormat(undefined, {
+                      month: "short",
+                      day: "numeric",
+                      year: "numeric",
+                    }).format(new Date(source.importedAt))
+                  : "date unavailable"}
+              </span>
+            </div>
+            <div className="resume-document-actions">
+              <button
+                ref={previewTrigger}
+                type="button"
+                className="button"
+                disabled={locked}
+                onClick={() =>
+                  void run(async () => {
+                    const blob = await fileBlob(`${sourcePath}?preview=1`);
+                    if (mounted.current)
+                      setPreview({
+                        url: URL.createObjectURL(blob),
+                        kind: source.kind,
+                      });
+                  }, "Try Preview again, or download the original.")
+                }
+              >
+                <Eye size={15} aria-hidden="true" />
+                Preview
+              </button>
+              <button
+                type="button"
+                className="icon-button"
+                title="Download original"
+                aria-label="Download original resume"
+                disabled={locked}
+                onClick={() =>
+                  void run(
+                    () => downloadFile(sourcePath, source.name),
+                    "Try downloading the original again.",
+                  )
+                }
+              >
+                <Download size={18} aria-hidden="true" />
+              </button>
+              {uploadButton("Replace resume", false)}
+            </div>
           </div>
         </section>
       )}
