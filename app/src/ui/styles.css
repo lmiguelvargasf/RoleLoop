@@ -4636,7 +4636,6 @@ summary.source-editor-top::before {
   letter-spacing: -0.025em;
 }
 .employer-discovery-heading p,
-.discovery-search-context p,
 .discovery-last-result p,
 .discovery-conflict p {
   margin: 6px 0 0;
@@ -4647,24 +4646,10 @@ summary.source-editor-top::before {
 .employer-discovery-heading .source-toggle {
   flex-shrink: 0;
 }
-.discovery-search-context {
-  display: flex;
-  align-items: baseline;
-  justify-content: space-between;
-  gap: 12px 24px;
-  margin-top: 12px;
-}
-.discovery-search-context p {
-  color: var(--ink);
-  overflow-wrap: anywhere;
-}
-.discovery-search-context a {
-  display: inline-flex;
-  align-items: center;
-  flex-shrink: 0;
-  gap: 4px;
+.employer-discovery-heading a {
   color: var(--accent);
-  font-size: 12px;
+  text-decoration: underline;
+  text-underline-offset: 3px;
 }
 .discovery-setup-note {
   margin: 12px 0 0;
@@ -4711,10 +4696,6 @@ summary.source-editor-top::before {
   font-size: inherit;
 }
 @media (max-width: 580px) {
-  .discovery-search-context {
-    flex-direction: column;
-    gap: 8px;
-  }
   .discovery-tabs {
     gap: 18px;
   }

@@ -294,7 +294,8 @@ export function SourcesPage({
                   Find new companies automatically
                 </h2>
                 <p>
-                  Discover employers for your target roles and connect their
+                  Discover employers using your{" "}
+                  <a href="#settings">search preferences</a> and connect their
                   supported career pages.
                 </p>
               </div>
@@ -309,24 +310,6 @@ export function SourcesPage({
               >
                 <span />
               </button>
-            </div>
-            <div className="discovery-search-context">
-              <p>
-                {preferences.roles.length
-                  ? preferences.roles.join(" · ")
-                  : "Choose your target roles"}
-                {" · "}
-                {preferences.country.trim()
-                  ? `Working from ${preferences.country}`
-                  : "Set your working country"}
-                {preferences.companyCountry.trim() &&
-                  ` · Targeting ${preferences.companyCountry} employers`}
-                {preferences.minimumSalary > 0 &&
-                  ` · $${preferences.minimumSalary.toLocaleString()} USD/year minimum`}
-              </p>
-              <a href="#settings">
-                Edit preferences <ArrowUpRight size={13} />
-              </a>
             </div>
             {automatic && !searchReady && (
               <p className="discovery-setup-note">
