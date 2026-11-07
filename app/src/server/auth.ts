@@ -111,29 +111,18 @@ export async function accountContext(
   identity: Identity,
 ): Promise<AccountContext> {
   await ensurePersonalWorkspace(identity);
-  const memberships = await identity.client
-    .from("workspace_members")
-    .select("workspace_id,role")
-    .eq("user_id", identity.user.id);
-  if (memberships.error)
-    throw fail("Could not read workspace permissions.", 503);
-  const ids = (memberships.data || []).map((row) => row.workspace_id);
-  let workspaces: WorkspaceAccess[] = [];
-  if (ids.length) {
-    const result = await identity.client
-      .from("workspace")
-      .select("id,name,owner_user_id")
-      .in("id", ids)
-      .order("name");
-    if (result.error) throw fail("Could not load your workspaces.", 503);
-    workspaces = (result.data || []).map((row) => ({
-      id: row.id,
-      name: row.name,
-      ownerUserId: row.owner_user_id,
-      role: memberships.data!.find((m) => m.workspace_id === row.id)!
-        .role as WorkspaceAccess["role"],
-    }));
-  }
+  const result = await identity.client
+    .from("workspace")
+    .select("id,name,owner_user_id")
+    .eq("owner_user_id", identity.user.id)
+    .order("name");
+  if (result.error) throw fail("Could not load your workspaces.", 503);
+  const workspaces: WorkspaceAccess[] = (result.data || []).map((row) => ({
+    id: row.id,
+    name: row.name,
+    ownerUserId: row.owner_user_id,
+    role: "owner",
+  }));
   return {
     user: {
       id: identity.user.id,
@@ -147,29 +136,26 @@ export async function accountContext(
 export async function workspaceAccess(
   identity: Identity,
   workspaceId: unknown,
-  ownerOnly = false,
 ) {
   const id = workspaceIdSchema.safeParse(workspaceId);
   if (!id.success) throw fail("Choose a workspace.", 400);
   const result = await identity.client
-    .from("workspace_members")
-    .select("role")
-    .eq("workspace_id", id.data)
-    .eq("user_id", identity.user.id)
+    .from("workspace")
+    .select("id")
+    .eq("id", id.data)
+    .eq("owner_user_id", identity.user.id)
     .maybeSingle();
   if (result.error || !result.data)
     throw Object.assign(fail("You do not have access to this workspace."), {
       code: "WORKSPACE_ACCESS_DENIED",
     });
-  if (ownerOnly && result.data.role !== "owner")
-    throw fail("Only the workspace owner can manage access.");
   return {
     store: createWorkspaceStore({
       workspaceId: id.data,
       client: identity.client,
       actorUserId: identity.user.id,
     }),
-    role: result.data.role as WorkspaceAccess["role"],
+    role: "owner" as const,
   };
 }
 export function assertAdmin(identity: Identity) {
@@ -191,83 +177,6 @@ export async function claimOwner(identity: Identity, input: unknown) {
       "The setup key is invalid, expired, or already used. Run npm run account:setup on the host if setup is still available.",
     );
   return { workspaceId: data[0].id };
-}
-export async function workspaceMembers(identity: Identity, id: string) {
-  await workspaceAccess(identity, id);
-  const result = await identity.client
-    .from("workspace_members")
-    .select("user_id,role")
-    .eq("workspace_id", id);
-  if (result.error) throw fail("Could not load workspace members.", 503);
-  const members = await Promise.all(
-    (result.data || []).map(async (member) => {
-      const user = await db.auth.admin.getUserById(member.user_id);
-      return {
-        userId: member.user_id,
-        role: member.role,
-        email: user.data.user?.email || "",
-        name: user.data.user ? userName(user.data.user) : "",
-      };
-    }),
-  );
-  return { members };
-}
-async function accountByEmail(email: string): Promise<User | null> {
-  for (let page = 1; page <= 1000; page++) {
-    const { data, error } = await db.auth.admin.listUsers({
-      page,
-      perPage: 100,
-    });
-    if (error) throw fail("Account directory is unavailable.", 503);
-    const user = data.users.find(
-      (u) => u.email?.toLowerCase() === email.toLowerCase(),
-    );
-    if (user) return user;
-    if (data.users.length < 100) return null;
-  }
-  throw fail("Account lookup limit reached.", 503);
-}
-export async function grantManager(
-  identity: Identity,
-  id: string,
-  input: unknown,
-) {
-  await workspaceAccess(identity, id, true);
-  const { email } = z.object({ email: z.email().max(254) }).parse(input);
-  const user = await accountByEmail(email);
-  if (!user)
-    throw fail(
-      "No account has that email. Ask the manager to create an account first.",
-      404,
-    );
-  const { error } = await identity.client.rpc("manage_workspace_member", {
-    target_workspace: id,
-    member_user_id: user.id,
-    operation: "grant",
-  });
-  if (error)
-    throw fail(
-      "Could not grant manager access. Workspace owners cannot be changed here.",
-    );
-  return workspaceMembers(identity, id);
-}
-export async function revokeManager(
-  identity: Identity,
-  id: string,
-  userId: string,
-) {
-  await workspaceAccess(identity, id, true);
-  z.uuid().parse(userId);
-  const { error } = await identity.client.rpc("manage_workspace_member", {
-    target_workspace: id,
-    member_user_id: userId,
-    operation: "revoke",
-  });
-  if (error)
-    throw fail(
-      "Could not remove this member. The workspace owner cannot be removed.",
-    );
-  return workspaceMembers(identity, id);
 }
 export async function adminUsers(identity: Identity, page: unknown) {
   assertAdmin(identity);

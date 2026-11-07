@@ -182,7 +182,7 @@ export function createWorkspaceStore({
         CompanySchema.parse({ ...c, countrySource: c.country_source }),
       ),
     };
-    // A shared workspace uses its owner's contact, never the manager's login.
+    // Personal workspace contact information belongs to its owner.
     // Email is resolved from Auth rather than duplicated in the profile JSON.
     if (row.owner_user_id) {
       const { data, error } = await db.auth.admin.getUserById(
@@ -557,15 +557,17 @@ export async function listOwnedWorkspaces(): Promise<
   }
   return result;
 }
-export async function isOwnedWorkspace(workspaceId: string): Promise<boolean> {
-  const row = checked(
-    await db
-      .from("workspace")
-      .select("id")
-      .eq("id", workspaceId)
-      .not("owner_user_id", "is", null)
-      .maybeSingle(),
-  );
+export async function isOwnedWorkspace(
+  workspaceId: string,
+  requesterUserId?: string,
+): Promise<boolean> {
+  let query = db
+    .from("workspace")
+    .select("id")
+    .eq("id", workspaceId)
+    .not("owner_user_id", "is", null);
+  if (requesterUserId) query = query.eq("owner_user_id", requesterUserId);
+  const row = checked(await query.maybeSingle());
   return !!row;
 }
 export async function claimRun(): Promise<

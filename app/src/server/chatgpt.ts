@@ -466,7 +466,7 @@ export async function chatgptCredential(userId: string) {
     const profile = state.profiles.find((p) => p.id === state.activeId);
     if (!profile?.tokens)
       throw chatgptError(
-        "Connect your ChatGPT account under Account & access.",
+        "Connect your ChatGPT account under Account.",
         "chatgpt_reconnect",
       );
     if (profile.suspended)
@@ -477,7 +477,7 @@ export async function chatgptCredential(userId: string) {
       );
     if (!profile.tokens.scopes.includes(permission))
       throw chatgptError(
-        "Enable ChatGPT plan usage under Account & access.",
+        "Enable ChatGPT plan usage under Account.",
         "chatgpt_permission_required",
       );
     if (profile.tokens.expiresAt < Date.now() + 60000) {
@@ -518,7 +518,7 @@ export async function chatgptCredential(userId: string) {
           delete profile.tokens;
           await atomic(userFile(userId), state);
           throw chatgptError(
-            "Your ChatGPT connection expired. Reconnect under Account & access.",
+            "Your ChatGPT connection expired. Reconnect under Account.",
             "chatgpt_reconnect",
           );
         }

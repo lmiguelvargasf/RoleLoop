@@ -188,22 +188,12 @@ async function main() {
           break;
         }
         try {
-          if (!(await isOwnedWorkspace(run.workspaceId)))
+          if (!(await isOwnedWorkspace(run.workspaceId, run.requestedBy)))
             throw new Error(
-              "Claim this workspace with an account before running its tasks.",
+              run.requestedBy
+                ? "The requesting account no longer owns this workspace."
+                : "This workspace needs an owner before running its tasks.",
             );
-          if (run.requestedBy) {
-            const membership = await db
-              .from("workspace_members")
-              .select("user_id")
-              .eq("workspace_id", run.workspaceId)
-              .eq("user_id", run.requestedBy)
-              .maybeSingle();
-            if (membership.error || !membership.data)
-              throw new Error(
-                "The requesting account no longer has access to this workspace.",
-              );
-          }
           await update(store, run, {
             status: "running",
             progress: 5,

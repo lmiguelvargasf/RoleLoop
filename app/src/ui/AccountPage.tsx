@@ -7,12 +7,11 @@ import {
   LoaderCircle,
   Mail,
   Save,
-  Trash2,
   UserPlus,
   Users,
 } from "lucide-react";
 import type { AccountContext, WorkspaceAccess } from "../shared/types";
-import type { ManagedUser, WorkspaceMember } from "./account-types";
+import type { ManagedUser } from "./account-types";
 import { ChatGPTConnectionPanel } from "./ChatGPTConnectionPanel";
 import { api, write } from "./api";
 
@@ -29,10 +28,8 @@ export function AccountPage({
   notice: string;
   reloadAccount: (preferredWorkspaceId?: string) => Promise<void>;
 }) {
-  const [members, setMembers] = useState<WorkspaceMember[]>([]),
-    [users, setUsers] = useState<ManagedUser[]>([]);
-  const [name, setName] = useState(workspace.name),
-    [managerEmail, setManagerEmail] = useState("");
+  const [users, setUsers] = useState<ManagedUser[]>([]);
+  const [name, setName] = useState(workspace.name);
   const [userName, setUserName] = useState(""),
     [userEmail, setUserEmail] = useState(""),
     [userPassword, setUserPassword] = useState("");
@@ -40,38 +37,22 @@ export function AccountPage({
     [loading, setLoading] = useState(true),
     [error, setError] = useState(""),
     [message, setMessage] = useState(notice);
-  const owner = workspace.role === "owner";
-  async function loadMembers() {
-    const result = await api<{ members: WorkspaceMember[] }>(
-      `/workspaces/${encodeURIComponent(workspace.id)}/members`,
-    );
-    setMembers(result.members);
-  }
   async function loadUsers() {
     if (!account.isAdmin) return;
     const result = await api<{ users: ManagedUser[] }>("/admin/users");
     setUsers(result.users);
   }
   useEffect(() => {
+    if (!account.isAdmin) return;
     let live = true;
     setLoading(true);
-    void Promise.all([
-      api<{ members: WorkspaceMember[] }>(
-        `/workspaces/${encodeURIComponent(workspace.id)}/members`,
-      ),
-      account.isAdmin
-        ? api<{ users: ManagedUser[] }>("/admin/users")
-        : Promise.resolve({ users: [] }),
-    ])
-      .then(([memberResult, userResult]) => {
-        if (live) {
-          setMembers(memberResult.members);
-          setUsers(userResult.users);
-        }
+    void api<{ users: ManagedUser[] }>("/admin/users")
+      .then((result) => {
+        if (live) setUsers(result.users);
       })
       .catch((err) => {
         if (live && err.name !== "AbortError")
-          setError(err.message || "Unable to load account access.");
+          setError(err.message || "Unable to load accounts.");
       })
       .finally(() => {
         if (live) setLoading(false);
@@ -79,7 +60,7 @@ export function AccountPage({
     return () => {
       live = false;
     };
-  }, [workspace.id, account.isAdmin]);
+  }, [account.isAdmin]);
   async function perform(action: () => Promise<unknown>, success: string) {
     setBusy(true);
     setError("");
@@ -109,25 +90,6 @@ export function AccountPage({
       await reloadAccount();
     }, "Workspace name saved.");
   };
-  const grant = (event: FormEvent) => {
-    event.preventDefault();
-    void perform(async () => {
-      await write(`/workspaces/${encodeURIComponent(workspace.id)}/members`, {
-        email: managerEmail.trim(),
-      });
-      setManagerEmail("");
-      await loadMembers();
-    }, "Manager access granted.");
-  };
-  const remove = (member: WorkspaceMember) =>
-    void perform(async () => {
-      await write(
-        `/workspaces/${encodeURIComponent(workspace.id)}/members/${encodeURIComponent(member.userId)}`,
-        {},
-        "DELETE",
-      );
-      await loadMembers();
-    }, `Manager access removed for ${member.email}.`);
   const createUser = (event: FormEvent) => {
     event.preventDefault();
     void perform(async () => {
@@ -149,8 +111,8 @@ export function AccountPage({
     >
       <header className="page-heading">
         <div>
-          <h1 id="account-title">Account & access</h1>
-          <p>Manage your account and choose who can work with you.</p>
+          <h1 id="account-title">Account</h1>
+          <p>Manage your account and AI connection.</p>
         </div>
       </header>
       {error && (
@@ -207,99 +169,30 @@ export function AccountPage({
       <section className="form-section">
         <div className="section-heading">
           <div>
-            <h2>Workspace access</h2>
+            <h2>Your workspace</h2>
             <p>
-              {owner
-                ? "Managers can work with your opportunities, profile and drafts. Only you can change access."
-                : "You can work in this workspace. Its owner manages who has access."}
+              Your résumé, opportunities and drafts are private to your account.
             </p>
           </div>
-          <span className="badge badge-review">
-            {owner ? "You are the owner" : "You are a manager"}
-          </span>
         </div>
-        {owner ? (
-          <form className="workspace-name-form" onSubmit={saveName}>
-            <label className="field">
-              <span>Workspace name</span>
-              <input
-                required
-                maxLength={100}
-                value={name}
-                onChange={(e) => setName(e.target.value)}
-              />
-            </label>
-            <button
-              className="button"
-              disabled={busy || !name.trim() || name === workspace.name}
-            >
-              <Save size={15} />
-              Save name
-            </button>
-          </form>
-        ) : (
-          <div className="workspace-name-readonly">
-            <strong>{workspace.name}</strong>
-          </div>
-        )}
-        {loading ? (
-          <div className="access-loading">
-            <LoaderCircle className="spin" size={18} />
-            Loading access…
-          </div>
-        ) : (
-          <div className="access-list">
-            {members.map((member) => (
-              <div className="access-row" key={member.userId}>
-                <span className="account-avatar small">
-                  {(member.name || member.email).slice(0, 1).toUpperCase()}
-                </span>
-                <div className="access-person">
-                  <strong>
-                    {member.name || member.email}
-                    {member.userId === account.user.id && <small> · you</small>}
-                  </strong>
-                  <span>{member.email}</span>
-                </div>
-                <span className="badge">
-                  {member.role === "owner" ? "Owner" : "Manager"}
-                </span>
-                {owner && member.role === "manager" && (
-                  <button
-                    className="icon-button"
-                    type="button"
-                    disabled={busy}
-                    aria-label={`Remove access for ${member.email}`}
-                    title={`Remove access for ${member.email}`}
-                    onClick={() => remove(member)}
-                  >
-                    <Trash2 size={16} />
-                  </button>
-                )}
-              </div>
-            ))}
-          </div>
-        )}
-        {owner && (
-          <form onSubmit={grant} className="grant-access-form">
-            <label className="field">
-              <span>Add a manager</span>
-              <input
-                type="email"
-                required
-                value={managerEmail}
-                onChange={(e) => setManagerEmail(e.target.value)}
-                placeholder="Existing account email"
-                autoComplete="off"
-              />
-              <small>The person must already have a RoleLoop account.</small>
-            </label>
-            <button className="button primary" disabled={busy}>
-              <UserPlus size={16} />
-              Grant access
-            </button>
-          </form>
-        )}
+        <form className="workspace-name-form" onSubmit={saveName}>
+          <label className="field">
+            <span>Workspace name</span>
+            <input
+              required
+              maxLength={100}
+              value={name}
+              onChange={(e) => setName(e.target.value)}
+            />
+          </label>
+          <button
+            className="button"
+            disabled={busy || !name.trim() || name === workspace.name}
+          >
+            <Save size={15} />
+            Save name
+          </button>
+        </form>
       </section>
       {account.isAdmin && (
         <section className="form-section admin-accounts">
@@ -313,6 +206,12 @@ export function AccountPage({
             </div>
             <Users size={23} />
           </div>
+          {loading && (
+            <div className="access-loading">
+              <LoaderCircle className="spin" size={18} />
+              Loading accounts…
+            </div>
+          )}
           <div className="access-list">
             {users.map((user) => (
               <div className="access-row" key={user.id}>

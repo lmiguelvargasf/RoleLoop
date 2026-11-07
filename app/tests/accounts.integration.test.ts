@@ -170,16 +170,13 @@ integration(
           .single();
         expect(result.error).toBeNull();
         expect(result.data?.requested_by).toBe(alice.id);
-        await db.from("workspace_members").insert({
-          workspace_id: alice.workspaceId,
-          user_id: bob.id,
-          role: "manager",
-        });
         const tampered = await bob.client
           .from("runs")
           .update({ status: "queued", payload: { action: "discover" } })
-          .eq("id", id);
-        expect(tampered.error?.code).toBe("42501");
+          .eq("id", id)
+          .select("id");
+        expect(tampered.error).toBeNull();
+        expect(tampered.data).toEqual([]);
         const changed = await alice.client
           .from("runs")
           .update({ requested_by: bob.id })
@@ -190,14 +187,12 @@ integration(
           workspaceId: alice.workspaceId,
           client: db,
         });
-        expect((await store.get("runs", id)).requestedBy).toBe(alice.id);
+        expect(await store.get("runs", id)).toMatchObject({
+          requestedBy: alice.id,
+          status: "completed",
+        });
       } finally {
         await db.from("runs").delete().eq("id", id);
-        await db
-          .from("workspace_members")
-          .delete()
-          .eq("workspace_id", alice.workspaceId)
-          .eq("user_id", bob.id);
       }
     });
 
@@ -693,63 +688,93 @@ integration(
       });
       expect(ownExport.statusCode).toBe(200);
     });
-    it("grants and revokes manager access without allowing manager escalation", async () => {
-      const grant = await app.inject({
-        method: "POST",
-        url: `/api/workspaces/${alice.workspaceId}/members`,
-        headers: headers(alice),
-        payload: { email: bob.email },
-      });
-      expect(grant.statusCode, grant.body).toBe(200);
-      const access = await app.inject({
-        url: "/api/bootstrap",
-        headers: headers(bob, alice.workspaceId),
-      });
-      expect(access.statusCode, access.body).toBe(200);
-      expect(access.json().profile.email).toBe(alice.email);
-      const forbidden = await app.inject({
-        method: "POST",
-        url: `/api/workspaces/${alice.workspaceId}/members`,
-        headers: headers(bob),
-        payload: { email: carol.email },
-      });
-      expect(forbidden.statusCode).toBe(403);
-      const direct = await bob.client.rpc("manage_workspace_member", {
-        target_workspace: alice.workspaceId,
-        member_user_id: carol.id,
-        operation: "grant",
-      });
-      expect(direct.error).not.toBeNull();
-      const selfOwner = await bob.client
-        .from("workspace")
-        .update({ owner_user_id: bob.id })
-        .eq("id", alice.workspaceId);
-      expect(selfOwner.error).not.toBeNull();
-      const membership = await bob.client.from("workspace_members").insert({
-        workspace_id: carol.workspaceId,
+    it("keeps workspaces private even when an old manager membership exists", async () => {
+      for (const method of ["GET", "POST", "DELETE"] as const) {
+        const response = await app.inject({
+          method,
+          url: `/api/workspaces/${alice.workspaceId}/members${method === "DELETE" ? `/${bob.id}` : ""}`,
+          headers: headers(alice),
+          ...(method === "GET" ? {} : { payload: { email: bob.email } }),
+        });
+        expect(response.statusCode, response.body).toBe(404);
+      }
+      for (const actor of [alice, bob]) {
+        const direct = await actor.client.rpc("manage_workspace_member", {
+          target_workspace: alice.workspaceId,
+          member_user_id: bob.id,
+          operation: "grant",
+        });
+        expect(direct.error).not.toBeNull();
+      }
+      // Retained migration history must not grant access, even with a current JWT.
+      const legacy = await db.from("workspace_members").insert({
+        workspace_id: alice.workspaceId,
         user_id: bob.id,
-        role: "owner",
+        role: "manager",
       });
-      expect(membership.error).not.toBeNull();
-      const revoke = await app.inject({
-        method: "DELETE",
-        url: `/api/workspaces/${alice.workspaceId}/members/${bob.id}`,
-        headers: headers(alice),
-        payload: {},
-      });
-      expect(revoke.statusCode, revoke.body).toBe(200);
-      const denied = await app.inject({
-        url: "/api/bootstrap",
-        headers: headers(bob, alice.workspaceId),
-      });
-      expect(denied.statusCode).toBe(403);
-      const rows = await bob.client
-        .from("opportunities")
-        .select("id")
-        .eq("workspace_id", alice.workspaceId);
-      expect(rows.data).toEqual([]);
+      expect(legacy.error).toBeNull();
+      try {
+        const { isOwnedWorkspace } = await import("../src/server/store.js");
+        expect(await isOwnedWorkspace(alice.workspaceId)).toBe(true);
+        expect(await isOwnedWorkspace(alice.workspaceId, alice.id)).toBe(true);
+        expect(await isOwnedWorkspace(alice.workspaceId, bob.id)).toBe(false);
+        const account = await app.inject({
+          url: "/api/account",
+          headers: headers(bob),
+        });
+        expect(account.statusCode, account.body).toBe(200);
+        expect(account.json<AccountContext>().workspaces.map((w) => w.id))
+          .toEqual([bob.workspaceId]);
+        const denied = await app.inject({
+          url: "/api/bootstrap",
+          headers: headers(bob, alice.workspaceId),
+        });
+        expect(denied.statusCode).toBe(403);
+        expect(denied.json().code).toBe("WORKSPACE_ACCESS_DENIED");
+        const rename = await app.inject({
+          method: "PATCH",
+          url: `/api/workspaces/${alice.workspaceId}`,
+          headers: headers(bob),
+          payload: { name: "Unauthorized rename" },
+        });
+        expect(rename.statusCode).toBe(403);
+        const access = await bob.client.rpc("has_workspace_access", {
+          target_workspace: alice.workspaceId,
+        });
+        expect(access.error).toBeNull();
+        expect(access.data).toBe(false);
+        for (const table of ["workspace", "opportunities", "drafts"]) {
+          const rows = await bob.client.from(table).select("id")
+            .eq(table === "workspace" ? "id" : "workspace_id", alice.workspaceId);
+          expect(rows.error).toBeNull();
+          expect(rows.data).toEqual([]);
+        }
+        const tampered = await bob.client.from("opportunities")
+          .update({ payload: { corrupted: true } })
+          .eq("workspace_id", alice.workspaceId).select("id");
+        expect(tampered.error).toBeNull();
+        expect(tampered.data).toEqual([]);
+        const selfOwner = await bob.client.from("workspace")
+          .update({ owner_user_id: bob.id }).eq("id", alice.workspaceId);
+        expect(selfOwner.error).not.toBeNull();
+        const membership = await bob.client.from("workspace_members").insert({
+          workspace_id: carol.workspaceId,
+          user_id: bob.id,
+          role: "owner",
+        });
+        expect(membership.error).not.toBeNull();
+        const own = await app.inject({
+          url: "/api/bootstrap",
+          headers: headers(alice, alice.workspaceId),
+        });
+        expect(own.statusCode, own.body).toBe(200);
+        expect(own.json().profile.email).toBe(alice.email);
+      } finally {
+        await db.from("workspace_members").delete()
+          .eq("workspace_id", alice.workspaceId).eq("user_id", bob.id);
+      }
     });
-    it("keeps account administration separate from workspace membership", async () => {
+    it("keeps account administration separate from workspace ownership", async () => {
       const denied = await app.inject({
         url: "/api/admin/users",
         headers: headers(bob),
@@ -804,7 +829,7 @@ integration(
       });
       expect(direct.error).not.toBeNull();
     });
-    it("protects stored documents with workspace membership and immediate revocation", async () => {
+    it("keeps stored documents private despite an old manager membership", async () => {
       const path = `${alice.workspaceId}/drafts/${randomUUID()}/test.txt`;
       const created = await db.storage
         .from("documents")
@@ -819,32 +844,24 @@ integration(
           .from("documents")
           .download(path);
         expect(denied.error).not.toBeNull();
-        await app.inject({
-          method: "POST",
-          url: `/api/workspaces/${alice.workspaceId}/members`,
-          headers: headers(alice),
-          payload: { email: bob.email },
+        const legacy = await db.from("workspace_members").insert({
+          workspace_id: alice.workspaceId,
+          user_id: bob.id,
+          role: "manager",
         });
-        const shared = await bob.client.storage
+        expect(legacy.error).toBeNull();
+        const stillDenied = await bob.client.storage
           .from("documents")
           .download(path);
-        expect(shared.error).toBeNull();
-        await app.inject({
-          method: "DELETE",
-          url: `/api/workspaces/${alice.workspaceId}/members/${bob.id}`,
-          headers: headers(alice),
-          payload: {},
-        });
-        const revoked = await bob.client.storage
-          .from("documents")
-          .download(path);
-        expect(revoked.error).not.toBeNull();
+        expect(stillDenied.error).not.toBeNull();
         const ownUpload = await bob.client.storage
           .from("documents")
           .upload(`${alice.workspaceId}/intrusion.txt`, Buffer.from("No"));
         expect(ownUpload.error).not.toBeNull();
       } finally {
         await db.storage.from("documents").remove([path]);
+        await db.from("workspace_members").delete()
+          .eq("workspace_id", alice.workspaceId).eq("user_id", bob.id);
       }
     }, 20000);
   },

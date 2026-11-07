@@ -57,8 +57,8 @@ function AuthShell({ children }: { children: ReactNode }) {
             Your own space.
           </h1>
           <p>
-            Keep your experience, opportunities and application drafts together,
-            with access you control.
+            Keep your experience, opportunities and application drafts together
+            in your private workspace.
           </p>
           <div className="auth-path">
             <span>

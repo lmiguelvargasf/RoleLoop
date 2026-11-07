@@ -301,7 +301,7 @@ export interface Workspace {
 export interface WorkspaceAccess {
   id: string;
   name: string;
-  role: "owner" | "manager";
+  role: "owner";
   ownerUserId: string;
 }
 export interface AccountContext {

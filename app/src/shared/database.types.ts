@@ -546,14 +546,6 @@ export type Database = {
         Args: { target_workspace: string }
         Returns: boolean
       }
-      manage_workspace_member: {
-        Args: {
-          member_user_id: string
-          operation: string
-          target_workspace: string
-        }
-        Returns: undefined
-      }
       owns_workspace: { Args: { target_workspace: string }; Returns: boolean }
       release_worker_lease: { Args: { owner: string }; Returns: boolean }
       renew_worker_lease: { Args: { owner: string }; Returns: boolean }

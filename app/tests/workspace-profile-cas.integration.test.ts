@@ -182,7 +182,7 @@ integration("body-based workspace profile compare-and-swap", () => {
     expect(attempts.map((result) => result.data.length).sort()).toEqual([0, 1]);
   });
 
-  it("uses caller RLS for owner/manager writes and denies anonymous or unrelated accounts", async () => {
+  it("allows only the owner to write, including when a legacy manager row exists", async () => {
     const alice = await actor(),
       bob = await actor();
     const current = (
@@ -206,18 +206,25 @@ integration("body-based workspace profile compare-and-swap", () => {
       args,
     );
     expect(anonymous.error).not.toBeNull();
-    const granted = await alice.client.rpc("manage_workspace_member", {
-      target_workspace: alice.workspaceId,
-      member_user_id: bob.userId,
-      operation: "grant",
+    const legacy = await db.from("workspace_members").insert({
+      workspace_id: alice.workspaceId,
+      user_id: bob.userId,
+      role: "manager",
     });
-    expect(granted.error).toBeNull();
-    const manager = await bob.client.rpc(
+    expect(legacy.error).toBeNull();
+    const formerManager = await bob.client.rpc(
       "update_workspace_profile_if_current",
       args,
     );
-    expect(manager.error).toBeNull();
-    expect(manager.data).toEqual([{ id: alice.workspaceId }]);
+    expect(formerManager.error).toBeNull();
+    expect(formerManager.data).toEqual([]);
+    expect((await alice.store.getWorkspace()).profile).toEqual(current);
+    const owner = await alice.client.rpc(
+      "update_workspace_profile_if_current",
+      args,
+    );
+    expect(owner.error).toBeNull();
+    expect(owner.data).toEqual([{ id: alice.workspaceId }]);
     const ownership = await db
       .from("workspace")
       .select("owner_user_id,name")

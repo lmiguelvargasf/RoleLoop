@@ -26,7 +26,7 @@ select id as workspace_a from public.ensure_workspace('{}'::jsonb) \gset
 select set_config('roleloop.test.workspace_a', :'workspace_a', true);
 select pg_temp.assert_true((select id = :'workspace_a' from public.ensure_workspace('{"changed":true}'::jsonb)), 'provisioning is idempotent');
 select pg_temp.assert_true((select count(*) = 0 from public.workspace where id = 'default'), 'signup cannot claim legacy workspace');
-select pg_temp.assert_true((select count(*) = 1 from public.workspace_members where user_id = :'user_a'::uuid and role = 'owner'), 'new account owns its personal workspace');
+select pg_temp.assert_true((select owner_user_id = :'user_a'::uuid from public.workspace where id = :'workspace_a'), 'new account owns its personal workspace');
 insert into public.opportunities(id, workspace_id, kind, source_key, payload)
 values (:'workspace_a' || '-op', :'workspace_a', 'job', 'shared-source-key', '{}');
 insert into public.drafts(id, workspace_id, opportunity_id, payload)
@@ -48,7 +48,6 @@ select pg_temp.assert_true((select count(*) = 0 from public.opportunities where 
 select pg_temp.assert_true((select count(*) = 0 from public.drafts where workspace_id = :'workspace_a'), 'cross-workspace drafts hidden');
 select pg_temp.assert_true((select count(*) = 0 from public.runs where workspace_id = :'workspace_a'), 'cross-workspace runs hidden');
 select pg_temp.assert_true((select count(*) = 0 from public.workspace_runtime where workspace_id = :'workspace_a'), 'cross-workspace corrections hidden');
-select pg_temp.assert_true((select count(*) = 0 from public.workspace_members where workspace_id = :'workspace_a'), 'cross-workspace membership hidden');
 select pg_temp.assert_true((select id <> :'run_a' from public.enqueue_run(:'workspace_b', jsonb_build_object('id', gen_random_uuid()::text, 'action', 'discover', 'sourceId', 'shared-source'))), 'different workspaces do not deduplicate each other');
 
 do $$
@@ -98,6 +97,10 @@ begin
     raise exception 'Direct ownership update unexpectedly succeeded';
   exception when insufficient_privilege then null; end;
   begin
+    perform user_id from public.workspace_members;
+    raise exception 'User read historical membership records';
+  exception when insufficient_privilege then null; end;
+  begin
     insert into public.workspace_members(workspace_id,user_id,role)
       values(current_setting('roleloop.test.workspace_a'),current_setting('roleloop.test.user_b')::uuid,'owner');
     raise exception 'Self-granted membership unexpectedly succeeded';
@@ -121,42 +124,43 @@ begin
 end;
 $$;
 
--- Grant, use, and revoke manager access with the same JWT to prove that
--- membership is checked at query time instead of embedded in stale tokens.
+-- Owners retain their workspace and data; old manager rows no longer authorize
+-- reads, writes, storage, or queued work, even with the same authenticated JWT.
 select set_config('request.jwt.claims', jsonb_build_object('sub', :'user_a', 'role', 'authenticated')::text, true);
 update public.workspace set name='Owner-renamed workspace' where id=:'workspace_a';
 select pg_temp.assert_true((select name='Owner-renamed workspace' from public.workspace where id=:'workspace_a'), 'owner can rename their workspace');
-select public.manage_workspace_member(:'workspace_a', :'user_b'::uuid, 'grant');
+select pg_temp.assert_true(to_regprocedure('public.manage_workspace_member(text,uuid,text)') is null, 'workspace sharing RPC is removed');
+reset role;
+insert into public.workspace_members(workspace_id,user_id,role)
+values (:'workspace_a', :'user_b'::uuid, 'manager');
+set local role authenticated;
 select set_config('request.jwt.claims', jsonb_build_object('sub', :'user_b', 'role', 'authenticated')::text, true);
-select pg_temp.assert_true((select count(*) = 1 from public.opportunities where workspace_id = :'workspace_a'), 'manager can read assigned workspace');
-update public.opportunities set payload='{"managerEdited":true}' where workspace_id=:'workspace_a';
-select pg_temp.assert_true((select payload->>'managerEdited'='true' from public.opportunities where workspace_id=:'workspace_a'), 'manager can edit assigned workspace');
-update public.workspace set payload='{"managerUpdatedSettings":true}' where id=:'workspace_a';
-select pg_temp.assert_true((select payload->>'managerUpdatedSettings'='true' from public.workspace where id=:'workspace_a'), 'manager can update workspace payload');
-do $$ begin
+select pg_temp.assert_true(not public.has_workspace_access(:'workspace_a'), 'old manager membership grants no access');
+select pg_temp.assert_true((select count(*) = 0 from public.workspace where id = :'workspace_a'), 'old manager cannot read workspace');
+select pg_temp.assert_true((select count(*) = 0 from public.opportunities where workspace_id = :'workspace_a'), 'old manager cannot read opportunities');
+select pg_temp.assert_true((select count(*) = 0 from public.drafts where workspace_id = :'workspace_a'), 'old manager cannot read drafts');
+select pg_temp.assert_true((select count(*) = 0 from public.runs where workspace_id = :'workspace_a'), 'old manager cannot read runs');
+select pg_temp.assert_true((select count(*) = 0 from public.workspace_runtime where workspace_id = :'workspace_a'), 'old manager cannot read corrections');
+do $$
+declare affected integer;
+begin
+  update public.opportunities set payload='{"corrupted":true}' where workspace_id=current_setting('roleloop.test.workspace_a');
+  get diagnostics affected = row_count;
+  if affected <> 0 then raise exception 'Old manager edited opportunities'; end if;
+  update public.workspace set payload='{"corrupted":true}' where id=current_setting('roleloop.test.workspace_a');
+  get diagnostics affected = row_count;
+  if affected <> 0 then raise exception 'Old manager edited workspace settings'; end if;
+  update public.workspace set name='Unauthorized rename' where id=current_setting('roleloop.test.workspace_a');
+  get diagnostics affected = row_count;
+  if affected <> 0 then raise exception 'Old manager renamed workspace'; end if;
   begin
-    update public.workspace set name='Unauthorized rename' where id=current_setting('roleloop.test.workspace_a');
-    raise exception 'Manager renamed the workspace directly';
-  exception when insufficient_privilege then null; end;
-  begin
-    perform public.manage_workspace_member(current_setting('roleloop.test.workspace_a'),current_setting('roleloop.test.user_c')::uuid,'grant');
-    raise exception 'Manager granted another member access';
-  exception when insufficient_privilege then null; end;
-  begin
-    perform public.manage_workspace_member(current_setting('roleloop.test.workspace_a'),current_setting('roleloop.test.user_a')::uuid,'revoke');
-    raise exception 'Manager revoked owner access';
+    perform public.enqueue_run(current_setting('roleloop.test.workspace_a'),jsonb_build_object('id',gen_random_uuid()::text,'action','discover'));
+    raise exception 'Old manager enqueued workspace work';
   exception when insufficient_privilege then null; end;
 end; $$;
 select set_config('request.jwt.claims', jsonb_build_object('sub', :'user_a', 'role', 'authenticated')::text, true);
-do $$ begin
-  begin
-    perform public.manage_workspace_member(current_setting('roleloop.test.workspace_a'),current_setting('roleloop.test.user_a')::uuid,'revoke');
-    raise exception 'Owner removed their owner membership';
-  exception when insufficient_privilege then null; end;
-end; $$;
-select public.manage_workspace_member(:'workspace_a', :'user_b'::uuid, 'revoke');
-select set_config('request.jwt.claims', jsonb_build_object('sub', :'user_b', 'role', 'authenticated')::text, true);
-select pg_temp.assert_true((select count(*) = 0 from public.opportunities where workspace_id = :'workspace_a'), 'revocation takes effect with existing JWT');
+select pg_temp.assert_true((select payload='{}'::jsonb from public.opportunities where workspace_id=:'workspace_a'), 'owner opportunities are unchanged');
+select pg_temp.assert_true((select payload='{}'::jsonb and name='Owner-renamed workspace' from public.workspace where id=:'workspace_a'), 'owner workspace is unchanged');
 
 reset role;
 insert into storage.objects(bucket_id,name)
@@ -168,6 +172,9 @@ select set_config('request.jwt.claims', jsonb_build_object('sub', :'user_a', 'ro
 select pg_temp.assert_true((select count(*) = 1 from storage.objects where bucket_id='documents' and name=:'workspace_a'||'/drafts/file.pdf'), 'own document visible');
 select pg_temp.assert_true((select count(*) = 0 from storage.objects where bucket_id='documents' and name=:'workspace_b'||'/drafts/file.pdf'), 'another workspace document hidden');
 select pg_temp.assert_true((select count(*) = 0 from storage.objects where bucket_id='documents' and name='drafts/legacy-'||:'workspace_a'||'.pdf'), 'legacy unscoped document stays private');
+select set_config('request.jwt.claims', jsonb_build_object('sub', :'user_b', 'role', 'authenticated')::text, true);
+select pg_temp.assert_true((select count(*) = 0 from storage.objects where bucket_id='documents' and name=:'workspace_a'||'/drafts/file.pdf'), 'old manager cannot read owner document');
+select pg_temp.assert_true((select count(*) = 1 from storage.objects where bucket_id='documents' and name=:'workspace_b'||'/drafts/file.pdf'), 'old manager retains their own document');
 
 -- On an unclaimed local installation, exercise successful setup and replay
 -- protection inside the transaction. Never remove an existing administrator.

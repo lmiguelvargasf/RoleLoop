@@ -3310,7 +3310,7 @@ textarea {
   min-width: 28px;
   min-height: 28px;
 }
-.workspace-picker label {
+.workspace-picker-label {
   display: block;
   color: #83909e;
   font-size: 8px;
@@ -3325,6 +3325,15 @@ textarea {
   padding: 8px 6px;
   width: 100%;
   text-overflow: ellipsis;
+}
+.workspace-name {
+  display: block;
+  font-size: 11px;
+  font-weight: 600;
+  padding: 8px 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 .workspace-picker > span {
   display: block;
@@ -3439,25 +3448,18 @@ textarea {
   margin-top: 6px;
   overflow-wrap: anywhere;
 }
-.workspace-name-form,
-.grant-access-form {
+.workspace-name-form {
   display: flex;
   align-items: flex-start;
   gap: 13px;
   max-width: 610px;
 }
-.workspace-name-form > .field,
-.grant-access-form > .field {
+.workspace-name-form > .field {
   flex: 1;
 }
-.workspace-name-form > .button,
-.grant-access-form > .button {
+.workspace-name-form > .button {
   margin-top: 24px;
   flex-shrink: 0;
-}
-.workspace-name-readonly {
-  margin: 10px 0;
-  font-size: 14px;
 }
 .access-list {
   margin: 15px 0 24px;
@@ -3479,21 +3481,12 @@ textarea {
   font-weight: 550;
   overflow-wrap: anywhere;
 }
-.access-person strong small {
-  color: #7d91a1;
-  font-size: 10px;
-}
 .access-person > span {
   display: block;
   color: #8494a3;
   margin-top: 5px;
   font-size: 10px;
   overflow-wrap: anywhere;
-}
-.access-row > .badge {
-  font-size: 9px;
-  color: #687d8d;
-  background: #edf2f6;
 }
 .account-created {
   font-size: 10px;
@@ -3604,7 +3597,7 @@ textarea {
   .workspace-picker {
     margin: 16px 43px 0 0;
   }
-  .workspace-picker label {
+  .workspace-picker-label {
     font-size: 7px;
   }
   .workspace-picker select {
@@ -3640,16 +3633,13 @@ textarea {
   .account-page .form-section {
     padding: 25px 0;
   }
-  .workspace-name-form,
-  .grant-access-form {
+  .workspace-name-form {
     flex-wrap: wrap;
   }
-  .workspace-name-form > .field,
-  .grant-access-form > .field {
+  .workspace-name-form > .field {
     min-width: 100%;
   }
-  .workspace-name-form > .button,
-  .grant-access-form > .button {
+  .workspace-name-form > .button {
     margin-top: 0;
   }
   .access-row {

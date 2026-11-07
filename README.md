@@ -44,9 +44,9 @@ npm run account:setup
 
 Open the one-time local link printed by the command, then create your account or sign in. The link expires after 30 minutes and completes setup automatically after sign-in. Existing legacy data is preserved and remains inaccessible to new signups until the installation operator completes this optional step. The setup key is consumed once; normal signups never become administrators automatically. On a clean installation, setup grants administrator status to your account while keeping its personal workspace.
 
-Under **Account & access**, owners can add an existing account as a manager by email or remove that access. Managers can operate an assigned workspace but cannot grant access themselves. Use the workspace selector to switch between your personal workspace and shared ones. Switching accounts or workspaces clears the previous screen and unsaved edits.
+Under **Account**, manage your password, AI connection and workspace name. Workspaces are personal: only their owner can access the résumé, opportunities and drafts. Earlier manager memberships no longer grant access; existing workspace data is preserved. Switching accounts clears the previous screen and unsaved edits.
 
-The installation administrator can list accounts and create accounts with an initial password. Administrative status does not grant access to other users' workspaces; that requires an explicit owner-granted membership. Normal users can also self-register. To test isolation on the same computer, use separate browser profiles or an incognito window—tabs in one browser profile share a login session.
+The installation administrator can list accounts and create accounts with an initial password. Administrative status does not grant access to other users' workspaces. Normal users can also self-register. To test isolation on the same computer, use separate browser profiles or an incognito window—tabs in one browser profile share a login session.
 
 Supabase Studio and Mailpit are shared local developer tools. RoleLoop account permissions do not restrict someone who can access those services directly or use Docker. This remains a trusted local testing environment, not an internet-facing deployment.
 
@@ -109,7 +109,7 @@ Older board URLs that failed or returned no jobs were excluded, including the em
 
 ## Résumé AI
 
-For local subscription usage, open **Account & access → AI connection → Continue with ChatGPT**. Sign in using an eligible Plus or Pro account and approve ChatGPT plan usage. Return to RoleLoop, refresh the available models, and select a model. The selected account powers CV imports and opportunity evaluations you initiate, including queued tasks. **Manage usage** opens ChatGPT's usage controls; **Disconnect** revokes the renewable session and clears local tokens. Multiple ChatGPT accounts can be connected and selected separately.
+For local subscription usage, open **Account → AI connection → Continue with ChatGPT**. Sign in using an eligible Plus or Pro account and approve ChatGPT plan usage. Return to RoleLoop, refresh the available models, and select a model. The selected account powers CV imports and opportunity evaluations you initiate, including queued tasks. **Manage usage** opens ChatGPT's usage controls; **Disconnect** revokes the renewable session and clears local tokens. Multiple ChatGPT accounts can be connected and selected separately.
 
 Connections are private to each RoleLoop user and stored with owner-only filesystem permissions under `app/.local/chatgpt/`. A stable host ID and issued client registrations are retained for reconnects; credentials never enter the frontend, database, or Git. Tokens refresh automatically. Sign-in alone does not enable inference unless the user grants plan usage permission. Failed or disconnected subscription requests never silently switch to API billing. Background schedules use only the server's API configuration.
 
@@ -128,7 +128,7 @@ The workspace owner's account supplies the contact email. Stored profiles contai
 ## What is implemented
 
 - A single job-matching minimum for required qualifications, backed by source-supported career evidence. Preferred qualifications affect ranking only. Salary, location and mandatory conditions remain separate checks; lowering the match minimum does not bypass them. Saved required minimums are preserved; the legacy overall minimum is ignored.
-- Supabase Auth login, signup, password reset, private workspaces, owner/manager memberships, account administration, and RLS-protected data and documents.
+- Supabase Auth login, signup, password reset, personal workspaces with owner-only access, account administration, and RLS-protected data and documents.
 - Persistent local Supabase opportunity records, drafts, artifacts, activity and database-backed task queues scoped to each workspace.
 - Public ATS-board imports, launch-feed startup discovery, manual opportunity entry and bounded public-website research.
 - Source deduplication with refreshed source facts and preservation of explicit user corrections.

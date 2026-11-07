@@ -122,21 +122,8 @@ export async function buildServer() {
   app.post("/api/account/claim-owner", async (req) =>
     auth.claimOwner(identity(req), req.body),
   );
-  app.get<{ Params: { id: string } }>(
-    "/api/workspaces/:id/members",
-    async (req) => auth.workspaceMembers(identity(req), req.params.id),
-  );
-  app.post<{ Params: { id: string } }>(
-    "/api/workspaces/:id/members",
-    async (req) => auth.grantManager(identity(req), req.params.id, req.body),
-  );
-  app.delete<{ Params: { id: string; userId: string } }>(
-    "/api/workspaces/:id/members/:userId",
-    async (req) =>
-      auth.revokeManager(identity(req), req.params.id, req.params.userId),
-  );
   app.patch<{ Params: { id: string } }>("/api/workspaces/:id", async (req) => {
-    await auth.workspaceAccess(identity(req), req.params.id, true);
+    await auth.workspaceAccess(identity(req), req.params.id);
     const { name } = z
       .object({ name: z.string().trim().min(1).max(100) })
       .parse(req.body);

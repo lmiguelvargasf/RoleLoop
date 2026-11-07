@@ -82,7 +82,7 @@ export async function structuredAI<T extends z.ZodType>(
     if (!connection && !settings.openaiKey)
       throw Object.assign(
         new Error(
-          "Connect ChatGPT under Account & access, or configure an OpenAI API key to enable AI features.",
+          "Connect ChatGPT under Account, or configure an OpenAI API key to enable AI features.",
         ),
         { statusCode: 503 },
       );

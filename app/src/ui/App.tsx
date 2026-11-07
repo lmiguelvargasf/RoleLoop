@@ -26,7 +26,6 @@ import {
   Link2,
   LoaderCircle,
   LogOut,
-  Users,
   Pencil,
   Play,
   Plus,
@@ -94,7 +93,7 @@ const nav = [
   { id: "profile", label: "Resume", icon: FileUser },
   { id: "settings", label: "Search preferences", icon: SlidersHorizontal },
   { id: "activity", label: "Activity", icon: ActivityIcon },
-  { id: "account", label: "Account & access", icon: Users },
+  { id: "account", label: "Account", icon: UserRound },
 ] as const;
 const statusLabels: Record<string, string> = {
   new: "New",
@@ -351,7 +350,7 @@ export function App({
         </a>
         <div className="workspace-picker">
           <div className="workspace-picker-heading">
-            <label htmlFor="workspace-picker">WORKSPACE</label>
+            <span className="workspace-picker-label">WORKSPACE</span>
             <IconButton
               label="Refresh workspace"
               onClick={() => void refresh()}
@@ -364,24 +363,23 @@ export function App({
               />
             </IconButton>
           </div>
-          <select
-            id="workspace-picker"
-            aria-label="Active workspace"
-            value={workspace.id}
-            onChange={(e) => onWorkspaceChange(e.target.value)}
-          >
-            {account.workspaces.map((item) => (
-              <option key={item.id} value={item.id}>
-                {item.name}
-                {item.role === "manager" ? " · manager" : ""}
-              </option>
-            ))}
-          </select>
-          <span>
-            {workspace.role === "owner"
-              ? "Your private workspace"
-              : "Shared with you as a manager"}
-          </span>
+          {account.workspaces.length > 1 ? (
+            <select
+              id="workspace-picker"
+              aria-label="Active workspace"
+              value={workspace.id}
+              onChange={(e) => onWorkspaceChange(e.target.value)}
+            >
+              {account.workspaces.map((item) => (
+                <option key={item.id} value={item.id}>
+                  {item.name}
+                </option>
+              ))}
+            </select>
+          ) : (
+            <strong className="workspace-name">{workspace.name}</strong>
+          )}
+          <span>Your private workspace</span>
         </div>
         <nav aria-label="Main navigation">
           {nav.map(({ id, label, icon: Icon }, i) => (
