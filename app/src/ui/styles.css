@@ -3352,6 +3352,10 @@ textarea {
   height: 30px;
   font-size: 11px;
 }
+.account-page > .page-heading {
+  margin-bottom: 0;
+  border-bottom: 0;
+}
 .account-page .form-section {
   display: block;
   padding: 29px 0 34px;
@@ -3374,30 +3378,36 @@ textarea {
   color: #8ca0af;
   flex-shrink: 0;
 }
-.account-page .section-heading .badge {
-  flex-shrink: 0;
-}
 .account-identity {
-  display: flex;
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
   align-items: center;
   gap: 14px;
-  padding: 7px 0;
+  padding-bottom: 28px;
 }
 .account-identity > div {
-  flex: 1;
   min-width: 0;
+  overflow-wrap: anywhere;
 }
 .account-identity strong {
   display: block;
-  font-size: 13px;
+  font-size: 14px;
   font-weight: 600;
 }
 .account-identity > div > span {
   display: block;
+  font-size: 12px;
+  color: #627487;
+  margin-top: 4px;
+}
+.account-identity small {
+  display: block;
   font-size: 11px;
-  color: var(--muted);
+  color: #627487;
   margin-top: 6px;
-  overflow-wrap: anywhere;
+}
+.account-identity > .button {
+  min-height: 44px;
 }
 .access-list {
   margin: 15px 0 24px;
@@ -3474,9 +3484,6 @@ textarea {
     flex-wrap: wrap;
     gap: 12px;
   }
-  .account-identity {
-    flex-wrap: wrap;
-  }
 }
 @media (max-width: 700px) {
   .auth-shell {
@@ -3539,8 +3546,14 @@ textarea {
   .account-page .section-heading p {
     font-size: 11px;
   }
+  .account-identity {
+    grid-template-columns: auto minmax(0, 1fr);
+    row-gap: 16px;
+    padding-bottom: 24px;
+  }
   .account-identity > .button {
-    margin: 5px 0 0 59px;
+    grid-column: 2;
+    justify-self: start;
   }
   .account-page .form-section {
     padding: 25px 0;
@@ -3555,11 +3568,6 @@ textarea {
 @media (prefers-reduced-motion: reduce) {
   .auth-form {
     animation: none;
-  }
-}
-@media (max-width: 700px) {
-  .account-identity > div {
-    flex: 1 1 calc(100% - 59px);
   }
 }
 

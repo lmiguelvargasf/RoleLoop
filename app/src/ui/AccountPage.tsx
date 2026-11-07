@@ -92,10 +92,7 @@ export function AccountPage({
       aria-labelledby="account-title"
     >
       <header className="page-heading">
-        <div>
-          <h1 id="account-title">Account</h1>
-          <p>Manage your account and AI connection.</p>
-        </div>
+        <h1 id="account-title">Account</h1>
       </header>
       {error && (
         <div className="notice error" role="alert">
@@ -109,43 +106,35 @@ export function AccountPage({
           <span>{message}</span>
         </div>
       )}
-      <section className="form-section">
-        <div className="section-heading">
-          <div>
-            <h2>Your account</h2>
-          </div>
-          <span className="badge badge-ready">
-            {account.isAdmin ? "Installation administrator" : "Account"}
-          </span>
+      <div className="account-identity">
+        <span className="account-avatar" aria-hidden="true">
+          {(account.user.name || account.user.email)
+            .slice(0, 1)
+            .toUpperCase()}
+        </span>
+        <div>
+          <strong>{account.user.name || account.user.email}</strong>
+          {account.user.name && <span>{account.user.email}</span>}
+          {account.isAdmin && <small>Administrator</small>}
         </div>
-        <div className="account-identity">
-          <span className="account-avatar">
-            {(account.user.name || account.user.email)
-              .slice(0, 1)
-              .toUpperCase()}
-          </span>
-          <div>
-            <strong>{account.user.name || "Your account"}</strong>
-            <span>{account.user.email}</span>
-          </div>
-          <button
-            className="button"
-            disabled={busy}
-            onClick={() =>
-              void perform(async () => {
-                const { error } = await client.auth.resetPasswordForEmail(
-                  account.user.email,
-                  { redirectTo: `${location.origin}/?recovery=1` },
-                );
-                if (error) throw error;
-              }, "Password reset instructions have been sent to your email address.")
-            }
-          >
-            <KeyRound size={15} />
-            Reset password
-          </button>
-        </div>
-      </section>
+        <button
+          type="button"
+          className="button"
+          disabled={busy}
+          onClick={() =>
+            void perform(async () => {
+              const { error } = await client.auth.resetPasswordForEmail(
+                account.user.email,
+                { redirectTo: `${location.origin}/?recovery=1` },
+              );
+              if (error) throw error;
+            }, "Password reset instructions have been sent to your email address.")
+          }
+        >
+          <KeyRound size={15} aria-hidden="true" />
+          Reset password
+        </button>
+      </div>
       <ChatGPTConnectionPanel key={account.user.id} />
       {account.isAdmin && (
         <section className="form-section admin-accounts">
