@@ -21,6 +21,7 @@ function setup() {
     firstSeenAt: "2026-11-01T12:00:00.000Z",
     updatedAt: "2026-11-07T17:00:00.000Z",
     notes: "Keep my research notes.",
+    outreach: { status: "conversation", contactedAt: "2026-11-01T12:00:00Z", nextAction: "Discuss a project", followUpOn: "2026-11-12", notes: "Spoke with team" },
     application: {
       status: "saved",
       notes: "Discuss project scope",
@@ -74,6 +75,7 @@ describe("startup website research lifecycle", () => {
     expect(result.researched).toBe(true);
     expect(result.opportunity.description).toContain("current product needs");
     expect(result.opportunity.application).toEqual(t.op.application);
+    expect(result.opportunity.outreach).toEqual(t.op.outreach);
     expect(result.opportunity.sourceKey).toBe(t.op.sourceKey);
     expect(t.runtime.get(t.key)).toEqual({ at: now, url: t.op.companyUrl });
 

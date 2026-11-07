@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import type { Activity, Bootstrap, Run } from "../src/shared/types";
 import { buildActivityItems } from "../src/ui/activity-model";
 import { demoOpportunities } from "./fixtures";
+import { outreachProgressFor } from "../src/shared/outreach-board";
 
 const at = "2026-11-07T18:20:00.000Z";
 const run = (patch: Partial<Run> = {}): Run => ({
@@ -28,6 +29,53 @@ const visible = (item: ReturnType<typeof build>[number]) =>
   [item.title, item.description, item.nextStep, item.action?.label].join(" ");
 
 describe("user-facing activity", () => {
+  it("routes outreach progress and draft recovery to the tracked startup board", () => {
+    const startup = demoOpportunities().find((op) => op.kind === "startup")!;
+    const tracked = {
+      ...startup,
+      outreach: outreachProgressFor(startup, "contacted"),
+    };
+    const [item] = build({
+      opportunities: [tracked],
+      events: [
+        event({
+          category: "outreach",
+          opportunityId: tracked.id,
+          message: `Outreach status updated for ${tracked.company}: To contact → Contacted.`,
+        }),
+      ],
+    });
+    expect(item.category).toBe("outreach");
+    expect(item.action).toEqual({
+      label: "View startup outreach",
+      page: "outreach",
+      opportunityId: tracked.id,
+    });
+    const [failure] = build({
+      opportunities: [tracked],
+      runs: [
+        run({
+          action: "draft",
+          status: "failed",
+          opportunityId: tracked.id,
+          message: "Could not prepare outreach.",
+        }),
+      ],
+    });
+    expect(failure.action?.page).toBe("outreach");
+    const [archived] = build({
+      opportunities: [{ ...tracked, stage: "archived" }],
+      events: [
+        event({
+          category: "outreach",
+          opportunityId: tracked.id,
+          message: `Archived ${tracked.company}.`,
+        }),
+      ],
+    });
+    expect(archived.action?.page).toBe("startups");
+  });
+
   it("explains the historic scheduled-search JSON without requesting retired profile fields", () => {
     const message = `Scheduled discovery: ${JSON.stringify([
       {
@@ -312,17 +360,23 @@ describe("user-facing activity", () => {
   });
 
   it("shows incomplete AI evaluations even when every source succeeded", () => {
-    const [item] = build({ runs: [run({ summary: {
-      evaluated: 3,
-      newOpportunities: 3,
-      existingOpportunities: 0,
-      draftsCreated: 0,
-      sourcesChecked: 2,
-      sourcesFailed: 0,
-      companiesConnected: 0,
-      draftFailures: 0,
-      evaluationFailures: 2,
-    } })] });
+    const [item] = build({
+      runs: [
+        run({
+          summary: {
+            evaluated: 3,
+            newOpportunities: 3,
+            existingOpportunities: 0,
+            draftsCreated: 0,
+            sourcesChecked: 2,
+            sourcesFailed: 0,
+            companiesConnected: 0,
+            draftFailures: 0,
+            evaluationFailures: 2,
+          },
+        }),
+      ],
+    });
     expect(item.status).toBe("partial");
     expect(item.description).toContain("2 AI evaluations could not finish");
     expect(item.description).not.toContain("source did not finish");

@@ -169,6 +169,7 @@ export function mergeStartupProspect(
     stage: old.stage,
     assessment: old.assessment,
     application: old.application,
+    outreach: old.outreach,
     notes: old.notes,
   };
 }

@@ -47,6 +47,10 @@ import {
   sourcesForDiscovery,
 } from "../shared/discovery.js";
 import { settings } from "./config.js";
+import {
+  outreachStatusLabels,
+  outreachOutcomeLabels,
+} from "../shared/outreach-board.js";
 import { discoverEmployerBoards } from "../domain/employer-discovery.js";
 import {
   researchAndSaveOpportunity,
@@ -617,6 +621,26 @@ export async function recordOpportunityChanges(
   previous: Opportunity,
   saved: Opportunity,
 ) {
+  if (saved.kind === "startup" && saved.outreach) {
+    const before = previous.outreach;
+    const next = saved.outreach;
+    if (
+      !before ||
+      before.status !== next.status ||
+      before.outcome !== next.outcome
+    ) {
+      const outcome =
+        next.status === "closed" && next.outcome
+          ? ` (${outreachOutcomeLabels[next.outcome]})`
+          : "";
+      await store.event(
+        `${before ? "Outreach status updated" : "Added to Outreach"} for ${saved.company}: ${before ? `${outreachStatusLabels[before.status]} → ` : ""}${outreachStatusLabels[next.status]}${outcome}.`,
+        "info",
+        saved.id,
+        { category: "outreach" },
+      );
+    }
+  }
   const previousStatus = previous.application?.status ?? "saved";
   const nextStatus = saved.application?.status ?? "saved";
   const labels = {
@@ -1028,7 +1052,8 @@ export async function processRun(
               try {
                 await evaluateCandidate(candidate);
               } catch (error) {
-                summary.evaluationFailures = (summary.evaluationFailures ?? 0) + 1;
+                summary.evaluationFailures =
+                  (summary.evaluationFailures ?? 0) + 1;
                 await store.event(
                   `Evaluation for ${candidate.company}: ${error instanceof Error ? error.message : "Evaluation failed"}`,
                   "warning",
@@ -1195,38 +1220,8 @@ export async function processRun(
         );
       }
     }
-    const drafted = new Set(
-      (await store.list("drafts", 10000)).map((d) => d.opportunityId),
-    );
-    let remainingDrafts =
-      workspace.preferences.dailyLimit - (await draftCountToday(store));
-    for (const op of orderOpportunities(
-      [...uniqueShortlist.values()],
-      workspace.preferences,
-    )) {
-      if (remainingDrafts <= 0) break;
-      if (
-        op.kind === "startup" &&
-        op.assessment?.recommendation === "ready" &&
-        !drafted.has(op.id) &&
-        (!op.application || op.application.status === "saved")
-      ) {
-        try {
-          await prepare(store, op, workspace, true, run.id);
-          drafted.add(op.id);
-          remainingDrafts--;
-          summary.draftsCreated++;
-        } catch (error) {
-          summary.draftFailures++;
-          await store.event(
-            `Draft for ${op.company}: ${error instanceof Error ? error.message : "failed"}`,
-            "error",
-            op.id,
-            { runId: run.id, category: "draft" },
-          );
-        }
-      }
-    }
+    // Discovery only builds the prospect list. Outreach preparation is explicit
+    // from the separate Outreach board.
     await saveSummary();
     await store.event(
       `Discovery evaluated ${imported} opportunities${expansion?.boardsConnected ? `; connected ${expansion.boardsConnected} new ${expansion.boardsConnected === 1 ? "company" : "companies"}` : ""}${failed ? `; ${failed} source(s) failed` : ""}.`,

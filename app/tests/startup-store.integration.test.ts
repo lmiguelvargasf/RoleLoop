@@ -4,6 +4,7 @@ import { assessOpportunity } from "../src/domain/rules.js";
 import { createDraft } from "../src/domain/templates.js";
 import { startupWebsiteIdentity } from "../src/domain/startup-identity.js";
 import type { Opportunity } from "../src/shared/types.js";
+import { outreachProgressFor } from "../src/shared/outreach-board.js";
 import { demoOpportunities, demoWorkspace } from "./fixtures.js";
 
 const integration =
@@ -104,6 +105,7 @@ integration("startup source merging", () => {
         contactEmail: "founder@example.test",
         contactSource: "https://example.test/team",
         notes: "User's private notes",
+        outreach: { ...outreachProgressFor(original, "conversation"), contactedAt: "2026-11-01T12:00:00Z", notes: "Discussed product needs", followUpOn: "2026-11-12" },
         application: {
           status: "applied",
           appliedAt: "2026-11-02T00:00:00Z",
@@ -144,6 +146,7 @@ integration("startup source merging", () => {
         contactSource: saved.contactSource,
         notes: saved.notes,
         application: saved.application,
+        outreach: saved.outreach,
       });
       expect(result.opportunity.discoverySignals).toHaveLength(2);
       expect((await t.store.get("drafts", draft.id)).body).toBe(draft.body);
@@ -332,6 +335,7 @@ integration("startup source merging", () => {
           ...original,
           stage: "archived",
           notes: "User decision during research",
+          outreach: outreachProgressFor(original, "contacted"),
         };
         let raced = false;
         if (timing === "before read") {
@@ -371,6 +375,7 @@ integration("startup source merging", () => {
         expect(result).toMatchObject({
           stage: "archived",
           notes: edited.notes,
+          outreach: edited.outreach,
           updatedAt: original.updatedAt,
           description: original.description,
         });

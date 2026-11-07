@@ -56,6 +56,7 @@ export async function researchAndSaveOpportunity(
     sourceKey: opportunity.sourceKey,
     stage: opportunity.stage,
     application: opportunity.application,
+    outreach: opportunity.outreach,
     assessment: null,
     updatedAt: new Date(
       Math.max(now, Date.parse(opportunity.updatedAt) + 1),

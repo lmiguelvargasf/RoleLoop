@@ -5,6 +5,7 @@ import {
   startupIdentity,
   startupWebsiteIdentity,
 } from "../src/domain/startup-identity.js";
+import { outreachProgressFor } from "../src/shared/outreach-board.js";
 import { demoOpportunities } from "./fixtures.js";
 import type { Opportunity } from "../src/shared/types.js";
 
@@ -95,6 +96,7 @@ describe("startup company identity", () => {
       remoteScope: "worldwide",
       stage: "archived",
       notes: "Do not lose this note",
+      outreach: { ...outreachProgressFor(prospect(), "conversation"), contactedAt: "2026-11-01T12:00:00Z", notes: "Discussed product needs", followUpOn: "2026-11-12" },
       application: {
         status: "applied",
         appliedAt: "2026-11-01T00:00:00Z",
@@ -135,6 +137,7 @@ describe("startup company identity", () => {
       notes: old.notes,
       stage: old.stage,
       application: old.application,
+      outreach: old.outreach,
       publishedAt: old.publishedAt,
       title: "My reviewed prospect",
     });

@@ -6,12 +6,23 @@ import {
 } from "../domain/rules.js";
 import type { Draft, Opportunity, Workspace } from "../shared/types.js";
 import { assessGeography } from "../domain/geography.js";
+import { outreachColumn } from "../shared/outreach-board.js";
 
 export function assertCanPrepare(opportunity: Opportunity) {
   if (opportunity.stage === "archived")
     throw Object.assign(
       new Error(
         "Restore this opportunity before preparing an application or outreach draft.",
+      ),
+      { statusCode: 409 },
+    );
+  if (
+    opportunity.kind === "startup" &&
+    outreachColumn(opportunity) !== "to_contact"
+  )
+    throw Object.assign(
+      new Error(
+        "Add this startup to To contact on the Startup outreach board before preparing a draft.",
       ),
       { statusCode: 409 },
     );

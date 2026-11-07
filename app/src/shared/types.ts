@@ -286,6 +286,27 @@ export const OpportunitySchema = z.object({
       notes: z.string().max(10000).default(""),
     })
     .optional(),
+  outreach: z
+    .object({
+      status: z
+        .enum(["saved", "contacted", "conversation", "closed"])
+        .default("saved"),
+      outcome: z
+        .enum(["opportunity", "not_interested", "no_response", "withdrawn"])
+        .nullable()
+        .default(null),
+      contactedAt: z.string().datetime().nullable().default(null),
+      conversationAt: z.string().datetime().nullable().default(null),
+      closedAt: z.string().datetime().nullable().default(null),
+      nextAction: z.string().max(1000).default(""),
+      followUpOn: z
+        .string()
+        .regex(/^\d{4}-\d{2}-\d{2}$/)
+        .nullable()
+        .default(null),
+      notes: z.string().max(10000).default(""),
+    })
+    .optional(),
   assessment: AssessmentSchema.nullable().default(null),
   notes: z.string().default(""),
 });
@@ -370,6 +391,7 @@ export interface Activity {
     | "resume"
     | "preferences"
     | "application"
+    | "outreach"
     | "workspace";
   createdAt: string;
 }

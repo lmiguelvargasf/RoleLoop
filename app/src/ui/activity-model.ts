@@ -1,4 +1,5 @@
 import type { Activity, Bootstrap, Opportunity, Run } from "../shared/types";
+import { outreachColumn } from "../shared/outreach-board";
 
 export type ActivityCategory =
   | "search"
@@ -8,6 +9,7 @@ export type ActivityCategory =
   | "resume"
   | "preferences"
   | "application"
+  | "outreach"
   | "workspace";
 export type ActivityStatus =
   | "queued"
@@ -19,7 +21,14 @@ export type ActivityStatus =
   | "info";
 export interface ActivityAction {
   label: string;
-  page: "jobs" | "startups" | "drafts" | "profile" | "settings" | "account";
+  page:
+    | "jobs"
+    | "startups"
+    | "outreach"
+    | "drafts"
+    | "profile"
+    | "settings"
+    | "account";
   opportunityId?: string;
 }
 export interface ActivityItem {
@@ -81,6 +90,12 @@ function sourceLabel(message: string) {
 }
 
 function opportunityAction(op?: Opportunity): ActivityAction {
+  if (op && outreachColumn(op))
+    return {
+      label: "View startup outreach",
+      page: "outreach",
+      opportunityId: op.id,
+    };
   return {
     label: op ? "View opportunity" : "View opportunities",
     page: op?.kind === "startup" ? "startups" : "jobs",
@@ -103,7 +118,13 @@ function actionForCategory(
     };
   if (category === "research" && !op)
     return { label: "View startup prospects", page: "startups" };
-  if (["search", "evaluation", "research", "application"].includes(category))
+  if (category === "outreach" && !op)
+    return { label: "View startup outreach", page: "outreach" };
+  if (
+    ["search", "evaluation", "research", "application", "outreach"].includes(
+      category,
+    )
+  )
     return opportunityAction(op);
   return undefined;
 }
@@ -113,6 +134,7 @@ function inferCategory(event: Activity): ActivityCategory {
   const message = event.message;
   if (/^(?:Master CV|Extracted resume|Resume)/i.test(message)) return "resume";
   if (/preferences saved/i.test(message)) return "preferences";
+  if (/^(?:Outreach |Added .+ to outreach)/i.test(message)) return "outreach";
   if (/^(?:Prepared |Draft |Draft for )/i.test(message)) return "draft";
   if (
     /^(?:Scheduled discovery|Employer discovery|Discovery evaluated|\d+ new compan|New-company discovery|All selected sources|No job sources)/i.test(
@@ -512,13 +534,15 @@ function eventItem(event: Activity, op?: Opportunity): ActivityItem {
   return {
     ...item,
     title:
-      category === "application"
-        ? "Opportunity updated"
-        : category === "draft"
-          ? "Draft updated"
-          : category === "search"
-            ? "Search update"
-            : "Workspace update",
+      category === "outreach"
+        ? "Outreach updated"
+        : category === "application"
+          ? "Opportunity updated"
+          : category === "draft"
+            ? "Draft updated"
+            : category === "search"
+              ? "Search update"
+              : "Workspace update",
     description: message || item.description,
   };
 }

@@ -1,0 +1,48 @@
+.outreach-board-columns {
+  grid-template-columns: repeat(4, minmax(200px, 1fr));
+  min-width: 842px;
+}
+.outreach-column-contacted {
+  --column-color: var(--accent);
+}
+.outreach-column-conversation {
+  --column-color: #ba9458;
+}
+.outreach-column-closed {
+  --column-color: #9b9fa8;
+}
+.outreach-card-description {
+  display: -webkit-box;
+  -webkit-line-clamp: 3;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  overflow-wrap: anywhere;
+  margin-top: 7px;
+  color: var(--muted);
+  font-size: 11px;
+  line-height: 1.6;
+}
+.outreach-outcome-opportunity {
+  color: var(--accent);
+  background: var(--accent-soft);
+}
+.outreach-milestones {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px 16px;
+}
+.outreach-progress > p {
+  margin: 0 0 16px;
+  font-size: 12px;
+  line-height: 1.6;
+}
+@media (max-width: 700px) {
+  .outreach-board-columns {
+    grid-template-columns: repeat(4, 240px);
+    min-width: 1002px;
+  }
+  .outreach-board .application-close-choice .button,
+  .outreach-board .application-close-choice .text-button {
+    min-height: 44px;
+  }
+}

@@ -46,6 +46,7 @@ const categoryLabels = {
   resume: "Resume",
   preferences: "Preferences",
   application: "Application",
+  outreach: "Outreach",
   workspace: "Workspace",
 };
 const isIssue = (item: ActivityItem) =>
@@ -566,9 +567,9 @@ export function ActivityPage({ data }: { data: Bootstrap }) {
           <summary>What appears here?</summary>
           <p>
             Searches, evaluations, drafts, resume processing, preference saves
-            and application status changes. Updates from the same task are
-            grouped together. Browsing, downloads and individual text edits are
-            not recorded. Older entries may have fewer details.
+            and application or outreach status changes. Updates from the same
+            task are grouped together. Browsing, downloads and individual text
+            edits are not recorded. Older entries may have fewer details.
           </p>
         </details>
       </footer>

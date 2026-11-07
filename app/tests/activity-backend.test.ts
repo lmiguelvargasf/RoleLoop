@@ -22,6 +22,7 @@ import {
   profileFingerprint,
 } from "../src/domain/rules.js";
 import { createDraft } from "../src/domain/templates.js";
+import { outreachProgressFor } from "../src/shared/outreach-board.js";
 import type { WorkspaceStore } from "../src/server/store.js";
 import type { Activity, Draft, Opportunity, Run } from "../src/shared/types.js";
 import { demoOpportunities, demoWorkspace } from "./fixtures.js";
@@ -605,48 +606,18 @@ describe("useful discovery history", () => {
     expect(t.events.at(-1)?.kind).toBe("warning");
   });
 
-  it("keeps startup draft failures visible on completed research", async () => {
+  it.each([false, true])("never prepares outreach during discovery, including tracked startups (%s)", async (tracked) => {
     const t = setup();
     t.workspace.sources = demoWorkspace().sources;
     t.run.discoveryScope = "startups";
-    vi.mocked(discover).mockResolvedValue([
-      { ...demoOpportunities()[3], title: "A collaborative product" },
-    ]);
-    vi.mocked(generateDraft).mockRejectedValue(
-      new Error("Draft service unavailable"),
-    );
-    await processRun(t.store, t.run, async () => {});
-    expect(t.run).toMatchObject({
-      outcome: "partial",
-      summary: {
-        evaluated: 1,
-        draftsCreated: 0,
-        draftFailures: 1,
-        sourcesFailed: 0,
-      },
-    });
-    expect(t.events.every((event) => event.runId === t.run.id)).toBe(true);
-    expect(t.events.find((event) => event.category === "draft")?.kind).toBe(
-      "error",
-    );
-    expect(t.events.at(-1)?.kind).toBe("warning");
-  });
-
-  it("continues preparing startup outreach during research", async () => {
-    const t = setup();
-    t.workspace.sources = demoWorkspace().sources;
-    t.run.discoveryScope = "startups";
-    const startup = {
-      ...demoOpportunities()[3],
-      title: "A collaborative product",
-    };
+    const startup = { ...demoOpportunities()[3], title: "A collaborative product" };
+    if (tracked) startup.outreach = outreachProgressFor(startup, "saved");
     vi.mocked(discover).mockResolvedValue([startup]);
     await processRun(t.store, t.run, async () => {});
-    expect(generateDraft).toHaveBeenCalledTimes(1);
-    expect([...t.drafts.values()]).toEqual([
-      expect.objectContaining({ kind: "outreach", opportunityId: startup.id }),
-    ]);
-    expect(t.run.summary?.draftsCreated).toBe(1);
+    expect(generateDraft).not.toHaveBeenCalled();
+    expect(t.drafts.size).toBe(0);
+    expect(t.run.summary).toMatchObject({ evaluated: 1, draftsCreated: 0, draftFailures: 0 });
+    expect(t.opportunities.get(startup.id)?.outreach).toEqual(startup.outreach);
   });
 
   it("reports evaluation failure without misclassifying a successful source fetch", async () => {
@@ -845,6 +816,31 @@ describe("concurrent discovery evaluations", () => {
 });
 
 describe("explicit draft preparation", () => {
+  it.each([undefined, "contacted", "conversation", "closed"] as const)("requires To contact before queueing or running outreach (%s)", async (status) => {
+    const op = demoOpportunities()[3];
+    if (status) op.outreach = outreachProgressFor(op, status, status === "closed" ? "withdrawn" : null);
+    const t = setup([op]);
+    const rpc = vi.fn();
+    await expect(enqueue({ ...t.store, db: { rpc } } as unknown as WorkspaceStore, { action: "draft", opportunityId: op.id })).rejects.toMatchObject({ statusCode: 409 });
+    expect(rpc).not.toHaveBeenCalled();
+    t.run.action = "draft";
+    t.run.opportunityId = op.id;
+    await expect(processRun(t.store, t.run, async () => {})).rejects.toThrow("To contact");
+    expect(generateDraft).not.toHaveBeenCalled();
+  });
+
+  it("prepares outreach only when explicitly requested from To contact", async () => {
+    const op = demoOpportunities()[3];
+    op.outreach = { ...outreachProgressFor(op, "saved"), notes: "Ask about developer tools", followUpOn: "2026-11-12" };
+    const t = setup([op]);
+    t.run.action = "draft";
+    t.run.opportunityId = op.id;
+    await expect(processRun(t.store, t.run, async () => {})).resolves.toBe("Draft prepared for review");
+    expect(generateDraft).toHaveBeenCalledOnce();
+    expect(t.drafts.size).toBe(1);
+    expect(t.opportunities.get(op.id)?.outreach).toEqual(op.outreach);
+  });
+
   it.each([0, 3])(
     "rejects archived jobs and startups before queueing or execution (%s)",
     async (index) => {

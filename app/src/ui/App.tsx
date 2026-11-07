@@ -26,6 +26,7 @@ import {
   Link2,
   LoaderCircle,
   LogOut,
+  MessagesSquare,
   Pencil,
   Play,
   Plus,
@@ -63,6 +64,14 @@ import {
   type JobSourceFilter,
 } from "../shared/job-sources";
 import { ApplicationsBoard } from "./ApplicationsBoard";
+import { OutreachBoard } from "./OutreachBoard";
+import { OutreachProgress } from "./OutreachProgress";
+import { OutreachPreparation } from "./OutreachPreparation";
+import {
+  isTrackedOutreach,
+  outreachColumn,
+  outreachProgressFor,
+} from "../shared/outreach-board";
 import { JobFitDetails } from "./JobFitDetails";
 import { StartupFitDetails } from "./StartupFitDetails";
 import { sourceKind, sourcesForDiscovery } from "../shared/discovery";
@@ -93,6 +102,7 @@ type Page =
   | "jobs"
   | "applications"
   | "startups"
+  | "outreach"
   | "drafts"
   | "profile"
   | "settings"
@@ -106,6 +116,7 @@ const nav = [
   { id: "jobs", label: "Job opportunities", icon: Briefcase },
   { id: "applications", label: "Applications", icon: Columns3 },
   { id: "startups", label: "Startup prospects", icon: Rocket },
+  { id: "outreach", label: "Startup outreach", icon: MessagesSquare },
   { id: "drafts", label: "Drafts", icon: FileText },
   { id: "profile", label: "Resume", icon: FileUser },
   { id: "settings", label: "Search preferences", icon: SlidersHorizontal },
@@ -455,11 +466,14 @@ export function App({
         )}
         {(page === "jobs" ||
           page === "startups" ||
+          page === "outreach" ||
           page === "applications") && (
           <Opportunities
             key={page}
-            kind={page === "startups" ? "startup" : "job"}
-            board={page === "applications"}
+            kind={
+              page === "startups" || page === "outreach" ? "startup" : "job"
+            }
+            board={page === "applications" || page === "outreach"}
             data={data}
             perform={perform}
             busy={busy}
@@ -596,13 +610,17 @@ function Opportunities({
         ])
       : [],
   );
-  const chosen = (board ? all.filter((o) => applicationColumn(o)) : list).find(
-    (o) => o.id === selected,
-  );
+  const chosen = (
+    board
+      ? all.filter((o) =>
+          kind === "startup" ? outreachColumn(o) : applicationColumn(o),
+        )
+      : list
+  ).find((o) => o.id === selected);
   const chosenFit = chosen ? recommendations.get(chosen.id) : undefined;
-  const selectedJobs = list.filter(
-    (o) =>
-      checked.has(o.id) && !isTrackedApplication(o) && o.stage !== "archived",
+  const isTracked = kind === "job" ? isTrackedApplication : isTrackedOutreach;
+  const selectedOpportunities = list.filter(
+    (o) => checked.has(o.id) && !isTracked(o) && o.stage !== "archived",
   );
   const addToApplications = async (jobs: Opportunity[]) => {
     const added = await perform(
@@ -616,6 +634,21 @@ function Opportunities({
         }
       },
       `${jobs.length === 1 ? "Job" : `${jobs.length} jobs`} added to To apply.`,
+    );
+    if (added) setChecked(new Set());
+  };
+  const addToOutreach = async (startups: Opportunity[]) => {
+    const added = await perform(
+      async () => {
+        for (const startup of startups) {
+          await write(
+            `/opportunities/${startup.id}`,
+            { outreach: outreachProgressFor(startup, "saved") },
+            "PATCH",
+          );
+        }
+      },
+      `${startups.length === 1 ? "Startup" : `${startups.length} startups`} added to To contact.`,
     );
     if (added) setChecked(new Set());
   };
@@ -758,6 +791,14 @@ function Opportunities({
           perform={perform}
         />
       )}
+      {kind === "startup" && board && (
+        <OutreachProgress
+          key={`${chosen.id}:${JSON.stringify(chosen.outreach)}`}
+          opportunity={chosen}
+          busy={busy}
+          perform={perform}
+        />
+      )}
       <div className="detail-grid">
         {kind === "job" && (
           <div className="job-salary">
@@ -863,22 +904,44 @@ function Opportunities({
           )}
           {kind === "job" ? "Re-evaluate fit" : "Research & evaluate"}
         </button>
-        {kind === "startup" && chosen.stage !== "archived" && (
-          <button
-            className="button primary"
-            disabled={busy || chosen.assessment?.recommendation === "excluded"}
-            title={
-              chosen.assessment?.recommendation === "excluded"
-                ? "Resolve the exclusion before preparing a draft."
-                : undefined
-            }
-            onClick={() => void run("draft", chosen.id)}
-          >
-            <FileText size={15} />
-            Prepare draft
-          </button>
-        )}
+        {kind === "startup" &&
+          !board &&
+          chosen.stage !== "archived" &&
+          (isTrackedOutreach(chosen) ? (
+            <button
+              className="button"
+              onClick={() => {
+                location.hash = `outreach?opportunity=${encodeURIComponent(chosen.id)}`;
+              }}
+            >
+              <Columns3 size={16} />
+              View on outreach board
+            </button>
+          ) : (
+            <button
+              className="button primary"
+              disabled={busy}
+              onClick={() => void addToOutreach([chosen])}
+            >
+              <Plus size={16} />
+              Add to outreach
+            </button>
+          ))}
       </div>
+      {kind === "startup" && board && (
+        <OutreachPreparation
+          opportunity={chosen}
+          drafts={data.drafts}
+          runs={data.runs}
+          busy={busy}
+          perform={perform}
+          onReviewFit={() =>
+            document
+              .getElementById("outreach-fit-details")
+              ?.scrollIntoView({ block: "center" })
+          }
+        />
+      )}
       {kind === "job" && (
         <JobFitDetails
           key={chosen.id}
@@ -902,7 +965,9 @@ function Opportunities({
               kind="error"
             />
           )}
-          <StartupFitDetails opportunity={chosen} profile={data.profile} />
+          <div id={board ? "outreach-fit-details" : undefined}>
+            <StartupFitDetails opportunity={chosen} profile={data.profile} />
+          </div>
           {chosen.assessment.recommendation !== "excluded" &&
             chosen.assessment.blockers.length > 0 && (
               <NoticeList
@@ -1017,7 +1082,12 @@ function Opportunities({
         </div>
       )}
       {relatedDrafts.length > 0 && (
-        <button className="draft-link" onClick={() => navigate("drafts")}>
+        <button
+          className="draft-link"
+          onClick={() => {
+            location.hash = `drafts?opportunity=${encodeURIComponent(chosen.id)}`;
+          }}
+        >
           <FileText size={18} />
           <span>
             {relatedDrafts.length} prepared{" "}
@@ -1033,33 +1103,65 @@ function Opportunities({
     return (
       <section
         className="page applications-page"
-        aria-labelledby="applications-title"
+        aria-labelledby="tracking-title"
       >
         <header className="page-heading">
           <div>
-            <h1 id="applications-title">Applications</h1>
+            <h1 id="tracking-title">
+              {kind === "startup" ? "Startup outreach" : "Applications"}
+            </h1>
             <p>
-              The jobs you choose to pursue, from first application to final
-              outcome.
+              {kind === "startup"
+                ? "The companies you choose to contact, from first message to final outcome."
+                : "The jobs you choose to pursue, from first application to final outcome."}
             </p>
           </div>
-          <button className="button" onClick={() => navigate("jobs")}>
+          <button
+            className="button"
+            onClick={() => navigate(kind === "startup" ? "startups" : "jobs")}
+          >
             <Search size={16} />
-            Browse jobs
+            {kind === "startup" ? "Browse startup prospects" : "Browse jobs"}
           </button>
         </header>
-        <ApplicationsBoard
-          opportunities={all}
-          drafts={data.drafts}
-          runs={data.runs}
-          busy={busy}
-          perform={perform}
-          onSelect={(op) => setSelected(op.id)}
-        />
+        {kind === "startup" ? (
+          <OutreachBoard
+            opportunities={all}
+            drafts={data.drafts}
+            runs={data.runs}
+            busy={busy}
+            perform={perform}
+            onSelect={(op) => setSelected(op.id)}
+          />
+        ) : (
+          <ApplicationsBoard
+            opportunities={all}
+            drafts={data.drafts}
+            runs={data.runs}
+            busy={busy}
+            perform={perform}
+            onSelect={(op) => setSelected(op.id)}
+          />
+        )}
         {chosen && (
-          <Modal title="Application details" close={() => setSelected(null)}>
+          <Modal
+            title={
+              kind === "startup" ? "Outreach details" : "Application details"
+            }
+            close={() => setSelected(null)}
+          >
             {inspector}
           </Modal>
+        )}
+        {kind === "startup" && editing && (
+          <OpportunityForm
+            companies={data.companies ?? []}
+            kind="startup"
+            existing={editing}
+            close={() => setEditing(null)}
+            perform={perform}
+            busy={busy}
+          />
         )}
       </section>
     );
@@ -1076,7 +1178,7 @@ function Opportunities({
           <p>
             {kind === "job"
               ? "Find promising roles and add the ones you want to pursue to Applications."
-              : "Find companies worth a conversation, even before a role opens."}
+              : "Discover companies and add the ones you want to contact to Startup outreach."}
           </p>
         </div>
         <div className="button-row">
@@ -1184,16 +1286,20 @@ function Opportunities({
               : "opportunities"}
         </span>
       </div>
-      {kind === "job" && selectedJobs.length > 0 && (
+      {selectedOpportunities.length > 0 && (
         <div className="job-selection-bar" role="status">
-          <span>{selectedJobs.length} selected</span>
+          <span>{selectedOpportunities.length} selected</span>
           <button
             className="button primary"
             disabled={busy}
-            onClick={() => void addToApplications(selectedJobs)}
+            onClick={() =>
+              void (kind === "job"
+                ? addToApplications(selectedOpportunities)
+                : addToOutreach(selectedOpportunities))
+            }
           >
             <Plus size={15} />
-            Add to applications
+            {kind === "job" ? "Add to applications" : "Add to outreach"}
           </button>
           <button className="text-button" onClick={() => setChecked(new Set())}>
             Clear selection
@@ -1206,21 +1312,14 @@ function Opportunities({
         <div className="opportunity-list">
           {list.length ? (
             visibleList.map((o) => (
-              <div
-                key={o.id}
-                className={kind === "job" ? "job-browse-row" : undefined}
-              >
-                {kind === "job" && (
+              <div key={o.id} className="job-browse-row">
+                {
                   <label className="job-select">
                     <input
                       type="checkbox"
                       aria-label={`Select ${o.title} at ${o.company}`}
-                      disabled={
-                        busy ||
-                        isTrackedApplication(o) ||
-                        o.stage === "archived"
-                      }
-                      checked={checked.has(o.id) && !isTrackedApplication(o)}
+                      disabled={busy || isTracked(o) || o.stage === "archived"}
+                      checked={checked.has(o.id) && !isTracked(o)}
                       onChange={(event) =>
                         setChecked((current) => {
                           const next = new Set(current);
@@ -1231,7 +1330,7 @@ function Opportunities({
                       }
                     />
                   </label>
-                )}
+                }
                 <button
                   className={`opportunity-row ${chosen?.id === o.id ? "selected" : ""}`}
                   key={o.id}
@@ -1302,6 +1401,9 @@ function Opportunities({
                         On application board
                       </span>
                     )}
+                    {outreachColumn(o) && (
+                      <span className="on-board-label">On outreach board</span>
+                    )}
                     {kind === "startup" ? (
                       <span className="fit-evaluation-label">
                         {o.assessment?.startupFit?.method === "semantic" &&
@@ -1356,7 +1458,10 @@ function Opportunities({
             >
               <button
                 className="button primary"
-                disabled={!hasSourceFilter && (busy || (searching && !hasQuery && !hasActive))}
+                disabled={
+                  !hasSourceFilter &&
+                  (busy || (searching && !hasQuery && !hasActive))
+                }
                 onClick={() => {
                   if (hasSourceFilter) {
                     setSourceFilter("all");
@@ -1421,11 +1526,11 @@ function Opportunities({
                   </div>
                   <h3>A closer look at your next move.</h3>
                   <p>
-                    Select an opportunity to inspect its source, evaluate the
-                    evidence and prepare a draft.
+                    Select a company to review its sources and your potential
+                    contribution, then add it to Startup outreach.
                   </p>
                   <span className="keyboard-hint">
-                    Your profile → their requirements → a better application
+                    Discover → choose → start a conversation
                   </span>
                 </aside>
               )}
@@ -1567,9 +1672,12 @@ function OpportunityForm({
         description: result.description,
         descriptionTruncated: result.descriptionTruncated,
         requirementsTruncated: result.requirementsTruncated,
-        requirements: result.requirements.map((r) =>
-          `${r.hard ? "[hard] " : r.essential ? "[essential] " : "[preferred] "}${r.text} | ${r.skills.join(", ")}`,
-        ).join("\n"),
+        requirements: result.requirements
+          .map(
+            (r) =>
+              `${r.hard ? "[hard] " : r.essential ? "[essential] " : "[preferred] "}${r.text} | ${r.skills.join(", ")}`,
+          )
+          .join("\n"),
         remoteScope: result.remoteScope,
         ...(!p.salaryMin &&
         !p.salaryMax &&
@@ -1617,7 +1725,7 @@ function OpportunityForm({
       ...form,
       companyCountrySource: form.companyCountrySource || undefined,
       companyId: form.companyId || undefined,
-      kind,
+      ...(!existing ? { kind } : {}),
       salaryMin: form.salaryMin ? Number(form.salaryMin) : null,
       salaryMax: form.salaryMax ? Number(form.salaryMax) : null,
       publishedAt: form.publishedAt
@@ -1821,7 +1929,7 @@ function OpportunityForm({
               )}
               {kind === "startup" && (
                 <>
-                  <Field label="Founder / contact name">
+                  <Field label="Contact name">
                     <input
                       value={form.contactName}
                       onChange={(e) => update("contactName", e.target.value)}
@@ -2034,7 +2142,8 @@ function Drafts({
         <div>
           <h1 id="drafts-title">Drafts</h1>
           <p>
-            Review and download your application documents and founder emails.
+            Review and download your application documents and outreach
+            messages.
           </p>
         </div>
       </header>
@@ -2074,7 +2183,7 @@ function Drafts({
                   <small>
                     {d.kind === "application"
                       ? "Application package"
-                      : "Founder email"}{" "}
+                      : "Outreach message"}{" "}
                     · {date(d.createdAt)}
                   </small>
                   <span className="draft-subject">{d.subject}</span>
@@ -2086,7 +2195,7 @@ function Drafts({
           {!list.length && (
             <Empty
               title="Your drafts will appear here"
-              detail="Prepare an application from a To apply card on the Applications board, or a founder email from Startup prospects."
+              detail="Prepare an application from a To apply card in Applications, or an outreach message from a To contact card in Startup outreach."
             />
           )}
         </div>
@@ -2162,7 +2271,7 @@ function DraftDetail({
           <p>
             {draft.kind === "application"
               ? "Application package"
-              : "Founder outreach"}{" "}
+              : "Startup outreach"}{" "}
             ·{" "}
             {draft.generator === "openai"
               ? "OpenAI-assisted"

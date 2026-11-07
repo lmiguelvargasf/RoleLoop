@@ -7,6 +7,7 @@ import {
 import { REQUIREMENT_EXTRACTION_VERSION, SALARY_EXTRACTION_VERSION } from "../src/domain/connectors.js";
 import { applicationProgressFor } from "../src/shared/application-board.js";
 import { OpportunitySchema, type Opportunity } from "../src/shared/types.js";
+import { outreachProgressFor } from "../src/shared/outreach-board.js";
 import { demoOpportunities, demoWorkspace } from "./fixtures.js";
 
 const integration =
@@ -69,10 +70,11 @@ integration("application board loading", () => {
       firstSeenAt: "2026-09-01T12:00:00.000Z",
       updatedAt: "2026-09-01T12:00:00.000Z",
     };
-    const startup = {
+    const startup: Opportunity = {
       ...job("2026-09-01T12:00:00.000Z"),
       kind: "startup" as const,
     };
+    startup.outreach = { ...outreachProgressFor(startup, "contacted"), notes: "An older outreach card", contactedAt: "2026-09-01T12:00:00Z" };
     startup.assessment = assessOpportunity(
       startup,
       workspace.profile,
@@ -121,6 +123,7 @@ integration("application board loading", () => {
       expect(loaded.has(recent[0].id)).toBe(true);
       expect(loaded.has(oldUntracked.id)).toBe(true);
       expect(loaded.has(startup.id)).toBe(true);
+      expect(result.opportunities.find((op) => op.id === startup.id)?.outreach).toEqual(startup.outreach);
       expect(result.opportunities.filter((op) => op.kind === "job")[0].id).toBe(
         oldUntracked.id,
       );

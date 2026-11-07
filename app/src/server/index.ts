@@ -1,6 +1,7 @@
 import Fastify, { type FastifyRequest } from "fastify";
 import fastifyStatic from "@fastify/static";
 import { randomUUID } from "node:crypto";
+import { isDeepStrictEqual } from "node:util";
 import { resolve } from "node:path";
 import { z } from "zod";
 import { appDir, settings } from "./config.js";
@@ -339,7 +340,9 @@ export async function buildServer() {
     notes: true,
     stage: true,
     application: true,
+    outreach: true,
   }).partial();
+  const startupEditable = editable.omit({ application: true }).strict();
   const jobProgress = OpportunitySchema.pick({
     stage: true,
     application: true,
@@ -365,6 +368,13 @@ export async function buildServer() {
     const input = manual.parse(req.body),
       id = randomUUID(),
       now = new Date().toISOString();
+    if (Object.hasOwn(input, "application") || Object.hasOwn(input, "outreach"))
+      throw Object.assign(
+        new Error(
+          "Save the opportunity first, then add it to its tracking board.",
+        ),
+        { statusCode: 400 },
+      );
     const op = OpportunitySchema.parse({
       ...editable.parse(input),
       ...(input.kind === "job" &&
@@ -409,16 +419,13 @@ export async function buildServer() {
       const parsedPatch =
         existing.kind === "job"
           ? jobProgress.parse(req.body)
-          : editable.parse(req.body);
+          : startupEditable.parse(req.body);
       // Optional schema defaults must not overwrite facts or progress omitted
       // from the request.
       const patch = Object.fromEntries(
         Object.keys(req.body as object)
           .filter((key) => Object.hasOwn(parsedPatch, key))
-          .map((key) => [
-            key,
-            parsedPatch[key as keyof typeof parsedPatch],
-          ]),
+          .map((key) => [key, parsedPatch[key as keyof typeof parsedPatch]]),
       ) as z.infer<typeof editable>;
       if (patch.requirements && patch.requirementsTruncated === undefined)
         patch.requirementsTruncated = false;
@@ -445,6 +452,86 @@ export async function buildServer() {
             (status === "offer" ? new Date().toISOString() : null),
         };
       }
+      // Apply only supplied fields to the latest state, including after a
+      // concurrent website refresh. Defaults must not clear saved board notes.
+      const outreachUpdate = (current: typeof existing) => {
+        const supplied = (req.body as { outreach: Record<string, unknown> })
+          .outreach;
+        const previous = current.outreach;
+        const changes = Object.fromEntries(
+          Object.keys(supplied)
+            .filter((key) => Object.hasOwn(patch.outreach!, key))
+            .map((key) => [
+              key,
+              patch.outreach![key as keyof typeof patch.outreach],
+            ]),
+        );
+        const next = OpportunitySchema.shape.outreach
+          .unwrap()
+          .parse({ ...previous, ...changes });
+        if (next.status === "closed" && !next.outcome)
+          throw Object.assign(
+            new Error("Choose an outcome when closing outreach."),
+            { statusCode: 400 },
+          );
+        const now = new Date().toISOString();
+        return {
+          ...next,
+          contactedAt:
+            previous?.contactedAt ??
+            (["contacted", "conversation"].includes(next.status)
+              ? now
+              : next.contactedAt),
+          conversationAt:
+            previous?.conversationAt ??
+            (next.status === "conversation" ? now : next.conversationAt),
+          closedAt:
+            previous?.closedAt ??
+            (next.status === "closed" ? now : next.closedAt),
+        };
+      };
+      if (patch.outreach) saved.outreach = outreachUpdate(existing);
+      if (
+        patch.outreach &&
+        Object.keys(patch).every((key) => key === "outreach")
+      ) {
+        let current = existing;
+        for (let attempt = 0; attempt < 5; attempt++) {
+          const next = OpportunitySchema.parse({
+            ...current,
+            outreach: outreachUpdate(current),
+            updatedAt: new Date(
+              Math.max(Date.now(), Date.parse(current.updatedAt) + 1),
+            ).toISOString(),
+          });
+          const result = await requestStore(req).saveDerivedOpportunity(
+            current,
+            next,
+          );
+          if (!result)
+            throw Object.assign(new Error("This startup was removed."), {
+              statusCode: 404,
+            });
+          if (
+            isDeepStrictEqual(
+              JSON.parse(JSON.stringify(result)),
+              JSON.parse(JSON.stringify(next)),
+            )
+          ) {
+            await service.recordOpportunityChanges(
+              requestStore(req),
+              current,
+              result,
+            );
+            return result;
+          }
+          current = result;
+        }
+        throw Object.assign(
+          new Error("This startup changed while saving. Please try again."),
+          { statusCode: 409 },
+        );
+      }
       if (Object.keys(patch).every((key) => key === "application")) {
         await requestStore(req).save("opportunities", saved);
         await service.recordOpportunityChanges(
@@ -457,6 +544,7 @@ export async function buildServer() {
       const {
         stage: _stage,
         application: _application,
+        outreach: _outreach,
         ...corrections
       } = patch;
       if (existing.kind === "startup") {
