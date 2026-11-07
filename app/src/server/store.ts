@@ -452,16 +452,48 @@ export function createWorkspaceStore({
       ),
     );
   }
-  async function importOpportunity(op: Opportunity): Promise<Opportunity> {
-    const existing = checked(
-      await client
+  async function importOpportunityWithStatus(
+    op: Opportunity,
+  ): Promise<{ opportunity: Opportunity; created: boolean }> {
+    const findExisting = () =>
+      client
         .from("opportunities")
         .select(columns("opportunities"))
         .eq("workspace_id", workspaceId)
         .eq("source_key", op.sourceKey)
-        .maybeSingle(),
-    );
-    if (!existing) return save("opportunities", op);
+        .maybeSingle();
+    let existing = checked(await findExisting());
+    if (!existing) {
+      if (!safeId.test(op.id)) throw new Error("Record identifier is invalid.");
+      const inserted = await client
+        .from("opportunities")
+        .insert({
+          id: op.id,
+          workspace_id: workspaceId,
+          payload: op,
+          kind: op.kind,
+          source_key: op.sourceKey,
+          updated_at: new Date().toISOString(),
+        })
+        .select(columns("opportunities"))
+        .single();
+      if (!inserted.error && inserted.data)
+        return {
+          opportunity: decode(
+            "opportunities",
+            inserted.data as unknown as StoredRow,
+          ),
+          created: true,
+        };
+      // Only the successful insertion owns the "new" count. A concurrent
+      // import may have won by ID or source key; refresh its scoped row.
+      if (inserted.error?.code === "23505")
+        existing = checked(await findExisting());
+      if (!existing) {
+        checked(inserted);
+        return missing();
+      }
+    }
     const old = decode("opportunities", existing as unknown as StoredRow);
     const corrections =
       (await runtime<Partial<Opportunity>>(`corrections:${old.id}`)) || {};
@@ -477,7 +509,7 @@ export function createWorkspaceStore({
       notes: old.notes,
     };
     if (opportunityFingerprint(old) === opportunityFingerprint(refreshed))
-      return old;
+      return { opportunity: old, created: false };
     for (const draft of await list("drafts", 10000))
       if (draft.opportunityId === old.id)
         await save("drafts", {
@@ -486,23 +518,31 @@ export function createWorkspaceStore({
           testReceipt: null,
           updatedAt: new Date().toISOString(),
         });
-    return save("opportunities", {
-      ...refreshed,
-      stage: old.stage === "archived" ? "archived" : "new",
-      assessment: null,
-      updatedAt: new Date().toISOString(),
-    });
+    return {
+      opportunity: await save("opportunities", {
+        ...refreshed,
+        stage: old.stage === "archived" ? "archived" : "new",
+        assessment: null,
+        updatedAt: new Date().toISOString(),
+      }),
+      created: false,
+    };
+  }
+  async function importOpportunity(op: Opportunity): Promise<Opportunity> {
+    return (await importOpportunityWithStatus(op)).opportunity;
   }
   async function event(
     message: string,
     kind: Activity["kind"] = "info",
     opportunityId?: string,
+    context: Pick<Activity, "runId" | "category"> = {},
   ) {
     return save("events", {
       id: randomUUID(),
       message,
       kind,
       opportunityId,
+      ...context,
       createdAt: new Date().toISOString(),
     });
   }
@@ -519,6 +559,7 @@ export function createWorkspaceStore({
     get,
     save,
     importOpportunity,
+    importOpportunityWithStatus,
     event,
     runtime,
     setRuntime,

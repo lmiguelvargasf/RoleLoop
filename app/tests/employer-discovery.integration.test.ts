@@ -1,7 +1,10 @@
 import { randomUUID } from "node:crypto";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { demoOpportunities, demoWorkspace } from "./fixtures.js";
-import { assessOpportunity } from "../src/domain/rules.js";
+import {
+  assessOpportunity,
+  opportunityFingerprint,
+} from "../src/domain/rules.js";
 import type { Run, Source } from "../src/shared/types.js";
 
 const integration =
@@ -99,6 +102,18 @@ integration("employer discovery job-search orchestration", () => {
         "1 company connected",
       );
       expect(t.readBoard).not.toHaveBeenCalled(); // Validated jobs are reused in the same run.
+      expect(await t.store.get("runs", t.run.id)).toMatchObject({
+        outcome: "success",
+        summary: {
+          evaluated: 1,
+          newOpportunities: 1,
+          existingOpportunities: 0,
+          companiesConnected: 1,
+        },
+      });
+      expect(
+        (await t.store.list("events")).every((event) => event.runId === t.run.id),
+      ).toBe(true);
       const ws = await t.store.getWorkspace();
       expect(ws.sources).toHaveLength(1);
       expect(ws.sources[0].discoveredFrom).toBe(t.source.discoveredFrom);
@@ -116,6 +131,9 @@ integration("employer discovery job-search orchestration", () => {
         },
       });
       await t.processRun(t.store, t.run, async () => {});
+      expect(await t.store.get("runs", t.run.id)).toMatchObject({
+        summary: { evaluated: 1, newOpportunities: 0, existingOpportunities: 1 },
+      });
       expect((await t.store.getWorkspace()).sources).toHaveLength(1);
       const jobs = await t.store.list("opportunities");
       expect(jobs).toHaveLength(1);
@@ -141,6 +159,10 @@ integration("employer discovery job-search orchestration", () => {
           ?.status,
       ).toBe("error");
       expect(await t.store.list("opportunities")).toHaveLength(1);
+      expect(await t.store.get("runs", t.run.id)).toMatchObject({
+        outcome: "partial",
+        summary: { evaluated: 1, sourcesFailed: 0 },
+      });
     } finally {
       await t.cleanup();
     }
@@ -168,6 +190,47 @@ integration("employer discovery job-search orchestration", () => {
       expect(await t.store.list("opportunities")).toHaveLength(1);
       expect(await t.store.runtime("source-health")).toMatchObject({
         "new-employer": { found: 2, evaluated: 1 },
+      });
+    } finally {
+      await t.cleanup();
+    }
+  });
+
+  it("keeps the first assessed snapshot when a source repeats a changed opportunity", async () => {
+    const t = await setup();
+    try {
+      await t.store.updateWorkspace({ sources: [t.source] });
+      const assessment = vi.spyOn(
+        await import("../src/server/fit.js"),
+        "assessWithAI",
+      );
+      t.readBoard.mockResolvedValue([
+        t.job,
+        {
+          ...t.job,
+          id: randomUUID(),
+          description:
+            "A changed duplicate that must not replace the assessed snapshot.",
+          salaryMin: 1,
+          salaryMax: 2,
+        },
+      ]);
+      await t.processRun(
+        t.store,
+        { ...t.run, sourceId: t.source.id },
+        async () => {},
+      );
+      const [saved] = await t.store.list("opportunities");
+      expect(saved.description).toBe(t.job.description);
+      expect(saved.salaryMin).toBe(t.job.salaryMin);
+      expect(saved.assessment).not.toBeNull();
+      expect(assessment).toHaveBeenCalledTimes(1);
+      const assessed = assessment.mock.calls[0][0];
+      expect(opportunityFingerprint(saved)).toBe(
+        opportunityFingerprint(assessed),
+      );
+      expect(await t.store.get("runs", t.run.id)).toMatchObject({
+        summary: { newOpportunities: 1, existingOpportunities: 0, evaluated: 1 },
       });
     } finally {
       await t.cleanup();

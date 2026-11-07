@@ -82,6 +82,65 @@ async function cleanup(store: import("../src/server/store.js").WorkspaceStore) {
 }
 
 integration("local Supabase source refresh and lifecycle", () => {
+  it.each(["same ID", "different IDs"])(
+    "counts only one new opportunity when concurrent imports use %s",
+    async (caseName) => {
+      const store = await makeStore();
+      const candidate = isolatedOpportunity();
+      try {
+        const results = await Promise.all([
+          store.importOpportunityWithStatus(candidate),
+          store.importOpportunityWithStatus({
+            ...candidate,
+            id: caseName === "same ID" ? candidate.id : randomUUID(),
+          }),
+        ]);
+        expect(results.map((result) => result.created).sort()).toEqual([
+          false,
+          true,
+        ]);
+        expect(results[0].opportunity.id).toBe(results[1].opportunity.id);
+        expect(await store.list("opportunities")).toHaveLength(1);
+      } finally {
+        await cleanup(store);
+      }
+    },
+  );
+
+  it("reports new imports accurately for each workspace and preserves event context", async () => {
+    const first = await makeStore();
+    const second = await makeStore();
+    const candidate = isolatedOpportunity();
+    try {
+      const created = await first.importOpportunityWithStatus(candidate);
+      expect(created.created).toBe(true);
+      const refreshed = await first.importOpportunityWithStatus({
+        ...candidate,
+        id: randomUUID(),
+      });
+      expect(refreshed.created).toBe(false);
+      expect(refreshed.opportunity.id).toBe(created.opportunity.id);
+      const otherWorkspace = await second.importOpportunityWithStatus({
+        ...candidate,
+        id: randomUUID(),
+      });
+      expect(otherWorkspace.created).toBe(true);
+      const event = await first.event("Saved a draft", "success", candidate.id, {
+        runId: "activity-run",
+        category: "draft",
+      });
+      expect(await first.get("events", event.id)).toMatchObject({
+        runId: "activity-run",
+        category: "draft",
+        opportunityId: candidate.id,
+      });
+      expect(await second.list("events")).toEqual([]);
+    } finally {
+      await cleanup(first);
+      await cleanup(second);
+    }
+  });
+
   it("normalizes companies and connections atomically and preserves jobs when a connection is removed", async () => {
     const store = await makeStore();
     try {

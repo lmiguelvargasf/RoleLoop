@@ -265,7 +265,12 @@ export async function buildServer() {
       await service.invalidateDrafts(requestStore(req));
       await service.refreshAssessments(requestStore(req));
     }
-    await requestStore(req).event("Search and automation preferences saved.");
+    await requestStore(req).event(
+      "Search and automation preferences saved.",
+      "info",
+      undefined,
+      { category: "preferences" },
+    );
     return preferences;
   });
   app.put("/api/sources", async (req) => {
@@ -360,6 +365,12 @@ export async function buildServer() {
       updatedAt: now,
     });
     await requestStore(req).save("opportunities", op);
+    await requestStore(req).event(
+      `Added ${op.kind === "job" ? "job" : "startup prospect"}: ${op.title} at ${op.company}.`,
+      "success",
+      op.id,
+      { category: "application" },
+    );
     return service.analyze(
       requestStore(req),
       op,
@@ -399,6 +410,11 @@ export async function buildServer() {
       }
       if (Object.keys(patch).every((key) => key === "application")) {
         await requestStore(req).save("opportunities", saved);
+        await service.recordOpportunityChanges(
+          requestStore(req),
+          existing,
+          saved,
+        );
         return saved;
       }
       const {
@@ -413,6 +429,11 @@ export async function buildServer() {
         ...corrections,
       });
       await requestStore(req).save("opportunities", saved);
+      await service.recordOpportunityChanges(
+        requestStore(req),
+        existing,
+        saved,
+      );
       await service.invalidateDrafts(requestStore(req), saved.id);
       return service.analyze(
         requestStore(req),

@@ -93,6 +93,8 @@ export async function processCV(
       ? "Master CV processed. Career facts are ready for matching and drafts."
       : "Master CV processing failed. Retry processing or replace the CV.",
     cache.status === "ready" ? "success" : "error",
+    undefined,
+    { category: "resume" },
   );
   return saved.profile;
 }
@@ -175,6 +177,8 @@ export async function clearCVFacts(
   await store.event(
     "Extracted resume information cleared. The original resume is still available.",
     "info",
+    undefined,
+    { category: "resume" },
   );
   return saved.profile;
 }

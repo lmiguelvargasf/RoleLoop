@@ -2416,97 +2416,9 @@ textarea {
   overflow-wrap: anywhere;
   margin-top: 5px;
 }
-.run-history,
-.activity-history {
-  padding-top: 25px;
-  border-top: 1px solid var(--line);
-  margin-bottom: 35px;
-}
-.page > .page-heading + :is(.form-section, .run-history, .activity-history) {
+.page > .page-heading + .form-section {
   padding-top: 0;
   border-top: 0;
-}
-.run-history h2,
-.activity-history h2 {
-  font-size: 14px;
-  margin-bottom: 20px;
-}
-.run-history-row {
-  display: flex;
-  align-items: center;
-  gap: 15px;
-  padding: 17px 0;
-  border-bottom: 1px solid #eaf0f4;
-}
-.run-state {
-  color: #84a1b1;
-}
-.run-state.failed {
-  color: #b16f65;
-}
-.run-state.completed {
-  color: #44917f;
-}
-.run-history-row > div {
-  flex: 1;
-}
-.run-history-row strong {
-  font-size: 11px;
-}
-.run-history-row p {
-  font-size: 10px;
-  color: #8b9aaa;
-  margin-top: 5px;
-}
-.run-history-row > span:not(.run-state) {
-  font-size: 10px;
-  color: #8b99a8;
-}
-.run-history-row time {
-  font-size: 10px;
-  color: #9fabb6;
-}
-.activity-row {
-  display: flex;
-  gap: 16px;
-  padding: 0 0 25px;
-  position: relative;
-}
-.activity-row:not(:last-child):before {
-  content: "";
-  position: absolute;
-  left: 3px;
-  top: 13px;
-  bottom: 3px;
-  width: 1px;
-  background: #e0e8ef;
-}
-.activity-dot {
-  width: 7px;
-  height: 7px;
-  border-radius: 50%;
-  background: #b2bfcc;
-  flex-shrink: 0;
-  margin-top: 5px;
-}
-.activity-dot.success {
-  background: #65a694;
-}
-.activity-dot.warning {
-  background: #bcaa71;
-}
-.activity-dot.error {
-  background: #c07e7e;
-}
-.activity-row p {
-  font-size: 12px;
-  color: #6a7f92;
-}
-.activity-row time {
-  font-size: 9px;
-  color: #a1aeb9;
-  display: block;
-  margin-top: 6px;
 }
 .toast {
   position: fixed;
@@ -3049,20 +2961,6 @@ textarea {
     font-size: 11px;
     width: max-content;
     max-width: calc(100vw - 28px);
-  }
-  .run-history-row {
-    gap: 9px;
-    align-items: flex-start;
-  }
-  .run-history-row time {
-    font-size: 9px;
-    white-space: nowrap;
-  }
-  .run-history-row > span:not(.run-state) {
-    font-size: 8px;
-  }
-  .activity-row p {
-    font-size: 11px;
   }
   .connection-screen {
     padding: 25px;

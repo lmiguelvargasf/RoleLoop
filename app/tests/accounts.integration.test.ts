@@ -420,6 +420,27 @@ integration(
       expect(
         (application as unknown as { interviewAt: string }).interviewAt,
       ).toBeTruthy();
+      const history = await app.inject({
+        url: "/api/bootstrap",
+        headers: requestHeaders,
+      });
+      const activity = history.json().events as {
+        message: string;
+        category?: string;
+        opportunityId?: string;
+      }[];
+      expect(
+        activity.filter((event) => event.opportunityId === op.id),
+      ).toHaveLength(4);
+      expect(activity.every((event) => event.category === "application")).toBe(
+        true,
+      );
+      expect(
+        activity.some((event) => event.message.includes("Saved → Applied")),
+      ).toBe(true);
+      expect(
+        activity.some((event) => event.message.includes("Interview → Rejected")),
+      ).toBe(true);
       const denied = await app.inject({
         method: "PATCH",
         url: `/api/opportunities/${op.id}`,

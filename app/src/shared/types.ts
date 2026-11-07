@@ -281,6 +281,17 @@ export interface Run {
   status: "queued" | "running" | "completed" | "failed";
   progress: number;
   message: string;
+  outcome?: "success" | "partial";
+  summary?: {
+    evaluated: number;
+    newOpportunities: number;
+    existingOpportunities: number;
+    draftsCreated: number;
+    sourcesChecked: number;
+    sourcesFailed: number;
+    companiesConnected: number;
+    draftFailures: number;
+  };
   createdAt: string;
   updatedAt: string;
 }
@@ -289,6 +300,16 @@ export interface Activity {
   message: string;
   kind: "info" | "success" | "warning" | "error";
   opportunityId?: string;
+  runId?: string;
+  category?:
+    | "search"
+    | "evaluation"
+    | "research"
+    | "draft"
+    | "resume"
+    | "preferences"
+    | "application"
+    | "workspace";
   createdAt: string;
 }
 export interface Workspace {

@@ -258,6 +258,7 @@ async function prepare(
   op: Opportunity,
   workspace: Workspace,
   alreadyAssessed = false,
+  runId?: string,
 ) {
   const assessed = alreadyAssessed ? op : await analyze(store, op, workspace);
   if (assessed.assessment!.recommendation === "excluded")
@@ -280,6 +281,7 @@ async function prepare(
     `Prepared ${op.kind === "job" ? "application" : "founder outreach"} draft for ${op.company}.`,
     "success",
     op.id,
+    { runId, category: "draft" },
   );
   return draft;
 }
@@ -301,7 +303,9 @@ export async function approve(
     stage: "approved",
     updatedAt: new Date().toISOString(),
   });
-  await store.event("Draft approved for local testing only.", "info", op.id);
+  await store.event("Draft approved for local testing only.", "info", op.id, {
+    category: "draft",
+  });
   return saved;
 }
 export const DraftEdit = z
@@ -358,6 +362,43 @@ export async function refreshAssessments(store: WorkspaceStore) {
   for (const op of await store.list("opportunities", 10000))
     await analyze(store, op, workspace, false);
 }
+export async function recordOpportunityChanges(
+  store: WorkspaceStore,
+  previous: Opportunity,
+  saved: Opportunity,
+) {
+  const previousStatus = previous.application?.status ?? "saved";
+  const nextStatus = saved.application?.status ?? "saved";
+  const labels = {
+    saved: "Saved",
+    applied: "Applied",
+    interview: "Interview",
+    offer: "Offer",
+    rejected: "Rejected",
+    withdrawn: "Withdrawn",
+  };
+  if (previousStatus !== nextStatus)
+    await store.event(
+      `Application status updated for ${saved.title} at ${saved.company}: ${labels[previousStatus]} → ${labels[nextStatus]}.`,
+      "info",
+      saved.id,
+      { category: "application" },
+    );
+  if (previous.stage !== saved.stage && saved.stage === "archived")
+    await store.event(
+      `Archived ${saved.title} at ${saved.company}.`,
+      "info",
+      saved.id,
+      { category: "application" },
+    );
+  else if (previous.stage === "archived" && saved.stage !== "archived")
+    await store.event(
+      `Restored ${saved.title} at ${saved.company} from the archive.`,
+      "info",
+      saved.id,
+      { category: "application" },
+    );
+}
 export async function processRun(
   store: WorkspaceStore,
   run: Run,
@@ -367,12 +408,33 @@ export async function processRun(
     throw new Error("Task workspace does not match its execution context.");
   let workspace = await store.getWorkspace();
   if (run.action === "discover") {
+    const summary: NonNullable<Run["summary"]> = {
+      evaluated: 0,
+      newOpportunities: 0,
+      existingOpportunities: 0,
+      draftsCreated: 0,
+      sourcesChecked: 0,
+      sourcesFailed: 0,
+      companiesConnected: 0,
+      draftFailures: 0,
+    };
+    const eventContext = { runId: run.id, category: "search" as const };
     const scope = run.discoveryScope ?? (run.sourceId ? undefined : "jobs");
     const discoveredJobs = new Map<
       string,
       { identity: string; opportunities: Opportunity[] }
     >();
     let expansion: EmployerDiscoveryReport | undefined;
+    const saveSummary = async () => {
+      run.summary = { ...summary };
+      run.outcome =
+        summary.sourcesFailed ||
+        summary.draftFailures ||
+        (expansion && expansion.status !== "success")
+          ? "partial"
+          : "success";
+      await store.save("runs", run);
+    };
     const expand =
       scope === "jobs" &&
       !run.sourceId &&
@@ -460,7 +522,12 @@ export async function processRun(
             expansion.message +=
               " Some employers could not be checked; see Activity.";
             for (const error of found.errors.slice(0, 5))
-              await store.event(`Employer discovery: ${error}`, "warning");
+              await store.event(
+                `Employer discovery: ${error}`,
+                "warning",
+                undefined,
+                eventContext,
+              );
           }
         } catch (error) {
           expansion.status = expansion.boardsConnected ? "partial" : "error";
@@ -468,10 +535,13 @@ export async function processRun(
         }
       }
       expansion.checkedAt = new Date().toISOString();
+      summary.companiesConnected = expansion.boardsConnected;
       await store.setRuntime("employer-discovery", expansion);
       await store.event(
         expansion.message,
         expansion.status === "success" ? "info" : "warning",
+        undefined,
+        eventContext,
       );
       // Reload after atomic appends and any edits made while websites were checked.
       workspace = await store.getWorkspace();
@@ -479,6 +549,7 @@ export async function processRun(
     const sources = sourcesForDiscovery(workspace.sources, scope, run.sourceId);
 
     if (!sources.length) {
+      await saveSummary();
       if (expansion?.status === "success" || expansion?.status === "partial")
         return expansion.message;
       throw new Error(
@@ -495,9 +566,11 @@ export async function processRun(
       await store.setRuntime("source-health", { ...previous, [id]: health });
     };
     const shortlist: Opportunity[] = [];
+    const seenSourceKeys = new Set<string>();
     let imported = 0,
       failed = 0;
     for (const [index, source] of sources.entries()) {
+      summary.sourcesChecked++;
       await progress(
         Math.round(
           (expand ? 15 : 0) + (index / sources.length) * (expand ? 65 : 80),
@@ -566,10 +639,19 @@ export async function processRun(
             )
           )
             continue;
-          const existing = await store.importOpportunity(
-            OpportunitySchema.parse(candidate),
+          const parsed = OpportunitySchema.parse(candidate);
+          // Keep the first snapshot within a run. Importing a changed duplicate
+          // before skipping it would invalidate the assessment already selected
+          // for drafting, so deduplicate before any writes.
+          if (seenSourceKeys.has(parsed.sourceKey)) continue;
+          const importedOpportunity = await store.importOpportunityWithStatus(
+            parsed,
           );
+          seenSourceKeys.add(parsed.sourceKey);
+          const existing = importedOpportunity.opportunity;
           if (existing.stage === "archived") continue;
+          if (importedOpportunity.created) summary.newOpportunities++;
+          else summary.existingOpportunities++;
           const cacheKey = `fit:${existing.id}`;
           const fingerprint = `${opportunityFingerprint(existing)}:${profileFingerprint(workspace.profile)}:${preferencesFingerprint(workspace.preferences)}:${store.actorUserId ?? "api"}`;
           const previous = await store.runtime<{
@@ -601,6 +683,7 @@ export async function processRun(
           if (op !== existing && op.assessment?.fitSummary)
             await store.setRuntime(cacheKey, { fingerprint, at: Date.now() });
           imported++;
+          summary.evaluated++;
           shortlist.push(op);
         }
         await recordHealth(source.id, {
@@ -618,16 +701,21 @@ export async function processRun(
           error: error instanceof Error ? error.message : "Source failed",
         });
         failed++;
+        summary.sourcesFailed++;
         await store.event(
           `${source.label}: ${error instanceof Error ? error.message : "Source failed"}`,
           "error",
+          undefined,
+          eventContext,
         );
       }
     }
-    if (failed === sources.length)
+    if (failed === sources.length) {
+      await saveSummary();
       throw new Error(
         "All selected sources failed. See Activity for source errors.",
       );
+    }
     const drafted = new Set(
       (await store.list("drafts", 10000)).map((d) => d.opportunityId),
     );
@@ -641,21 +729,27 @@ export async function processRun(
         (!op.application || op.application.status === "saved")
       ) {
         try {
-          await prepare(store, op, workspace, true);
+          await prepare(store, op, workspace, true, run.id);
           drafted.add(op.id);
           remainingDrafts--;
+          summary.draftsCreated++;
         } catch (error) {
+          summary.draftFailures++;
           await store.event(
             `Draft for ${op.company}: ${error instanceof Error ? error.message : "failed"}`,
             "error",
             op.id,
+            { runId: run.id, category: "draft" },
           );
         }
       }
     }
+    await saveSummary();
     await store.event(
       `Discovery evaluated ${imported} opportunities${expansion?.boardsConnected ? `; connected ${expansion.boardsConnected} new ${expansion.boardsConnected === 1 ? "company" : "companies"}` : ""}${failed ? `; ${failed} source(s) failed` : ""}.`,
-      "success",
+      run.outcome === "partial" ? "warning" : "success",
+      undefined,
+      eventContext,
     );
     return `Evaluated ${imported} opportunities${expansion?.boardsConnected ? ` · ${expansion.boardsConnected} ${expansion.boardsConnected === 1 ? "company" : "companies"} connected` : ""}${failed ? `; ${failed} source(s) failed` : ""}`;
   }
@@ -681,7 +775,7 @@ export async function processRun(
   }
   if (run.action === "draft") {
     await progress(30, "Selecting verified experience");
-    await prepare(store, op, workspace);
+    await prepare(store, op, workspace, false, run.id);
     return "Draft prepared for review";
   }
   if (run.action === "simulate") {
@@ -729,7 +823,10 @@ export async function processRun(
       stage: "tested",
       updatedAt: new Date().toISOString(),
     });
-    await store.event(receipt, "success", op.id);
+    await store.event(receipt, "success", op.id, {
+      runId: run.id,
+      category: "application",
+    });
     return receipt;
   }
   throw new Error("Unknown worker action.");

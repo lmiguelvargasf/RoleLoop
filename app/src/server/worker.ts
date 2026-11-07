@@ -10,7 +10,15 @@ import {
   type WorkspaceStore,
 } from "./store.js";
 import { enqueue, processRun } from "./service.js";
-import type { Run } from "../shared/types.js";
+import type { Activity, Run } from "../shared/types.js";
+
+const runCategory: Record<Run["action"], Activity["category"]> = {
+  discover: "search",
+  analyze: "evaluation",
+  research: "research",
+  draft: "draft",
+  simulate: "application",
+};
 
 let stopping = false;
 const shutdown = new AbortController();
@@ -73,7 +81,12 @@ async function recoverInterruptedRuns() {
         error instanceof Error ? error.message : "Task recovery failed";
       console.error(`Could not recover workspace ${workspace.id}: ${message}`);
       await store
-        .event(`Previous tasks could not be recovered: ${message}`, "error")
+        .event(
+          `Previous tasks could not be recovered: ${message}`,
+          "error",
+          undefined,
+          { category: "workspace" },
+        )
         .catch(() => {});
       // One workspace's invalid historic data must not stop the shared worker.
     }
@@ -105,7 +118,9 @@ async function scheduleDiscovery() {
         error instanceof Error ? error.message : "Workspace schedule failed";
       if (scheduleErrors.get(record.id) !== message) {
         await store
-          .event(`Scheduled discovery: ${message}`, "error")
+          .event(`Scheduled discovery: ${message}`, "error", undefined, {
+            category: "search",
+          })
           .catch(() => {});
         scheduleErrors.set(record.id, message);
       }
@@ -211,7 +226,10 @@ async function main() {
           const message =
             error instanceof Error ? error.message : "Worker task failed";
           await update(store, run, { status: "failed", message });
-          await store.event(message, "error", run.opportunityId);
+          await store.event(message, "error", run.opportunityId, {
+            runId: run.id,
+            category: runCategory[run.action],
+          });
         }
         lastError = "";
       } catch (error) {

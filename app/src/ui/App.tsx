@@ -16,7 +16,6 @@ import {
   Briefcase,
   Check,
   CheckCircle2,
-  Clock3,
   Database,
   Download,
   ExternalLink,
@@ -39,7 +38,6 @@ import {
   X,
 } from "lucide-react";
 import type {
-  Activity,
   Company,
   AccountContext,
   Bootstrap,
@@ -66,6 +64,8 @@ import { IndustryInterests } from "./IndustryInterests";
 import { AutomationPreferences } from "./AutomationPreferences";
 import { ResumePage } from "./ResumePage";
 import { EditorHeader } from "./EditorHeader";
+import { ActivityPage } from "./ActivityPage";
+import { routeOpportunity, routePage } from "./navigation";
 import { WorkspaceStatus, serverUnavailable } from "./WorkspaceStatus";
 import {
   industryPriorityBoost,
@@ -238,8 +238,8 @@ export function App({
     [failure, setFailure] = useState<Error | null>(null),
     [busy, setBusy] = useState(false),
     [page, setPage] = useState<Page>(() =>
-      nav.some((n) => n.id === location.hash.slice(1))
-        ? (location.hash.slice(1) as Page)
+      nav.some((n) => n.id === routePage(location.hash))
+        ? (routePage(location.hash) as Page)
         : "jobs",
     );
   const [toast, setToast] = useState<{
@@ -282,7 +282,7 @@ export function App({
   }, [toast]);
   useEffect(() => {
     const changed = () => {
-      const next = location.hash.slice(1);
+      const next = routePage(location.hash);
       if (next === "sources") {
         history.replaceState(null, "", "#jobs");
         setPage("jobs");
@@ -419,7 +419,7 @@ export function App({
           </div>
         )}
 
-        {running.length > 0 && (
+        {running.length > 0 && page !== "activity" && (
           <div className="run-strip" aria-live="polite">
             <LoaderCircle size={15} className="spin" />
             <span>{running[0].message || `${running[0].action} queued`}</span>
@@ -456,9 +456,7 @@ export function App({
             busy={busy}
           />
         )}
-        {page === "activity" && (
-          <ActivityPage events={data.events} data={data} />
-        )}
+        {page === "activity" && <ActivityPage data={data} />}
         {page === "account" && accountPage}
       </main>
       {toast && (
@@ -495,10 +493,36 @@ function Opportunities({
   navigate: (p: Page) => void;
 }) {
   const [query, setQuery] = useState(""),
-    [stage, setStage] = useState(kind === "job" ? "matches" : "all"),
-    [selected, setSelected] = useState<string | null>(null),
+    [stage, setStage] = useState(() => {
+      const id = routeOpportunity(location.hash);
+      return id
+        ? data.opportunities.find((op) => op.id === id)?.stage === "archived"
+          ? "archived"
+          : "all"
+        : kind === "job"
+          ? "matches"
+          : "all";
+    }),
+    [selected, setSelected] = useState<string | null>(() =>
+      routeOpportunity(location.hash),
+    ),
     [adding, setAdding] = useState(false),
     [editing, setEditing] = useState<Opportunity | null>(null);
+  useEffect(() => {
+    const selectFromLink = () => {
+      const id = routeOpportunity(location.hash);
+      if (!id) return;
+      setSelected(id);
+      setQuery("");
+      setStage(
+        data.opportunities.find((op) => op.id === id)?.stage === "archived"
+          ? "archived"
+          : "all",
+      );
+    };
+    window.addEventListener("hashchange", selectFromLink);
+    return () => window.removeEventListener("hashchange", selectFromLink);
+  }, [data.opportunities]);
   const potentialMatch = (opportunity: Opportunity) =>
     opportunity.stage !== "archived" &&
     opportunity.assessment?.recommendation !== "excluded" &&
@@ -1766,8 +1790,25 @@ function Drafts({
   perform: Perform;
   busy: boolean;
 }) {
-  const [selected, setSelected] = useState<string | null>(null),
+  const [selected, setSelected] = useState<string | null>(() => {
+      const id = routeOpportunity(location.hash);
+      return id
+        ? data.drafts.find((draft) => draft.opportunityId === id)?.id || null
+        : null;
+    }),
     [filter, setFilter] = useState("all");
+  useEffect(() => {
+    const selectFromLink = () => {
+      const id = routeOpportunity(location.hash);
+      if (!id) return;
+      setSelected(
+        data.drafts.find((draft) => draft.opportunityId === id)?.id || null,
+      );
+      setFilter("all");
+    };
+    window.addEventListener("hashchange", selectFromLink);
+    return () => window.removeEventListener("hashchange", selectFromLink);
+  }, [data.drafts]);
   const draft = data.drafts.find((d) => d.id === selected),
     list = data.drafts.filter((d) => filter === "all" || d.status === filter);
   return (
@@ -2093,70 +2134,5 @@ function DraftDetail({
         external sending
       </div>
     </article>
-  );
-}
-
-function ActivityPage({
-  events,
-  data,
-}: {
-  events: Activity[];
-  data: Bootstrap;
-}) {
-  return (
-    <section className="page activity-page" aria-labelledby="activity-title">
-      <header className="page-heading">
-        <div>
-          <h1 id="activity-title">Activity</h1>
-          <p>Discovery runs and decisions, in one place.</p>
-        </div>
-      </header>
-      {data.runs.length > 0 && (
-        <section className="run-history">
-          <h2>Recent runs</h2>
-          {data.runs.slice(0, 12).map((run) => (
-            <div className="run-history-row" key={run.id}>
-              <span className={`run-state ${run.status}`}>
-                {run.status === "running" || run.status === "queued" ? (
-                  <LoaderCircle size={17} className="spin" />
-                ) : run.status === "failed" ? (
-                  <AlertTriangle size={17} />
-                ) : (
-                  <CheckCircle2 size={17} />
-                )}
-              </span>
-              <div>
-                <strong>
-                  {run.action[0].toUpperCase() + run.action.slice(1)}
-                </strong>
-                <p>{run.message}</p>
-              </div>
-              <span>{run.status}</span>
-              <time>{date(run.createdAt)}</time>
-            </div>
-          ))}
-        </section>
-      )}
-      <section className="activity-history">
-        <h2>Workspace history</h2>
-        {events.length ? (
-          events.map((event) => (
-            <div className="activity-row" key={event.id}>
-              <span className={`activity-dot ${event.kind}`} />
-              <div>
-                <p>{event.message}</p>
-                <time>{new Date(event.createdAt).toLocaleString()}</time>
-              </div>
-            </div>
-          ))
-        ) : (
-          <Empty
-            icon={<Clock3 size={30} />}
-            title="Your history starts here"
-            detail="Actions you take in the workspace will appear here."
-          />
-        )}
-      </section>
-    </section>
   );
 }
