@@ -113,9 +113,6 @@ export function AccountPage({
         <div className="section-heading">
           <div>
             <h2>Your account</h2>
-            <p>
-              Your résumé, opportunities and drafts are private to your account.
-            </p>
           </div>
           <span className="badge badge-ready">
             {account.isAdmin ? "Installation administrator" : "Account"}
