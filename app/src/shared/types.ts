@@ -152,6 +152,7 @@ export const AssessmentSchema = z.object({
     }),
   ),
   evaluatedAt: z.string(),
+  rulesVersion: z.number().int().nonnegative().default(0),
   profileFingerprint: z.string(),
   startupSignals: z.array(z.string()).default([]),
 });

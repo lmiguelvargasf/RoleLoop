@@ -12,6 +12,7 @@ import {
 } from "../shared/types.js";
 import {
   assessOpportunity,
+  ASSESSMENT_RULES_VERSION,
   draftContentHash,
   localDay,
   orderOpportunities,
@@ -65,20 +66,27 @@ export async function bootstrap(store: WorkspaceStore): Promise<Bootstrap> {
     store.runtime<Record<string, SourceHealth>>("source-health"),
     store.runtime<EmployerDiscoveryReport>("employer-discovery"),
   ]);
-  // Refresh cached assessments after a CV change or a retired salary policy.
+  // Recheck legacy eligibility rules locally without repeating paid AI matching.
   const currentOpportunities = await Promise.all(
-    opportunities.map((op) =>
-      (op.assessment &&
-        op.assessment.profileFingerprint !==
-          profileFingerprint(workspace.profile)) ||
-      (workspace.preferences.missingSalary === "review" &&
-        op.kind === "job" &&
-        op.salaryMin === null &&
-        op.salaryMax === null &&
-        op.assessment?.recommendation === "ready")
-        ? analyze(store, op, workspace, false)
-        : op,
-    ),
+    opportunities.map((op) => {
+      if (
+        (op.assessment &&
+          op.assessment.profileFingerprint !==
+            profileFingerprint(workspace.profile)) ||
+        (workspace.preferences.missingSalary === "review" &&
+          op.kind === "job" &&
+          op.salaryMin === null &&
+          op.salaryMax === null &&
+          op.assessment?.recommendation === "ready")
+      )
+        return analyze(store, op, workspace, false);
+      if (
+        op.assessment &&
+        op.assessment.rulesVersion !== ASSESSMENT_RULES_VERSION
+      )
+        return analyze(store, op, workspace, false, { reuseFit: true });
+      return op;
+    }),
   );
   const connection = store.actorUserId
     ? await chatgptStatus(store.actorUserId)
@@ -172,10 +180,51 @@ export async function analyze(
   op: Opportunity,
   workspace: Workspace,
   useAI = true,
+  options: { reuseFit?: boolean } = {},
 ) {
+  const previous =
+    options.reuseFit &&
+    !useAI &&
+    op.assessment?.profileFingerprint === profileFingerprint(workspace.profile)
+      ? op.assessment
+      : null;
   let assessment = useAI
     ? await assessWithAI(op, workspace, store.actorUserId)
-    : assessOpportunity(op, workspace.profile, workspace.preferences);
+    : assessOpportunity(
+        op,
+        workspace.profile,
+        workspace.preferences,
+        new Date(),
+        previous?.matches,
+      );
+  if (previous) {
+    // Keep existing AI/service cautions; replace only the legacy location
+    // cautions that the new rules have just checked again.
+    const legacyLocationCautions = new Set([
+      "Your working country is missing.",
+      "Remote location and hiring arrangement need confirmation.",
+      "Confirm any state restrictions and work authorization directly in the application.",
+    ]);
+    assessment = {
+      ...assessment,
+      fitSummary: previous.fitSummary,
+      learningGaps: previous.learningGaps,
+      relevantEvidenceIds: previous.relevantEvidenceIds,
+      unknowns: [
+        ...new Set([
+          ...assessment.unknowns,
+          ...previous.unknowns.filter(
+            (message) => !legacyLocationCautions.has(message),
+          ),
+        ]),
+      ],
+    };
+    assessment.recommendation = assessment.blockers.length
+      ? "excluded"
+      : assessment.unknowns.length
+        ? "review"
+        : "ready";
+  }
   const current = await store.getWorkspace();
   if (
     profileFingerprint(current.profile) !==
@@ -540,6 +589,7 @@ export async function processRun(
           );
           const op =
             existing.assessment &&
+            existing.assessment.rulesVersion === ASSESSMENT_RULES_VERSION &&
             previous?.fingerprint === fingerprint &&
             Date.now() - previous.at < 86400000
               ? existing

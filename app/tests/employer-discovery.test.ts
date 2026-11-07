@@ -290,6 +290,20 @@ describe("employer discovery", () => {
         descriptionPlain: "US-only remote role.",
       },
     },
+    {
+      name: "Brazil-only role advertised as LATAM",
+      patch: {
+        location: "Remote LATAM",
+        descriptionPlain: "Remote Latin America. This role is Brazil-only.",
+      },
+    },
+    {
+      name: "US-only role advertised as worldwide",
+      patch: {
+        location: "Remote worldwide",
+        descriptionPlain: "Remote worldwide. This role is US-only.",
+      },
+    },
     { name: "onsite role", patch: { workplaceType: "OnSite" } },
     {
       name: "below salary floor",

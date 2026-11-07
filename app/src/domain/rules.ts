@@ -2,6 +2,7 @@ import { createHash } from "node:crypto";
 import { salaryReviewMinimum } from "../shared/salary.js";
 import { careerFacts } from "../shared/types.js";
 import { matchesTargetRole } from "../shared/discovery.js";
+import { assessGeography, normalizeCountry } from "./geography.js";
 import {
   industryPriorityBoost,
   preferredIndustryMatches,
@@ -29,6 +30,8 @@ const hash = (value: unknown) =>
     .update(JSON.stringify(canonical(value)))
     .digest("hex");
 export const profileFingerprint = (profile: Profile) => hash(profile);
+// Bump when eligibility rules change so saved assessments are rechecked.
+export const ASSESSMENT_RULES_VERSION = 2;
 export const preferencesFingerprint = (prefs: Preferences) => {
   // Search expansion does not change a candidate's fit or invalidate drafts.
   const { discoverEmployers: _discovery, ...matchingPreferences } = prefs;
@@ -107,39 +110,11 @@ export function listedClaimExplanation(
     ? "Some requested skills are only listed in the CV; supporting examples are missing."
     : null;
 }
-const normalizeCountry = (s: string) => {
-  const v = s.trim().toLowerCase();
-  return ["us", "usa", "u.s.", "u.s.a.", "united states of america"].includes(v)
-    ? "united states"
-    : v;
-};
 const unknown = (s: string) =>
   !s.trim() ||
   ["unknown", "unspecified", "not specified", "to confirm"].includes(
     s.trim().toLowerCase(),
   );
-const latam = new Set([
-  "ecuador",
-  "mexico",
-  "colombia",
-  "peru",
-  "chile",
-  "argentina",
-  "brazil",
-  "bolivia",
-  "paraguay",
-  "uruguay",
-  "venezuela",
-  "costa rica",
-  "panama",
-  "guatemala",
-  "honduras",
-  "el salvador",
-  "nicaragua",
-  "dominican republic",
-  "cuba",
-  "haiti",
-]);
 export function localDay(date: Date): string {
   const parts = new Intl.DateTimeFormat("en-CA", {
     year: "numeric",
@@ -230,8 +205,9 @@ export function assessOpportunity(
     unknowns.push(
       "The description was shortened. Review the complete source listing before applying.",
     );
-  const candidateCountry = normalizeCountry(prefs.country);
-  if (!candidateCountry) unknowns.push("Your working country is missing.");
+  const geography = assessGeography(op, prefs.country);
+  blockers.push(...geography.blockers);
+  unknowns.push(...geography.unknowns);
   if (prefs.companyCountry && unknown(op.companyCountry))
     unknowns.push("Company headquarters country is not verified.");
   else if (
@@ -241,44 +217,6 @@ export function assessOpportunity(
   )
     blockers.push(
       `Company country (${op.companyCountry}) does not match ${prefs.companyCountry}.`,
-    );
-  if (op.remoteScope === "onsite")
-    blockers.push("The opportunity is not fully remote.");
-  else if (
-    op.remoteScope === "us" &&
-    candidateCountry &&
-    candidateCountry !== "united states"
-  )
-    blockers.push(
-      "This role is restricted to people working in the United States.",
-    );
-  else if (
-    op.remoteScope === "latam" &&
-    candidateCountry &&
-    !latam.has(candidateCountry)
-  )
-    blockers.push("This opportunity is restricted to Latin America.");
-  else if (op.remoteScope === "unknown")
-    unknowns.push("Remote location and hiring arrangement need confirmation.");
-  const inAmericas =
-    latam.has(candidateCountry) ||
-    ["united states", "canada"].includes(candidateCountry);
-  const outsideAmericas = op.location.match(
-    /\b(?:EMEA|Europe|European Union|APAC|Asia Pacific|Australia|New Zealand)\b/i,
-  );
-  if (
-    inAmericas &&
-    outsideAmericas &&
-    !/\b(?:LATAM|Latin America|Americas|AMER|worldwide|global|anywhere)\b/i.test(
-      op.location,
-    )
-  )
-    blockers.push(
-      `The listed hiring region (${outsideAmericas[0]}) does not include your working country.`,
-    );
-  if (op.remoteScope === "us" && candidateCountry === "united states")
-    unknowns.push(
-      "Confirm any state restrictions and work authorization directly in the application.",
     );
   if (op.kind === "job") {
     if (op.salaryMin === null && op.salaryMax === null) {
@@ -488,6 +426,7 @@ export function assessOpportunity(
       "Upload a master CV and finish processing before preparing an application.",
     );
   return {
+    rulesVersion: ASSESSMENT_RULES_VERSION,
     score,
     essentialScore,
     recommendation: blockers.length

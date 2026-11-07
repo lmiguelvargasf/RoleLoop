@@ -9,7 +9,7 @@ import {
 } from "../shared/discovery.js";
 import type { Opportunity, Source, Workspace } from "../shared/types.js";
 import { discover, isPublicAddress, safeFetchText } from "./connectors.js";
-import { assessOpportunity } from "./rules.js";
+import { assessOpportunity, ASSESSMENT_RULES_VERSION } from "./rules.js";
 
 const HOUR = 60 * 60 * 1000;
 const DAY = 24 * HOUR;
@@ -459,7 +459,9 @@ export async function discoverEmployerBoards(
   }
   result.companiesFound = candidates.size;
   const pending = [...candidates.values()];
-  const preferenceKey = hash(JSON.stringify(workspace.preferences));
+  const preferenceKey = hash(
+    JSON.stringify([ASSESSMENT_RULES_VERSION, workspace.preferences]),
+  );
   let next = 0;
   let checkedCompanies = 0;
   const worker = async () => {

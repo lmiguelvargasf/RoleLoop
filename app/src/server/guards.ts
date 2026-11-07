@@ -5,6 +5,7 @@ import {
   profileFingerprint,
 } from "../domain/rules.js";
 import type { Draft, Opportunity, Workspace } from "../shared/types.js";
+import { assessGeography } from "../domain/geography.js";
 
 export function assertFresh(
   draft: Draft,
@@ -26,6 +27,14 @@ export function assertFresh(
   if (draft.contentHash !== draftContentHash(draft))
     throw Object.assign(
       new Error("Draft integrity check failed. Save the draft again."),
+      { statusCode: 409 },
+    );
+  const geography = assessGeography(opportunity, workspace.preferences.country);
+  if (geography.blockers.length)
+    throw Object.assign(
+      new Error(
+        `Resolve the location restriction before approving or testing: ${geography.blockers.join(" ")}`,
+      ),
       { statusCode: 409 },
     );
 }
