@@ -610,13 +610,15 @@ function Opportunities({
       data.preferences.roles.some((role) => role.trim()) &&
       Boolean(data.preferences.country.trim()));
   return (
-    <section className="page opportunities-page">
-      <div className="page-heading">
+    <section
+      className="page opportunities-page"
+      aria-labelledby="opportunities-title"
+    >
+      <header className="page-heading">
         <div>
-          <div className="eyebrow">
-            {kind === "job" ? "THE APPLICATION PATH" : "THE FOUNDER PATH"}
-          </div>
-          <h1>{kind === "job" ? "Job opportunities" : "Startup prospects"}</h1>
+          <h1 id="opportunities-title">
+            {kind === "job" ? "Job opportunities" : "Startup prospects"}
+          </h1>
           <p>
             {kind === "job"
               ? "Find eligible roles. Build applications around your actual experience."
@@ -652,7 +654,7 @@ function Opportunities({
                 : "Find startup leads"}
           </button>
         </div>
-      </div>
+      </header>
       {kind === "job" && !canSearchJobs && (
         <p className="discovery-setup-note">
           Set your target roles and working country, or follow a company to
@@ -1843,16 +1845,15 @@ function Drafts({
   const draft = data.drafts.find((d) => d.id === selected),
     list = data.drafts.filter((d) => filter === "all" || d.status === filter);
   return (
-    <section className="page">
-      <div className="page-heading">
+    <section className="page" aria-labelledby="drafts-title">
+      <header className="page-heading">
         <div>
-          <div className="eyebrow">REVIEW BEFORE THE NEXT STEP</div>
-          <h1>Drafts</h1>
+          <h1 id="drafts-title">Drafts</h1>
           <p>
             Review and download your application documents and founder emails.
           </p>
         </div>
-      </div>
+      </header>
       <div className="segmented" aria-label="Draft status">
         {["all", "draft", "approved"].map((s) => (
           <button
@@ -2177,14 +2178,13 @@ function ActivityPage({
   data: Bootstrap;
 }) {
   return (
-    <section className="page activity-page">
-      <div className="page-heading">
+    <section className="page activity-page" aria-labelledby="activity-title">
+      <header className="page-heading">
         <div>
-          <div className="eyebrow">THE WORK BEHIND YOUR WORKSPACE</div>
-          <h1>Activity</h1>
+          <h1 id="activity-title">Activity</h1>
           <p>Discovery runs and decisions, in one place.</p>
         </div>
-      </div>
+      </header>
       {data.runs.length > 0 && (
         <section className="run-history">
           <h2>Recent runs</h2>

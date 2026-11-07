@@ -194,10 +194,10 @@ export function SourcesPage({
         .includes(query.toLowerCase()),
   );
   return (
-    <section className="page source-workspace">
-      <div className="page-heading">
+    <section className="page source-workspace" aria-labelledby="discovery-title">
+      <header className="page-heading">
         <div>
-          <h1>Discovery</h1>
+          <h1 id="discovery-title">Discovery</h1>
           <p>
             Choose where to find jobs, research startups or browse other sites.
           </p>
@@ -216,7 +216,7 @@ export function SourcesPage({
                 : "Search jobs"}
           </button>
         )}
-      </div>
+      </header>
       <div
         className="discovery-tabs"
         role="tablist"

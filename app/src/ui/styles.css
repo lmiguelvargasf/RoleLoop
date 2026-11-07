@@ -19,9 +19,13 @@
   --paper: #fff;
   --danger: #a83e40;
   --warning: #906a2b;
+  --page-width: 1120px;
 }
 * {
   box-sizing: border-box;
+}
+html {
+  scrollbar-gutter: stable;
 }
 body {
   margin: 0;
@@ -277,16 +281,38 @@ code {
   min-width: 0;
 }
 .page {
-  padding: 34px 38px 50px;
-  max-width: 1700px;
-  margin: auto;
+  --page-gutter: 38px;
+  width: 100%;
+  max-width: var(--page-width);
+  margin-inline: auto;
+  padding: 0 var(--page-gutter) 50px;
 }
-.page-heading {
+.page-heading,
+.editor-header {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  gap: 25px;
-  margin-bottom: 29px;
+  gap: 24px;
+  padding: 28px 0 24px;
+  border-bottom: 1px solid var(--line);
+}
+.page-heading {
+  margin-bottom: 28px;
+}
+.page-heading > div:first-child,
+.editor-heading {
+  min-width: 0;
+}
+.page-heading > .button-row {
+  flex-shrink: 0;
+}
+.page-heading h1,
+.editor-heading h1 {
+  font-size: 24px;
+  font-weight: 650;
+  line-height: 1.3;
+  letter-spacing: -0.7px;
+  text-wrap: balance;
 }
 .eyebrow {
   font-size: 9px;
@@ -295,11 +321,13 @@ code {
   color: var(--accent);
   margin-bottom: 10px;
 }
-.page-heading p {
+.page-heading p,
+.editor-heading p {
   font-size: 12px;
-  color: var(--muted);
-  margin-top: 10px;
+  color: #627487;
+  margin-top: 6px;
   max-width: 600px;
+  text-wrap: pretty;
 }
 .button-row {
   display: flex;
@@ -1017,13 +1045,6 @@ code {
   margin: 12px 0 24px;
   line-height: 1.8;
 }
-.form-page {
-  max-width: 1120px;
-  margin-left: 0;
-}
-.form-page .page-heading {
-  margin-bottom: 35px;
-}
 .form-section {
   padding: 27px 0;
   border-top: 1px solid var(--line);
@@ -1031,7 +1052,10 @@ code {
   grid-template-columns: 215px minmax(0, 1fr);
   gap: 30px;
 }
-.form-section-heading :is(h2, h3) {
+.form-section-heading :is(h2, h3),
+.account-page .section-heading h2,
+.source-section-heading h2,
+.employer-discovery h2 {
   font-size: 14px;
   letter-spacing: 0;
   line-height: 1.5;
@@ -2430,15 +2454,15 @@ textarea {
   overflow-wrap: anywhere;
   margin-top: 5px;
 }
-.activity-page {
-  max-width: 1100px;
-  margin-left: 0;
-}
 .run-history,
 .activity-history {
   padding-top: 25px;
   border-top: 1px solid var(--line);
   margin-bottom: 35px;
+}
+.page > .page-heading + :is(.form-section, .run-history, .activity-history) {
+  padding-top: 0;
+  border-top: 0;
 }
 .run-history h2,
 .activity-history h2 {
@@ -2599,10 +2623,6 @@ textarea {
   }
 }
 @media (min-width: 1600px) {
-  .page {
-    padding-left: 55px;
-    padding-right: 55px;
-  }
   .opportunity-workspace {
     grid-template-columns: minmax(380px, 1.05fr) minmax(420px, 0.95fr);
   }
@@ -2641,19 +2661,12 @@ textarea {
     gap: 8px;
   }
   .page {
-    padding: 29px 25px;
+    --page-gutter: 25px;
   }
   .demo-ribbon,
   .run-strip {
     padding-left: 25px;
     padding-right: 25px;
-  }
-  .page-heading {
-    gap: 16px;
-    align-items: flex-start;
-  }
-  .page-heading > .button-row {
-    padding-top: 15px;
   }
   .opportunity-workspace {
     grid-template-columns: minmax(230px, 1fr) minmax(315px, 1fr);
@@ -2776,9 +2789,6 @@ textarea {
   .flow-line i {
     max-width: 40px;
   }
-  .page-heading p {
-    max-width: 420px;
-  }
   .inspector-title h2 {
     font-size: 23px;
   }
@@ -2861,20 +2871,8 @@ textarea {
     width: 14px;
   }
   .page {
-    padding: 26px 18px 36px;
-  }
-  .page-heading {
-    flex-direction: column;
-    gap: 17px;
-    margin-bottom: 22px;
-  }
-  .page-heading > .button-row {
-    padding-top: 0;
-  }
-  .page-heading p {
-    font-size: 11px;
-    max-width: 480px;
-    margin-top: 8px;
+    --page-gutter: 18px;
+    padding-bottom: 36px;
   }
   h1 {
     font-size: 28px;
@@ -3084,9 +3082,6 @@ textarea {
     width: max-content;
     max-width: calc(100vw - 28px);
   }
-  .activity-page .page-heading {
-    margin-bottom: 23px;
-  }
   .run-history-row {
     gap: 9px;
     align-items: flex-start;
@@ -3186,9 +3181,6 @@ textarea {
   }
   .document-tabs {
     gap: 13px;
-  }
-  .page-heading .button {
-    font-size: 10px;
   }
   .source-editor-top h2 {
     font-size: 13px;
@@ -3471,10 +3463,6 @@ textarea {
   align-items: flex-start;
   margin-bottom: 25px;
 }
-.account-page .section-heading h2 {
-  font-size: 16px;
-  letter-spacing: -0.2px;
-}
 .account-page .section-heading p {
   font-size: 11px;
   color: var(--muted);
@@ -3708,9 +3696,6 @@ textarea {
   }
   .sidebar nav {
     margin-top: 13px;
-  }
-  .account-page .section-heading h2 {
-    font-size: 15px;
   }
   .account-page .section-heading p {
     font-size: 11px;
@@ -4006,36 +3991,11 @@ textarea {
   font-weight: 500;
   line-height: 1.3;
 }
-.editor-page {
-  padding-top: 0;
-}
 .editor-header {
   position: sticky;
   top: 0;
   z-index: 3;
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 24px;
-  padding: 28px 0 24px;
-  border-bottom: 1px solid var(--line);
   background: #f6f8fb;
-}
-.editor-heading {
-  min-width: 0;
-}
-.editor-heading h1 {
-  font-size: 24px;
-  font-weight: 650;
-  line-height: 1.3;
-  letter-spacing: -0.7px;
-  text-wrap: balance;
-}
-.editor-heading p {
-  margin-top: 6px;
-  color: #627487;
-  font-size: 12px;
-  text-wrap: pretty;
 }
 .editor-actions {
   display: flex;
@@ -4079,11 +4039,15 @@ textarea {
   }
 }
 @media (max-width: 850px) {
+  .page-heading,
   .editor-header {
     flex-direction: column;
     align-items: stretch;
     gap: 14px;
     padding: 24px 0 20px;
+  }
+  .page-heading > .button {
+    align-self: flex-start;
   }
   .editor-actions {
     justify-content: space-between;
@@ -4098,13 +4062,16 @@ textarea {
     min-width: 32px;
     min-height: 32px;
   }
+  .page-heading,
   .editor-header {
     gap: 16px;
     padding: 22px 0 18px;
   }
+  .page-heading h1,
   .editor-heading h1 {
     font-size: 23px;
   }
+  .page-heading .button,
   .editor-actions .button {
     min-height: 44px;
     padding: 10px 16px;
@@ -4313,12 +4280,6 @@ summary.source-editor-top::before {
 }
 
 /* Discovery is an operational list: one search action, source controls on demand. */
-.source-workspace {
-  max-width: 1180px;
-}
-.source-workspace .page-heading {
-  gap: 24px;
-}
 .source-section {
   margin-top: 34px;
 }
@@ -4332,8 +4293,6 @@ summary.source-editor-top::before {
 }
 .source-section-heading h2 {
   margin: 0;
-  font-size: 17px;
-  letter-spacing: -0.025em;
 }
 .source-section-heading h2 > span {
   color: var(--muted);
@@ -4515,15 +4474,10 @@ summary.source-editor-top::before {
   color: var(--accent);
 }
 @media (max-width: 680px) {
-  .source-workspace .page-heading,
   .source-section-heading {
     align-items: flex-start;
     flex-direction: column;
     gap: 16px;
-  }
-  .source-workspace .page-heading > .button {
-    width: 100%;
-    justify-content: center;
   }
   .source-managed-top,
   .source-library-row {
@@ -4632,8 +4586,6 @@ summary.source-editor-top::before {
 }
 .employer-discovery h2 {
   margin: 0;
-  font-size: 16px;
-  letter-spacing: -0.025em;
 }
 .employer-discovery-heading p,
 .discovery-last-result p,

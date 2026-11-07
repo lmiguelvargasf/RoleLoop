@@ -165,14 +165,16 @@ export function AccountPage({
     }, "Your existing workspace is linked to your account.");
   };
   return (
-    <section className="page form-page account-page">
-      <div className="page-heading">
+    <section
+      className="page form-page account-page"
+      aria-labelledby="account-title"
+    >
+      <header className="page-heading">
         <div>
-          <div className="eyebrow">ACCOUNT & WORKSPACE ACCESS</div>
-          <h1>Account & access</h1>
+          <h1 id="account-title">Account & access</h1>
           <p>Manage your account and choose who can work with you.</p>
         </div>
-      </div>
+      </header>
       {error && (
         <div className="notice error" role="alert">
           <AlertTriangle size={18} />
