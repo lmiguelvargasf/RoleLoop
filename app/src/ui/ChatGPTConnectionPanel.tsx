@@ -269,7 +269,8 @@ export function ChatGPTConnectionPanel() {
         </div>
       )}
       {connection &&
-        (!!connection.profiles.length || connection.apiConfigured) && (
+        (usingPlan || usingApi) &&
+        !!connection.profiles.length && (
           <details className="chatgpt-settings">
             <summary>Connection settings</summary>
             <div className="chatgpt-actions">
