@@ -159,7 +159,7 @@ export function ChatGPTConnectionPanel() {
         !active.planEnabled && (
           <p className="chatgpt-hint">Approve plan usage to start using AI.</p>
         )}
-      {!!connection?.profiles.length && (
+      {!!connection?.profiles.length && (usingPlan || usingApi) && (
         <div className="chatgpt-preferences">
           {connection.profiles.length > 1 ? (
             <label className="field">
