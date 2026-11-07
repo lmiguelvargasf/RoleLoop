@@ -9,7 +9,6 @@ import { demoOpportunities, demoWorkspace } from "./fixtures.js";
 
 const workspace = demoWorkspace();
 const preferences = workspace.preferences;
-const today = "2026-11-07";
 
 function job(patch: Partial<Opportunity> = {}): Opportunity {
   const opportunity = { ...demoOpportunities()[0], ...patch };
@@ -21,30 +20,23 @@ function job(patch: Partial<Opportunity> = {}): Opportunity {
   return opportunity;
 }
 
-function application(
-  status: NonNullable<Opportunity["application"]>["status"],
-  followUpOn: string | null = null,
-): NonNullable<Opportunity["application"]> {
-  return { status, followUpOn, appliedAt: null, notes: "", nextAction: "" };
-}
-
 const matches = (
   opportunity: Opportunity,
   view: OpportunityView,
   detail = "all",
-) => opportunityMatchesView(opportunity, preferences, view, detail, today);
+) => opportunityMatchesView(opportunity, preferences, view, detail);
 
 describe("simplified opportunity views", () => {
-  it("preserves the selected-country gate when narrowing matches by draft stage", () => {
+  it("preserves the selected-country gate in the default Matches view", () => {
     const eligible = job({ stage: "drafted" });
     const restricted = job({
       stage: "drafted",
       location: "Remote India",
       description: "Candidates must be based in India. Fully remote role.",
     });
-    expect(matches(eligible, "matches", "drafted")).toBe(true);
-    expect(matches(restricted, "matches", "drafted")).toBe(false);
-    expect(matches(restricted, "all", "drafted")).toBe(true);
+    expect(matches(eligible, "matches")).toBe(true);
+    expect(matches(restricted, "matches")).toBe(false);
+    expect(matches(restricted, "all")).toBe(true);
     expect(matches(restricted, "all", "excluded")).toBe(true);
   });
 
@@ -78,103 +70,60 @@ describe("simplified opportunity views", () => {
     expect(matches(unevaluated, "matches")).toBe(false);
   });
 
-  it.each(["applied", "interview", "offer", "rejected", "withdrawn"] as const)(
-    "keeps %s applications available regardless of current matching eligibility",
-    (status) => {
-      const opportunity = job({
-        location: "Remote India",
-        description: "Candidates must be based in India. Fully remote role.",
-        application: application(status),
-      });
-      expect(matches(opportunity, "applications")).toBe(true);
-      expect(matches(opportunity, "applications", status)).toBe(true);
-      expect(
-        matches(
-          opportunity,
-          "applications",
-          status === "applied" ? "offer" : "applied",
-        ),
-      ).toBe(false);
-    },
-  );
-
-  it("requires an actual application for the Applications view", () => {
-    expect(matches(job(), "applications")).toBe(false);
-    expect(
-      matches(
-        job({ application: application("saved", today) }),
-        "applications",
-      ),
-    ).toBe(false);
-    expect(
-      matches(
-        job({ application: application("saved", today) }),
-        "applications",
-        "followups",
-      ),
-    ).toBe(false);
-  });
-
-  it("limits follow-ups to due, active applications", () => {
-    expect(
-      matches(
-        job({ application: application("applied", today) }),
-        "applications",
-        "followups",
-      ),
-    ).toBe(true);
-    expect(
-      matches(
-        job({ application: application("interview", "2026-11-06") }),
-        "applications",
-        "followups",
-      ),
-    ).toBe(true);
-    expect(
-      matches(
-        job({ application: application("applied", "2026-11-08") }),
-        "applications",
-        "followups",
-      ),
-    ).toBe(false);
-    for (const status of ["rejected", "withdrawn", "offer"] as const)
-      expect(
-        matches(
-          job({ application: application(status, today) }),
-          "applications",
-          "followups",
-        ),
-      ).toBe(false);
-  });
-
-  it("keeps archived records accessible only in Archived, including due applications", () => {
-    const archived = job({
-      stage: "archived",
-      application: application("applied", today),
+  it("narrows All saved by exclusion or location questions", () => {
+    const excluded = job({ salaryMin: 20000, salaryMax: 30000 });
+    const location = job({
+      location: "Remote",
+      description: "Build software for global customers.",
+      remoteScope: "unknown",
     });
-    for (const view of ["matches", "review", "applications", "all"] as const) {
+    expect(matches(excluded, "all", "excluded")).toBe(true);
+    expect(matches(job(), "all", "excluded")).toBe(false);
+    expect(matches(location, "all", "location-review")).toBe(true);
+    expect(matches(job(), "all", "location-review")).toBe(false);
+  });
+
+  it("keeps archived records accessible only in Archived", () => {
+    const archived = job({ stage: "archived" });
+    for (const view of ["matches", "review", "all"] as const) {
       expect(matches(archived, view)).toBe(false);
-      expect(matches(archived, view, "followups")).toBe(false);
+      expect(matches(archived, view, "location-review")).toBe(false);
     }
     expect(matches(archived, "archived")).toBe(true);
-    expect(matches(archived, "archived", "applied")).toBe(false);
+    expect(matches(archived, "archived", "location-review")).toBe(false);
     expect(matches(job(), "archived")).toBe(false);
   });
 
-  it("retains startup preparation views without exposing job-specific views", () => {
+  it("does not expose job-specific views and details for startup entries", () => {
     const startup = { ...demoOpportunities()[3], stage: "drafted" as const };
     expect(matches(startup, "all")).toBe(true);
-    expect(matches(startup, "all", "drafted")).toBe(true);
-    expect(matches(startup, "all", "ready")).toBe(false);
-    for (const view of ["matches", "review", "applications"] as const)
+    for (const view of ["matches", "review"] as const)
       expect(matches(startup, view)).toBe(false);
     expect(matches(startup, "all", "excluded")).toBe(false);
+    expect(matches(startup, "all", "location-review")).toBe(false);
   });
 
-  it("rejects irrelevant details rather than changing the main view silently", () => {
-    const opportunity = job({ application: application("applied") });
-    expect(matches(opportunity, "matches", "applied")).toBe(false);
-    expect(matches(opportunity, "applications", "ready")).toBe(false);
-    expect(matches(opportunity, "all", "unexpected")).toBe(false);
+  it.each([
+    "new",
+    "review",
+    "ready",
+    "drafted",
+    "approved",
+    "applied",
+    "followups",
+    "unexpected",
+  ])("rejects obsolete or invalid detail %s in every view", (detail) => {
+    for (const view of ["matches", "review", "all", "archived"] as const)
+      expect(matches(job({ stage: "drafted" }), view, detail)).toBe(false);
+  });
+
+  it("rejects inapplicable details rather than bypassing the main view", () => {
+    const salary = job({ salaryMin: null, salaryMax: null });
+    expect(matches(salary, "matches", "fit-review")).toBe(false);
+    expect(matches(salary, "all", "fit-review")).toBe(false);
+    expect(matches(salary, "review", "excluded")).toBe(false);
+    expect(matches(salary, "matches", "location-review")).toBe(false);
+    expect(matches(salary, "matches", "excluded")).toBe(false);
+    expect(matches(salary, "applications" as OpportunityView)).toBe(false);
   });
 });

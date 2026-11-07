@@ -60,7 +60,7 @@ export function ApplicationProgress({
                 set({ status: e.target.value as Progress["status"] })
               }
             >
-              <option value="saved">Saved / not applied</option>
+              <option value="saved">To apply</option>
               <option value="applied">Applied</option>
               <option value="interview">Interview</option>
               <option value="offer">Offer</option>

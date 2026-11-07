@@ -2,7 +2,12 @@ import { randomBytes, randomUUID } from "node:crypto";
 import { beforeAll, afterAll, describe, expect, it, vi } from "vitest";
 import type { FastifyInstance } from "fastify";
 import type { SupabaseClient } from "@supabase/supabase-js";
-import type { AccountContext } from "../src/shared/types.js";
+import type { AccountContext, Opportunity } from "../src/shared/types.js";
+import {
+  applicationColumn,
+  applicationProgressFor,
+} from "../src/shared/application-board.js";
+import { demoOpportunities } from "./fixtures.js";
 const integration =
   process.env.ROLELOOP_INTEGRATION === "1" ? describe : describe.skip;
 type Actor = {
@@ -439,7 +444,9 @@ integration(
         activity.some((event) => event.message.includes("Saved → Applied")),
       ).toBe(true);
       expect(
-        activity.some((event) => event.message.includes("Interview → Rejected")),
+        activity.some((event) =>
+          event.message.includes("Interview → Rejected"),
+        ),
       ).toBe(true);
       const denied = await app.inject({
         method: "PATCH",
@@ -448,6 +455,86 @@ integration(
         payload: { application },
       });
       expect(denied.statusCode).toBe(403);
+    });
+    it("persists explicit board selection and keeps notes and milestones through moves and source refresh", async () => {
+      const actor = await account("Application board test");
+      const requestHeaders = headers(actor, actor.workspaceId);
+      const { createWorkspaceStore } = await import("../src/server/store.js");
+      const store = createWorkspaceStore({
+        workspaceId: actor.workspaceId,
+        client: db,
+      });
+      const candidate: Opportunity = {
+        ...demoOpportunities()[0],
+        id: randomUUID(),
+        sourceKey: `application-board:${randomUUID()}`,
+      };
+      let saved = await store.importOpportunity(candidate);
+      expect(applicationColumn(saved)).toBeNull();
+      const shortlist = {
+        ...applicationProgressFor(saved, "saved"),
+        nextAction: "Review the employer's application questions",
+        notes: "Recommended by a former colleague",
+        followUpOn: "2026-11-10",
+      };
+      // Repeated selection is idempotent and never claims an application was sent.
+      for (let attempt = 0; attempt < 2; attempt++) {
+        const response = await app.inject({
+          method: "PATCH",
+          url: `/api/opportunities/${saved.id}`,
+          headers: requestHeaders,
+          payload: { application: shortlist },
+        });
+        expect(response.statusCode, response.body).toBe(200);
+        saved = response.json<Opportunity>();
+        expect(applicationColumn(saved)).toBe("to_apply");
+        expect(saved.application).toEqual(shortlist);
+      }
+      const refreshed = await store.importOpportunity({
+        ...candidate,
+        id: randomUUID(),
+        description: `${candidate.description}\nNewly refreshed employer description.`,
+      });
+      expect(refreshed.id).toBe(saved.id);
+      expect(refreshed.application).toEqual(shortlist);
+      expect(applicationColumn(refreshed)).toBe("to_apply");
+      saved = refreshed;
+      const milestones: Record<string, string | null | undefined> = {};
+      for (const status of [
+        "applied",
+        "interview",
+        "offer",
+        "rejected",
+        "saved",
+      ] as const) {
+        const response = await app.inject({
+          method: "PATCH",
+          url: `/api/opportunities/${saved.id}`,
+          headers: requestHeaders,
+          payload: { application: applicationProgressFor(saved, status) },
+        });
+        expect(response.statusCode, response.body).toBe(200);
+        saved = response.json<Opportunity>();
+        expect(saved.application).toMatchObject({
+          status,
+          nextAction: shortlist.nextAction,
+          notes: shortlist.notes,
+          followUpOn: shortlist.followUpOn,
+        });
+        for (const field of ["appliedAt", "interviewAt", "offerAt"] as const) {
+          if (milestones[field])
+            expect(saved.application?.[field]).toBe(milestones[field]);
+          else if (saved.application?.[field])
+            milestones[field] = saved.application[field];
+        }
+      }
+      expect(milestones.appliedAt).toBeTruthy();
+      expect(milestones.interviewAt).toBeTruthy();
+      expect(milestones.offerAt).toBeTruthy();
+      expect(applicationColumn(saved)).toBe("to_apply");
+      expect((await store.get("opportunities", saved.id)).application).toEqual(
+        saved.application,
+      );
     });
     it("saves a minimum alone, adds or clears a target, and validates an explicit target", async () => {
       const actor = await account("Salary preferences test");
@@ -676,9 +763,8 @@ integration(
       expect(queue.error).not.toBeNull();
       const draftId = randomUUID();
       const { createDraft } = await import("../src/domain/templates.js");
-      const { demoWorkspace, demoOpportunities } = await import(
-        "./fixtures.js"
-      );
+      const { demoWorkspace, demoOpportunities } =
+        await import("./fixtures.js");
       const { assessOpportunity } = await import("../src/domain/rules.js");
       const profile = demoWorkspace();
       const sample = { ...demoOpportunities()[0], id: op.id };
@@ -744,8 +830,9 @@ integration(
           headers: headers(bob),
         });
         expect(account.statusCode, account.body).toBe(200);
-        expect(account.json<AccountContext>().workspaces.map((w) => w.id))
-          .toEqual([bob.workspaceId]);
+        expect(
+          account.json<AccountContext>().workspaces.map((w) => w.id),
+        ).toEqual([bob.workspaceId]);
         const denied = await app.inject({
           url: "/api/bootstrap",
           headers: headers(bob, alice.workspaceId),
@@ -765,18 +852,27 @@ integration(
         expect(access.error).toBeNull();
         expect(access.data).toBe(false);
         for (const table of ["workspace", "opportunities", "drafts"]) {
-          const rows = await bob.client.from(table).select("id")
-            .eq(table === "workspace" ? "id" : "workspace_id", alice.workspaceId);
+          const rows = await bob.client
+            .from(table)
+            .select("id")
+            .eq(
+              table === "workspace" ? "id" : "workspace_id",
+              alice.workspaceId,
+            );
           expect(rows.error).toBeNull();
           expect(rows.data).toEqual([]);
         }
-        const tampered = await bob.client.from("opportunities")
+        const tampered = await bob.client
+          .from("opportunities")
           .update({ payload: { corrupted: true } })
-          .eq("workspace_id", alice.workspaceId).select("id");
+          .eq("workspace_id", alice.workspaceId)
+          .select("id");
         expect(tampered.error).toBeNull();
         expect(tampered.data).toEqual([]);
-        const selfOwner = await bob.client.from("workspace")
-          .update({ owner_user_id: bob.id }).eq("id", alice.workspaceId);
+        const selfOwner = await bob.client
+          .from("workspace")
+          .update({ owner_user_id: bob.id })
+          .eq("id", alice.workspaceId);
         expect(selfOwner.error).not.toBeNull();
         const membership = await bob.client.from("workspace_members").insert({
           workspace_id: carol.workspaceId,
@@ -791,8 +887,11 @@ integration(
         expect(own.statusCode, own.body).toBe(200);
         expect(own.json().profile.email).toBe(alice.email);
       } finally {
-        await db.from("workspace_members").delete()
-          .eq("workspace_id", alice.workspaceId).eq("user_id", bob.id);
+        await db
+          .from("workspace_members")
+          .delete()
+          .eq("workspace_id", alice.workspaceId)
+          .eq("user_id", bob.id);
       }
     });
     it("keeps account administration separate from workspace ownership", async () => {
@@ -881,8 +980,11 @@ integration(
         expect(ownUpload.error).not.toBeNull();
       } finally {
         await db.storage.from("documents").remove([path]);
-        await db.from("workspace_members").delete()
-          .eq("workspace_id", alice.workspaceId).eq("user_id", bob.id);
+        await db
+          .from("workspace_members")
+          .delete()
+          .eq("workspace_id", alice.workspaceId)
+          .eq("user_id", bob.id);
       }
     }, 20000);
   },

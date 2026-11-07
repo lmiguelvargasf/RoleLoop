@@ -4111,3 +4111,77 @@ summary.source-editor-top::before {
     width: auto;
   }
 }
+
+/* Browsing stays a list; chosen applications have their own board. */
+.opportunity-workspace.job-browser {
+  display: block;
+  min-height: 0;
+}
+.job-browse-row {
+  display: flex;
+  align-items: stretch;
+  border-bottom: 1px solid var(--line);
+}
+.job-browse-row:last-child {
+  border-bottom: 0;
+}
+.job-browse-row .opportunity-row {
+  min-width: 0;
+  border-bottom: 0;
+}
+.job-select {
+  display: flex;
+  align-items: flex-start;
+  padding: 25px 0 0 20px;
+}
+.job-select input {
+  width: 16px;
+  height: 16px;
+  accent-color: var(--accent);
+}
+.job-select input:disabled {
+  opacity: 0.35;
+}
+.job-selection-bar {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  flex-wrap: wrap;
+  margin-bottom: 16px;
+  color: var(--accent);
+  font-size: 12px;
+}
+.job-shortlist-action {
+  margin-bottom: 24px;
+}
+.on-board-label {
+  color: var(--accent);
+  font-size: 10px;
+}
+.modal > .inspector {
+  border-left: 0;
+  max-height: none;
+  min-height: 0;
+  overflow: visible;
+}
+.modal > .inspector .back-to-list {
+  display: none;
+}
+.job-source-results {
+  margin-bottom: 24px;
+}
+@media (max-width: 600px) {
+  .opportunities-page .list-toolbar {
+    flex-wrap: wrap;
+  }
+  .opportunities-page .list-toolbar > .search-field {
+    flex-basis: 100%;
+    max-width: none;
+  }
+  .job-select {
+    padding-left: 12px;
+  }
+  .job-selection-bar {
+    gap: 12px;
+  }
+}

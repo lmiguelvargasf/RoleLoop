@@ -49,7 +49,8 @@ export const RunInput = z.object({
 export async function bootstrap(store: WorkspaceStore): Promise<Bootstrap> {
   const [
     workspace,
-    opportunities,
+    recentOpportunities,
+    trackedApplications,
     drafts,
     runs,
     events,
@@ -59,6 +60,7 @@ export async function bootstrap(store: WorkspaceStore): Promise<Bootstrap> {
   ] = await Promise.all([
     store.getWorkspace(),
     store.list("opportunities"),
+    store.listTrackedApplications(),
     store.list("drafts"),
     store.list("runs", 100),
     store.list("events", 60),
@@ -66,8 +68,15 @@ export async function bootstrap(store: WorkspaceStore): Promise<Bootstrap> {
     store.runtime<Record<string, SourceHealth>>("source-health"),
     store.runtime<EmployerDiscoveryReport>("employer-discovery"),
   ]);
+  // The discovery window must never evict a job the user is pursuing.
+  // Query tracking explicitly instead of loading the full discovery history.
+  const opportunities = [
+    ...new Map(
+      [...recentOpportunities, ...trackedApplications].map((op) => [op.id, op]),
+    ).values(),
+  ];
   // Recheck derived eligibility locally without repeating paid AI matching.
-  // A rule rollout can affect all 300 loaded jobs; limit the database/Auth
+  // A rule rollout can affect every loaded job; limit the database/Auth
   // fanout while preserving analyze()'s fresh-workspace check before saving.
   const currentOpportunities: Opportunity[] = [];
   for (let offset = 0; offset < opportunities.length; offset += 4) {

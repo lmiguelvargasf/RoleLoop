@@ -360,6 +360,29 @@ export function createWorkspaceStore({
     }
     return items;
   }
+  async function listTrackedApplications(): Promise<Opportunity[]> {
+    const items: Opportunity[] = [];
+    for (let offset = 0; ; offset += 500) {
+      const rows = checked(
+        await client
+          .from("opportunities")
+          .select(columns("opportunities"))
+          .eq("workspace_id", workspaceId)
+          .eq("kind", "job")
+          .not("payload->application", "is", null)
+          .order("updated_at", { ascending: false })
+          .order("id")
+          .range(offset, offset + 499),
+      );
+      items.push(
+        ...(rows || []).map((row) =>
+          decode("opportunities", row as unknown as StoredRow),
+        ),
+      );
+      if (!rows || rows.length < 500) break;
+    }
+    return items;
+  }
   async function get<T extends keyof Payloads>(
     table: T,
     id: string,
@@ -565,6 +588,7 @@ export function createWorkspaceStore({
     connectDiscoveredSource,
     ignoredDiscoveryIdentities,
     list,
+    listTrackedApplications,
     get,
     save,
     importOpportunity,
