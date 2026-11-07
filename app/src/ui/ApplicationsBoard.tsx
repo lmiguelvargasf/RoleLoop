@@ -14,14 +14,6 @@ import { write } from "./api";
 import "./ApplicationsBoard.css";
 
 const dragType = "application/x-roleloop-opportunity";
-const statuses: ApplicationStatus[] = [
-  "saved",
-  "applied",
-  "interview",
-  "offer",
-  "rejected",
-  "withdrawn",
-];
 const emptyColumns: Record<ApplicationColumnId, string> = {
   to_apply: "Jobs you choose to pursue",
   applied: "No applications yet",
@@ -297,26 +289,6 @@ export function ApplicationsBoard({
                               })}
                             </span>
                           )}
-                        <label className="application-move-control">
-                          <span>Move to</span>
-                          <select
-                            aria-label={`Move ${op.title} at ${op.company} to`}
-                            value={progress.status}
-                            disabled={busy}
-                            onChange={(event) =>
-                              void move(
-                                op,
-                                event.target.value as ApplicationStatus,
-                              )
-                            }
-                          >
-                            {statuses.map((status) => (
-                              <option key={status} value={status}>
-                                {applicationStatusLabels[status]}
-                              </option>
-                            ))}
-                          </select>
-                        </label>
                       </article>
                     );
                   })}
@@ -333,8 +305,8 @@ export function ApplicationsBoard({
       </div>
       {tracked.length > 0 && (
         <p className="application-board-help">
-          Drag the handle or use Move to. Open a job for details, drafts and
-          follow-up notes.
+          Drag the handle to move a card. Open a job to change its status,
+          prepare drafts or add follow-up notes.
         </p>
       )}
     </section>

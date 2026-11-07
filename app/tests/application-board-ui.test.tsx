@@ -26,7 +26,7 @@ describe("application board interface", () => {
     expect(html.match(/class="application-column-heading"/g)).toHaveLength(5);
   });
 
-  it("shows distinct closed outcomes and keyboard controls while leaving archives out", () => {
+  it("shows distinct closed outcomes and accessible job details while leaving archives out", () => {
     const base = demoOpportunities().find((op) => op.kind === "job")!;
     const jobs = [
       {
@@ -62,8 +62,8 @@ describe("application board interface", () => {
     expect(html).not.toContain("Archived role");
     expect(html).toContain('application-outcome-rejected">Rejected');
     expect(html).toContain('application-outcome-withdrawn">Withdrawn');
-    expect(html.match(/class="application-move-control"/g)).toHaveLength(3);
-    expect(html).toContain('value="saved" selected="">To apply');
-    expect(html).toContain('aria-label="Move Selected role at');
+    expect(html).not.toContain("<select");
+    expect(html.match(/class="application-card-title"/g)).toHaveLength(3);
+    expect(html).toContain("Open a job to change its status");
   });
 });

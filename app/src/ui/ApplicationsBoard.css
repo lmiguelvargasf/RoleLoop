@@ -206,30 +206,6 @@
   background: #faf0f0;
   color: #a05a5c;
 }
-.application-move-control {
-  display: flex;
-  align-items: center;
-  gap: 7px;
-  padding-top: 12px;
-  margin-top: 13px;
-  border-top: 1px solid var(--line);
-}
-.application-move-control > span {
-  font-size: 10px;
-  color: var(--muted);
-  flex-shrink: 0;
-}
-.application-move-control select {
-  font-size: 11px;
-  padding: 4px 20px 4px 6px;
-  width: 100%;
-  min-width: 0;
-  min-height: 28px;
-  background-color: transparent;
-  color: var(--ink);
-  border: 0;
-  border-radius: 3px;
-}
 .application-close-choice {
   margin: 0 9px 12px;
   padding: 12px;
@@ -286,9 +262,6 @@
   }
   .application-column-cards {
     min-height: 260px;
-  }
-  .application-move-control select {
-    min-height: 36px;
   }
 }
 @media (prefers-reduced-motion: reduce) {
