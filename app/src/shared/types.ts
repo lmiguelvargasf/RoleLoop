@@ -201,6 +201,7 @@ export const OpportunitySchema = z.object({
   salaryMax: z.number().nullable().default(null),
   salaryCurrency: z.string().default("USD"),
   salaryPeriod: z.enum(["year", "month", "hour", "unknown"]).default("year"),
+  salaryVersion: z.number().int().nonnegative().optional(),
   publishedAt: z
     .string()
     .refine((value) => Number.isFinite(Date.parse(value)), "Use a valid date")

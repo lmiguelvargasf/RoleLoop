@@ -4134,9 +4134,6 @@ summary.source-editor-top::before {
   color: var(--accent);
   font-size: 12px;
 }
-.job-shortlist-action {
-  margin-bottom: 24px;
-}
 .on-board-label {
   color: var(--accent);
   font-size: 10px;
@@ -4149,6 +4146,48 @@ summary.source-editor-top::before {
 }
 .modal > .inspector .back-to-list {
   display: none;
+}
+.job-inspector .inspector-top {
+  margin-bottom: 16px;
+}
+.job-inspector .inspector-top > .badge {
+  display: inline-flex;
+}
+.job-inspector .inspector-title {
+  margin-bottom: 24px;
+}
+.job-inspector .inspector-title h2 {
+  font-size: 23px;
+}
+.job-inspector .company-name {
+  font-size: 12px;
+}
+.job-inspector .detail-grid {
+  gap: 16px 24px;
+}
+.job-inspector .detail-grid div {
+  font-size: 13px;
+  gap: 4px;
+}
+.job-inspector .detail-grid small {
+  font-size: 11px;
+  color: var(--muted);
+}
+.job-inspector .job-salary > span {
+  font-weight: 600;
+}
+.job-inspector .inspector-links {
+  gap: 10px 20px;
+  font-size: 12px;
+  margin-top: 18px;
+}
+.job-inspector .action-bar {
+  padding: 20px 0;
+  margin-bottom: 0;
+}
+.job-inspector .action-bar .button {
+  min-height: 44px;
+  font-size: 12px;
 }
 @media (max-width: 600px) {
   .opportunities-page .list-toolbar {

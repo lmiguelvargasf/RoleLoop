@@ -19,6 +19,19 @@ const escapeHtml = (value: string) =>
     .replaceAll('"', "&quot;");
 
 describe("published salary text", () => {
+  it("reads the Automattic posting's published USD range without inventing a pay period", () => {
+    expect(
+      publishedSalary(
+        "Experienced Software Engineer",
+        "Salary range: $70,000-$170,000 USD. Salary ranges are global and paid in local currency.",
+      ),
+    ).toEqual({
+      salaryMin: 70000,
+      salaryMax: 170000,
+      salaryCurrency: "USD",
+      salaryPeriod: "unknown",
+    });
+  });
   it("reads CXT's explicit annual USD title salary", () => {
     expect(
       publishedSalary("SaaSOps Engineer ($80,000/year USD), @CXT Software", ""),
@@ -182,6 +195,65 @@ describe("salary fallback in employer imports", () => {
     label: "Employer",
     board: "employer",
     enabled: true,
+  });
+
+  it("reads compensation after the stored description limit", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue(
+        new Response(
+          JSON.stringify({
+            jobs: [
+              {
+                id: 1,
+                title: "Experienced Software Engineer",
+                content: `<p>${"Role information. ".repeat(3200)}</p><p>Salary range: $70,000-$170,000 USD.</p>`,
+                absolute_url: "https://example.com/jobs/1",
+              },
+            ],
+          }),
+        ),
+      ),
+    );
+    const [op] = await discover(source("greenhouse"), state.preferences);
+    expect(op).toMatchObject({
+      salaryMin: 70000,
+      salaryMax: 170000,
+      salaryCurrency: "USD",
+      salaryPeriod: "unknown",
+      descriptionTruncated: true,
+    });
+    expect(op.description).not.toContain("Salary range");
+  });
+
+  it("uses the published salary when a Jobicy feed omits structured amounts", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue(
+        new Response(
+          JSON.stringify({
+            jobs: [
+              {
+                id: 1,
+                jobTitle: "Software Engineer",
+                jobDescription: "Annual base salary: USD 100,000–120,000.",
+                url: "https://jobicy.com/jobs/1",
+              },
+            ],
+          }),
+        ),
+      ),
+    );
+    const [op] = await discover(
+      { ...source("greenhouse"), provider: "jobicy" },
+      state.preferences,
+    );
+    expect(op).toMatchObject({
+      salaryMin: 100000,
+      salaryMax: 120000,
+      salaryCurrency: "USD",
+      salaryPeriod: "year",
+    });
   });
 
   it("excludes the real low-pay title example using the existing salary policy", async () => {

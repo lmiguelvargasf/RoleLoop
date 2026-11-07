@@ -379,6 +379,68 @@ integration(
         spy.mockRestore();
       }
     });
+    it("captures published compensation before truncation and extracts it from pasted job descriptions", async () => {
+      const connectors = await import("../src/domain/connectors.js");
+      const fit = await import("../src/server/fit.js");
+      const { assessOpportunity } = await import("../src/domain/rules.js");
+      const ai = vi
+        .spyOn(fit, "assessWithAI")
+        .mockImplementation(async (op, workspace) =>
+          assessOpportunity(op, workspace.profile, workspace.preferences),
+        );
+      const page = vi.spyOn(connectors, "safeFetchText").mockResolvedValue({
+        url: "https://example.com/jobs/salary",
+        text: `<p>${"Role details. ".repeat(4000)}</p><p>Salary range: $70,000-$170,000 USD.</p>`,
+      });
+      try {
+        const actor = await account("Salary capture test");
+        const requestHeaders = headers(actor, actor.workspaceId);
+        const capture = await app.inject({
+          method: "POST",
+          url: "/api/opportunities/capture",
+          headers: requestHeaders,
+          payload: { url: "https://example.com/jobs/salary" },
+        });
+        expect(capture.statusCode, capture.body).toBe(200);
+        expect(capture.json()).toMatchObject({
+          salaryMin: 70000,
+          salaryMax: 170000,
+          salaryCurrency: "USD",
+          salaryPeriod: "unknown",
+          descriptionTruncated: true,
+        });
+        expect(capture.json().description).not.toContain("Salary range");
+        for (const salary of [
+          {},
+          { salaryMin: 90000, salaryMax: 110000, salaryPeriod: "year" },
+        ]) {
+          const saved = await app.inject({
+            method: "POST",
+            url: "/api/opportunities",
+            headers: requestHeaders,
+            payload: {
+              kind: "job",
+              company: "Salary test",
+              title: "Engineer",
+              url: "https://example.com/jobs/salary",
+              description: "Salary range: $70,000-$170,000 USD.",
+              ...salary,
+            },
+          });
+          expect(saved.statusCode, saved.body).toBe(200);
+          expect(saved.json()).toMatchObject({
+            salaryMin: 70000,
+            salaryMax: 170000,
+            salaryCurrency: "USD",
+            salaryPeriod: "unknown",
+            ...salary,
+          });
+        }
+      } finally {
+        page.mockRestore();
+        ai.mockRestore();
+      }
+    });
     it("captures requirements and keeps application milestones and follow-ups through status changes", async () => {
       const actor = await account("Application progress test");
       const requestHeaders = headers(actor, actor.workspaceId);

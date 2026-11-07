@@ -208,6 +208,9 @@ type PublishedSalary = Pick<
   "salaryMin" | "salaryMax" | "salaryCurrency" | "salaryPeriod"
 >;
 
+// Bump when saved jobs with missing compensation should be checked again.
+export const SALARY_EXTRACTION_VERSION = 1;
+
 /** Text is a fallback only. A dollar symbol alone does not identify a currency,
  * and neither the size of an amount nor a job location proves its pay period. */
 export function publishedSalary(
@@ -582,6 +585,7 @@ function base(
     sourceKey: `${source.provider}:${source.board}:${id}`,
     firstSeenAt: new Date().toISOString(),
     updatedAt: new Date().toISOString(),
+    salaryVersion: SALARY_EXTRACTION_VERSION,
     ...data,
     ...(typeof data.description === "string" && data.description.length > 50000
       ? {
@@ -836,6 +840,22 @@ async function discoverJobicy(source: Source): Promise<Opportunity[]> {
       )
         continue;
       const desc = plainText(String(j.jobDescription ?? j.jobExcerpt ?? ""));
+      const structuredPay: PublishedSalary = {
+        salaryMin: number(j.salaryMin),
+        salaryMax: number(j.salaryMax),
+        salaryCurrency: j.salaryCurrency ?? "USD",
+        salaryPeriod: /year|annual/i.test(j.salaryPeriod ?? "")
+          ? "year"
+          : /month/i.test(j.salaryPeriod ?? "")
+            ? "month"
+            : /hour/i.test(j.salaryPeriod ?? "")
+              ? "hour"
+              : "unknown",
+      };
+      const salary =
+        structuredPay.salaryMin !== null || structuredPay.salaryMax !== null
+          ? structuredPay
+          : (publishedSalary(j.jobTitle ?? "", desc) ?? structuredPay);
       const geo = String(j.jobGeo ?? "Unknown");
       const scope =
         postingScope(geo, desc, "remote") === "onsite"
@@ -859,16 +879,7 @@ async function discoverJobicy(source: Source): Promise<Opportunity[]> {
           remoteScope: scope,
           description: desc,
           publishedAt: iso(j.pubDate),
-          salaryMin: number(j.salaryMin),
-          salaryMax: number(j.salaryMax),
-          salaryCurrency: j.salaryCurrency ?? "USD",
-          salaryPeriod: /year|annual/i.test(j.salaryPeriod ?? "")
-            ? "year"
-            : /month/i.test(j.salaryPeriod ?? "")
-              ? "month"
-              : /hour/i.test(j.salaryPeriod ?? "")
-                ? "hour"
-                : "unknown",
+          ...salary,
           requirements: extractRequirements(desc),
           requirementsVersion: REQUIREMENT_EXTRACTION_VERSION,
           notes:

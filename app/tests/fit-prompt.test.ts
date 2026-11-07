@@ -42,7 +42,7 @@ describe("practical job-fit instructions and context", () => {
 
     const result = await assessWithAI(job, workspace, "test-user");
 
-    expect(FIT_PROMPT_VERSION).toBe(3);
+    expect(FIT_PROMPT_VERSION).toBe(4);
     expect(structuredAI).toHaveBeenCalledOnce();
     const call = vi.mocked(structuredAI).mock.calls[0];
     expect(call[2]).toBe(JOB_FIT_INSTRUCTIONS);
@@ -197,6 +197,49 @@ describe("practical job-fit instructions and context", () => {
 });
 
 describe("fit response evidence validation", () => {
+  it("accepts concise evidence with a limitation while rejecting long generated essays", () => {
+    const job = demoOpportunities()[0];
+    const fit = {
+      ...fitFor(job),
+      summary:
+        "Your TypeScript delivery supports this role. Confirm the team's required ownership scope before applying.",
+      learningGaps: ["Provide an example of owning a service through production."],
+      matches: fitFor(job).matches.map((match) => ({
+        ...match,
+        status: "partial" as const,
+        explanation:
+          "Your cited TypeScript work supports implementation; full production ownership is not established.",
+      })),
+    };
+    const result = validateFit(fit, job, demoWorkspace());
+    expect(result.matches[0]).toMatchObject({
+      status: "partial",
+      evidenceIds: fit.matches[0].evidenceIds,
+      explanation: fit.matches[0].explanation,
+    });
+    expect(result.learningGaps).toEqual(fit.learningGaps);
+    expect(() =>
+      validateFit(
+        { ...fit, summary: "Repeated analysis. ".repeat(100) },
+        job,
+        demoWorkspace(),
+      ),
+    ).toThrow();
+    expect(() =>
+      validateFit(
+        {
+          ...fit,
+          matches: fit.matches.map((match) => ({
+            ...match,
+            explanation: "Repeated supporting analysis. ".repeat(100),
+          })),
+        },
+        job,
+        demoWorkspace(),
+      ),
+    ).toThrow();
+  });
+
   it("rejects empty explanations rather than keeping unexplained match claims", () => {
     const job = demoOpportunities()[0];
     const fit = fitFor(job);

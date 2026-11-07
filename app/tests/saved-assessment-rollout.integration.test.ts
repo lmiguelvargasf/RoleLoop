@@ -8,6 +8,7 @@ import {
 import {
   extractRequirements,
   REQUIREMENT_EXTRACTION_VERSION,
+  SALARY_EXTRACTION_VERSION,
 } from "../src/domain/connectors.js";
 import { createDraft } from "../src/domain/templates.js";
 import { applicationProgressFor } from "../src/shared/application-board.js";
@@ -67,6 +68,80 @@ function job(): Opportunity {
 }
 
 integration("saved assessment refresh", () => {
+  it("persists a missing published salary once while retaining semantic evidence and manual corrections", async () => {
+    const t = await setup();
+    const fit = await import("../src/server/fit.js");
+    const ai = vi
+      .spyOn(fit, "assessWithAI")
+      .mockRejectedValue(new Error("Salary recovery must not call AI."));
+    const { bootstrap } = await import("../src/server/service.js");
+    const op = job();
+    Object.assign(op, {
+      requirementsVersion: REQUIREMENT_EXTRACTION_VERSION,
+      title: "Experienced Software Engineer",
+      description: "Salary range: $70,000-$170,000 USD.",
+      salaryMin: null,
+      salaryMax: null,
+      stage: "approved",
+      application: applicationProgressFor(op, "interview"),
+    });
+    const matches = assessOpportunity(
+      op,
+      t.workspace.profile,
+      t.workspace.preferences,
+    ).matches;
+    op.assessment = {
+      ...assessOpportunity(
+        op,
+        t.workspace.profile,
+        t.workspace.preferences,
+        new Date(),
+        matches,
+      ),
+      fitSummary: "Confirm the undisclosed salary.",
+    };
+    const corrected = {
+      ...op,
+      id: randomUUID(),
+      sourceKey: `saved-assessment:${randomUUID()}`,
+    };
+    try {
+      await t.store.save("opportunities", op);
+      await t.store.save("opportunities", corrected);
+      await t.store.setRuntime(`corrections:${corrected.id}`, {
+        salaryMin: null,
+        salaryMax: null,
+      });
+      await bootstrap(t.store);
+      const saved = await t.store.get("opportunities", op.id);
+      expect(saved).toMatchObject({
+        salaryMin: 70000,
+        salaryMax: 170000,
+        salaryCurrency: "USD",
+        salaryPeriod: "unknown",
+        salaryVersion: SALARY_EXTRACTION_VERSION,
+        stage: "approved",
+        application: op.application,
+      });
+      expect(saved.assessment?.unknowns).not.toContain(
+        "Salary is undisclosed.",
+      );
+      expect(saved.assessment?.fitSummary).toBeUndefined();
+      expect(saved.assessment?.matches).toEqual(matches);
+      expect(saved.assessment?.fitEvaluation?.method).toBe("semantic");
+      expect(await t.store.get("opportunities", corrected.id)).toMatchObject({
+        salaryMin: null,
+        salaryMax: null,
+      });
+      const save = vi.spyOn(t.store, "saveDerivedOpportunity");
+      await bootstrap(t.store);
+      expect(save).not.toHaveBeenCalled();
+      expect(ai).not.toHaveBeenCalled();
+    } finally {
+      await t.cleanup();
+    }
+  });
+
   it("repairs automatic requirements once, preserves manual corrections and application/draft history, and discards incompatible semantic results", async () => {
     const t = await setup();
     const fit = await import("../src/server/fit.js");

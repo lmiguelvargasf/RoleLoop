@@ -26,6 +26,8 @@ import {
   freshFeedRecords,
   extractRequirements,
   REQUIREMENT_EXTRACTION_VERSION,
+  publishedSalary,
+  SALARY_EXTRACTION_VERSION,
 } from "../domain/connectors.js";
 import {
   getGlobalRuntime,
@@ -53,6 +55,18 @@ export const RunInput = z.object({
   draftId: z.string().optional(),
 });
 const collectionRefreshes = new Map<string, Promise<unknown>>();
+
+function needsSalaryExtraction(op: Opportunity) {
+  return (
+    op.kind === "job" &&
+    !op.isDemo &&
+    !op.sourceKey.startsWith("manual:") &&
+    op.source !== "Manual entry" &&
+    op.salaryMin === null &&
+    op.salaryMax === null &&
+    op.salaryVersion !== SALARY_EXTRACTION_VERSION
+  );
+}
 
 function localAssessment(
   op: Opportunity,
@@ -135,21 +149,40 @@ async function refreshCollection(
   ): Promise<{ workspace: Workspace; opportunities: Opportunity[] }> => {
     const profile = profileFingerprint(snapshot.profile);
     const preferences = preferencesFingerprint(snapshot.preferences);
-    const staleRequirements = opportunities.filter(
+    const staleExtraction = opportunities.filter(
       (op) =>
         op.kind === "job" &&
-        op.requirementsVersion !== REQUIREMENT_EXTRACTION_VERSION,
+        (op.requirementsVersion !== REQUIREMENT_EXTRACTION_VERSION ||
+          needsSalaryExtraction(op)),
     );
     const corrections = await store.runtimeMany<Partial<Opportunity>>(
-      staleRequirements.map((op) => `corrections:${op.id}`),
+      staleExtraction.map((op) => `corrections:${op.id}`),
     );
     const updates = opportunities.flatMap((original) => {
       let op = original;
+      let salaryChanged = false;
+      const correction = corrections.get(`corrections:${op.id}`);
+      if (needsSalaryExtraction(op)) {
+        const correctedSalary = [
+          "salaryMin",
+          "salaryMax",
+          "salaryCurrency",
+          "salaryPeriod",
+        ].some((key) => correction && Object.hasOwn(correction, key));
+        const salary = correctedSalary
+          ? null
+          : publishedSalary(op.title, op.description);
+        salaryChanged = salary !== null;
+        op = {
+          ...op,
+          ...salary,
+          salaryVersion: SALARY_EXTRACTION_VERSION,
+        };
+      }
       if (
         op.kind === "job" &&
         op.requirementsVersion !== REQUIREMENT_EXTRACTION_VERSION
       ) {
-        const correction = corrections.get(`corrections:${op.id}`);
         const manual =
           op.isDemo ||
           op.sourceKey.startsWith("manual:") ||
@@ -170,6 +203,7 @@ async function refreshCollection(
         };
       }
       const stale =
+        salaryChanged ||
         !op.assessment ||
         op.assessment.profileFingerprint !== profile ||
         op.assessment.preferencesFingerprint !== preferences ||
@@ -181,8 +215,16 @@ async function refreshCollection(
           op.salaryMin === null &&
           op.salaryMax === null &&
           op.assessment.recommendation === "ready");
-      if (stale)
-        op = assessedOpportunity(op, localAssessment(op, snapshot, true));
+      if (stale) {
+        const assessment = localAssessment(op, snapshot, true);
+        if (salaryChanged) {
+          // Old prose may claim the salary is undisclosed. Retain requirement
+          // evidence while rebuilding policy checks without another AI request.
+          assessment.fitSummary = undefined;
+          assessment.learningGaps = undefined;
+        }
+        op = assessedOpportunity(op, assessment);
+      }
       return op === original ? [] : [{ original, next: op }];
     });
     if (!updates.length) return { workspace: snapshot, opportunities };

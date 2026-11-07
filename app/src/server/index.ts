@@ -27,6 +27,7 @@ import {
   plainText,
   safeFetchText,
   remoteScope,
+  publishedSalary,
 } from "../domain/connectors.js";
 import { normalizeSource, sourceIdentity } from "../shared/discovery.js";
 import { preferencesFingerprint } from "../domain/rules.js";
@@ -341,6 +342,7 @@ export async function buildServer() {
       descriptionTruncated: fullDescription.length > 50000,
       requirements: extractRequirements(description),
       remoteScope: remoteScope(description),
+      ...publishedSalary("", fullDescription),
     };
   });
   app.post("/api/opportunities", async (req) => {
@@ -349,6 +351,11 @@ export async function buildServer() {
       now = new Date().toISOString();
     const op = OpportunitySchema.parse({
       ...editable.parse(input),
+      ...(input.kind === "job" &&
+      input.salaryMin == null &&
+      input.salaryMax == null
+        ? publishedSalary(input.title, input.description)
+        : {}),
       requirements:
         input.kind === "job" &&
         !(input.requirements as unknown[] | undefined)?.length

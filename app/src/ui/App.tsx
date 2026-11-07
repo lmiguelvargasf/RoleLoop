@@ -57,6 +57,7 @@ import {
 } from "../shared/opportunity-views";
 import { OpportunityFilters } from "./OpportunityFilters";
 import { ApplicationsBoard } from "./ApplicationsBoard";
+import { JobFitDetails } from "./JobFitDetails";
 import {
   applicationColumn,
   applicationProgressFor,
@@ -660,7 +661,7 @@ function Opportunities({
       kind === "job" ? "Job search queued." : "Startup research queued.",
     );
   const inspector = chosen ? (
-    <aside className="inspector">
+    <aside className={`inspector ${kind === "job" ? "job-inspector" : ""}`}>
       <div className="inspector-top">
         <button
           className="text-button back-to-list"
@@ -721,30 +722,6 @@ function Opportunities({
           <h2>{chosen.title}</h2>
         </div>
       </div>
-      {kind === "job" && !board && chosen.stage !== "archived" && (
-        <div className="job-shortlist-action">
-          {isTrackedApplication(chosen) ? (
-            <button
-              className="button"
-              onClick={() => {
-                location.hash = `applications?opportunity=${encodeURIComponent(chosen.id)}`;
-              }}
-            >
-              <Columns3 size={16} />
-              View on application board
-            </button>
-          ) : (
-            <button
-              className="button primary"
-              disabled={busy}
-              onClick={() => void addToApplications([chosen])}
-            >
-              <Plus size={16} />
-              Add to applications
-            </button>
-          )}
-        </div>
-      )}
       {kind === "job" && board && (
         <ApplicationProgress
           key={`${chosen.id}:${JSON.stringify(chosen.application)}`}
@@ -754,6 +731,12 @@ function Opportunities({
         />
       )}
       <div className="detail-grid">
+        {kind === "job" && (
+          <div className="job-salary">
+            <small>Salary</small>
+            <span>{salary(chosen)}</span>
+          </div>
+        )}
         <div>
           <small>Location</small>
           <span>{chosen.location}</span>
@@ -765,39 +748,44 @@ function Opportunities({
             </small>
             <span>
               {jobLocationStatus(chosen, data.preferences) === "eligible"
-                ? "Included in the remote hiring scope"
+                ? "Eligible location"
                 : jobLocationStatus(chosen, data.preferences) === "excluded"
-                  ? "Outside the hiring location"
+                  ? "Outside hiring area"
                   : "Needs confirmation"}
             </span>
           </div>
         )}
-        <div>
-          <small>{kind === "job" ? "Compensation" : "Company country"}</small>
-          <span>{kind === "job" ? salary(chosen) : chosen.companyCountry}</span>
-        </div>
-        <div>
-          <small>Remote arrangement</small>
-          <span>
-            {
+        {kind === "startup" && (
+          <div>
+            <small>Company country</small>
+            <span>{chosen.companyCountry}</span>
+          </div>
+        )}
+        {kind === "startup" && (
+          <div>
+            <small>Remote arrangement</small>
+            <span>
               {
-                worldwide: "Worldwide",
-                latam: "Latin America",
-                us: "US only",
-                onsite: "On-site",
-                unknown: "To confirm",
-              }[chosen.remoteScope]
-            }
-          </span>
-        </div>
+                {
+                  worldwide: "Worldwide",
+                  latam: "Latin America",
+                  us: "US only",
+                  onsite: "On-site",
+                  unknown: "To confirm",
+                }[chosen.remoteScope]
+              }
+            </span>
+          </div>
+        )}
         <div>
-          <small>Published / signal date</small>
+          <small>{kind === "job" ? "Posted" : "Signal date"}</small>
           <span>{date(chosen.publishedAt)}</span>
         </div>
       </div>
       <div className="inspector-links">
         <External url={chosen.url}>
-          View source{chosen.source === "jobicy" ? " · Jobicy" : ""}
+          {kind === "job" ? "View job posting" : "View source"}
+          {chosen.source === "jobicy" ? " · Jobicy" : ""}
         </External>
         {chosen.companyCountrySource && (
           <External url={chosen.companyCountrySource}>
@@ -809,6 +797,30 @@ function Opportunities({
         )}
       </div>
       <div className="action-bar">
+        {kind === "job" && !board && chosen.stage !== "archived" && (
+          <>
+            {isTrackedApplication(chosen) ? (
+              <button
+                className="button"
+                onClick={() => {
+                  location.hash = `applications?opportunity=${encodeURIComponent(chosen.id)}`;
+                }}
+              >
+                <Columns3 size={16} />
+                View on application board
+              </button>
+            ) : (
+              <button
+                className="button primary"
+                disabled={busy}
+                onClick={() => void addToApplications([chosen])}
+              >
+                <Plus size={16} />
+                Add to applications
+              </button>
+            )}
+          </>
+        )}
         <button
           className="button"
           disabled={busy}
@@ -824,7 +836,7 @@ function Opportunities({
           {kind === "job" ? "Evaluate fit" : "Research & evaluate"}
         </button>
         <button
-          className="button primary"
+          className={`button ${kind === "startup" || board ? "primary" : ""}`}
           disabled={busy || chosen.assessment?.recommendation === "excluded"}
           title={
             chosen.assessment?.recommendation === "excluded"
@@ -837,7 +849,15 @@ function Opportunities({
           Prepare draft
         </button>
       </div>
-      {chosen.assessment && (
+      {kind === "job" && (
+        <JobFitDetails
+          key={chosen.id}
+          opportunity={chosen}
+          profile={data.profile}
+          fit={chosenFit}
+        />
+      )}
+      {kind === "startup" && chosen.assessment && (
         <>
           {chosen.assessment.recommendation === "excluded" && (
             <NoticeList
@@ -853,40 +873,19 @@ function Opportunities({
             />
           )}
           <div className="section-title">
-            <h3>{kind === "job" ? "Required match" : "Startup assessment"}</h3>
-            {kind === "job" && chosenFit?.score == null ? (
-              <span className="fit-evaluation-label">
-                {chosenFit?.fitLabel}
-              </span>
-            ) : (
-              <span className="match-number">
-                {Math.round(
-                  kind === "job" ? chosenFit!.score! : chosen.assessment.score,
-                )}
-                <small>%</small>
-              </span>
-            )}
+            <h3>Startup assessment</h3>
+            <span className="match-number">
+              {Math.round(chosen.assessment.score)}
+              <small>%</small>
+            </span>
           </div>
-          {(kind !== "job" || chosenFit?.score != null) && (
-            <div className="match-track">
-              <i
-                style={{
-                  width: `${Math.min(
-                    100,
-                    kind === "job"
-                      ? chosenFit!.score!
-                      : chosen.assessment.score,
-                  )}%`,
-                }}
-              />
-            </div>
-          )}
+          <div className="match-track">
+            <i
+              style={{ width: `${Math.min(100, chosen.assessment.score)}%` }}
+            />
+          </div>
           <div className="match-note">
-            {kind === "job"
-              ? chosenFit?.score == null
-                ? "The requirements have not been fully assessed against your experience. Evaluate fit to complete the assessment."
-                : "Required qualifications supported by verified experience. This is not a prediction of an interview."
-              : "Relevance to your experience; not a prediction of company success."}
+            Relevance to your experience; not a prediction of company success.
           </div>
           {chosen.assessment.recommendation !== "excluded" &&
             chosen.assessment.blockers.length > 0 && (
@@ -963,23 +962,23 @@ function Opportunities({
           <small>Only verified professional contact details belong here.</small>
         </div>
       )}
-      <details className="description" open={!chosen.assessment}>
-        <summary>
-          {kind === "job" ? "Original description" : "Company research"}
-        </summary>
-        <p>
-          {chosen.description ||
-            "No description yet. Edit this opportunity to add source information."}
-        </p>
-      </details>
-      {chosen.signals.length > 0 && (
+      {kind === "startup" && (
+        <details className="description" open={!chosen.assessment}>
+          <summary>Company research</summary>
+          <p>
+            {chosen.description ||
+              "No description yet. Edit this opportunity to add source information."}
+          </p>
+        </details>
+      )}
+      {kind === "startup" && chosen.signals.length > 0 && (
         <NoticeList
           title="Observed signals"
           items={chosen.signals}
           kind="neutral"
         />
       )}
-      {chosen.notes && (
+      {kind === "startup" && chosen.notes && (
         <div className="notes">
           <h3>Your notes</h3>
           <p>{chosen.notes}</p>
@@ -1480,12 +1479,26 @@ function OpportunityForm({
         description: string;
         descriptionTruncated: boolean;
         remoteScope: Opportunity["remoteScope"];
+        salaryMin?: Opportunity["salaryMin"];
+        salaryMax?: Opportunity["salaryMax"];
+        salaryCurrency?: Opportunity["salaryCurrency"];
+        salaryPeriod?: Opportunity["salaryPeriod"];
       }>("/opportunities/capture", { url: form.url });
       setForm((p) => ({
         ...p,
         description: result.description,
         descriptionTruncated: result.descriptionTruncated,
         remoteScope: result.remoteScope,
+        ...(!p.salaryMin &&
+        !p.salaryMax &&
+        (result.salaryMin != null || result.salaryMax != null)
+          ? {
+              salaryMin: result.salaryMin?.toString() ?? "",
+              salaryMax: result.salaryMax?.toString() ?? "",
+              salaryCurrency: result.salaryCurrency ?? "USD",
+              salaryPeriod: result.salaryPeriod ?? "unknown",
+            }
+          : {}),
       }));
     } catch (error) {
       setCaptureError(
@@ -1759,13 +1772,15 @@ function OpportunityForm({
                   </Field>
                 </>
               )}
-              <Field label="Your notes" wide>
-                <textarea
-                  rows={2}
-                  value={form.notes}
-                  onChange={(e) => update("notes", e.target.value)}
-                />
-              </Field>
+              {kind === "startup" && (
+                <Field label="Your notes" wide>
+                  <textarea
+                    rows={2}
+                    value={form.notes}
+                    onChange={(e) => update("notes", e.target.value)}
+                  />
+                </Field>
+              )}
             </div>
           </details>
         </div>
