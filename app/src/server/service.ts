@@ -34,7 +34,7 @@ import { assessWithAI } from "./fit.js";
 import {
   matchesTargetRole,
   sourceIdentity,
-  sourceKind,
+  sourcesForDiscovery,
 } from "../shared/discovery.js";
 import { settings } from "./config.js";
 import { discoverEmployerBoards } from "../domain/employer-discovery.js";
@@ -396,7 +396,7 @@ export async function processRun(
       } else if (workspace.sources.length >= 50) {
         expansion.status = "partial";
         expansion.message =
-          "Your 50-source limit is reached. Remove an unused source to connect new companies.";
+          "Company discovery has reached its current limit. New companies cannot be added in this search.";
       } else {
         try {
           const found = await discoverEmployerBoards(workspace, {
@@ -476,22 +476,16 @@ export async function processRun(
       // Reload after atomic appends and any edits made while websites were checked.
       workspace = await store.getWorkspace();
     }
-    const sources = workspace.sources.filter(
-      (s) =>
-        s.enabled &&
-        (!run.sourceId || s.id === run.sourceId) &&
-        (!scope ||
-          (scope === "startups"
-            ? sourceKind(s) === "startup_feed"
-            : sourceKind(s) !== "startup_feed")),
-    );
+    const sources = sourcesForDiscovery(workspace.sources, scope, run.sourceId);
 
     if (!sources.length) {
       if (expansion?.status === "success" || expansion?.status === "partial")
         return expansion.message;
       throw new Error(
         expansion?.message ||
-          "Add and enable a source before running discovery.",
+          (scope === "startups"
+            ? "Startup research is paused. Resume it from Startup prospects."
+            : "No job sources are enabled. Enable automatic company discovery in Search preferences or resume saved company searches."),
       );
     }
     const recordHealth = async (id: string, health: SourceHealth) => {

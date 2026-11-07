@@ -11,6 +11,7 @@ import {
   recommendedSources,
   applicationCounts,
   matchesTargetRole,
+  sourcesForDiscovery,
 } from "../src/shared/discovery.js";
 import {
   assessOpportunity,
@@ -20,6 +21,37 @@ import { demoWorkspace, demoOpportunities } from "./fixtures.js";
 afterEach(() => vi.unstubAllGlobals());
 
 describe("practical discovery", () => {
+  it("provides startup research without source setup or consuming company capacity", () => {
+    const sources = Array.from({ length: 50 }, (_, index) => ({
+      ...recommendedSources[0],
+      id: index === 0 ? "managed:hn-startups" : `company-${index}`,
+      board: `company-${index}`,
+      enabled: false,
+    }));
+    const before = structuredClone(sources);
+    const [feed] = sourcesForDiscovery(sources, "startups");
+    expect(feed).toMatchObject({
+      provider: "hackernews",
+      enabled: true,
+      board: "",
+    });
+    expect(sources.some((source) => source.id === feed.id)).toBe(false);
+    expect(sourcesForDiscovery(sources, "startups")[0].id).toBe(feed.id);
+    expect(sources).toEqual(before);
+    expect(sourcesForDiscovery(sources, "jobs")).toEqual([]);
+  });
+
+  it("preserves configured startup keywords and does not replace paused feeds", () => {
+    const feed = { ...demoWorkspace().sources[0], board: "design tools" };
+    expect(
+      sourcesForDiscovery([...recommendedSources, feed], "startups"),
+    ).toEqual([feed]);
+    expect(
+      sourcesForDiscovery([{ ...feed, enabled: false }], "startups"),
+    ).toEqual([]);
+    expect(sourcesForDiscovery([], "startups", "missing-feed")).toEqual([]);
+  });
+
   it("excludes explicitly incompatible hiring regions while retaining multi-region LATAM roles", () => {
     const workspace = demoWorkspace();
     const job = {

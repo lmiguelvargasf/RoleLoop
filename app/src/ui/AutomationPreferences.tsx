@@ -20,11 +20,20 @@ export function AutomationPreferences({
       <div className="form-section-heading">
         <h2 id="automation-title">Automatic search</h2>
         <p>
-          Searches followed companies and job feeds while RoleLoop is running.
-          New company discovery follows your Discovery setting.
+          Find employers for your target roles and working country. Scheduled
+          searches run while RoleLoop is running.
         </p>
       </div>
       <div className="form-grid">
+        <label className="checkbox-field wide">
+          <input
+            type="checkbox"
+            checked={preferences.discoverEmployers ?? true}
+            disabled={busy}
+            onChange={(e) => onChange("discoverEmployers", e.target.checked)}
+          />
+          <span>Find new companies automatically</span>
+        </label>
         <label className="checkbox-field wide">
           <input
             type="checkbox"

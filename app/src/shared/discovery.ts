@@ -425,3 +425,35 @@ export const startupLibrary: SourceResearch[] = [
     checkedAt: "2026-11-06",
   },
 ];
+
+export function sourcesForDiscovery(
+  sources: Source[],
+  scope?: "jobs" | "startups",
+  sourceId?: string,
+): Source[] {
+  const selected = sources.filter(
+    (source) =>
+      source.enabled &&
+      (!sourceId || source.id === sourceId) &&
+      (!scope ||
+        (scope === "startups"
+          ? sourceKind(source) === "startup_feed"
+          : sourceKind(source) !== "startup_feed")),
+  );
+  if (
+    scope !== "startups" ||
+    sourceId ||
+    sources.some((source) => sourceKind(source) === "startup_feed")
+  )
+    return selected;
+
+  // Startup research is ready without source setup. Do not overwrite configured
+  // feeds or consume company capacity; paused feeds remain an explicit opt-out.
+  const ids = new Set(sources.map((source) => source.id));
+  return startupLibrary.map(({ source }) => {
+    let id = `managed:${source.id}`;
+    while (ids.has(id)) id += "-feed";
+    ids.add(id);
+    return { ...source, id };
+  });
+}

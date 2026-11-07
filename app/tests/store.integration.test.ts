@@ -238,6 +238,66 @@ integration("local Supabase source refresh and lifecycle", () => {
     }
   });
 
+  it("imports startup leads from the internal feed without rewriting workspace sources", async () => {
+    const store = await makeStore();
+    const connectors = await import("../src/domain/connectors.js");
+    const { processRun } = await import("../src/server/service.js");
+    const startup = demoOpportunities().find((op) => op.kind === "startup")!;
+    const spy = vi
+      .spyOn(connectors, "discover")
+      .mockImplementation(async (source) => [
+        {
+          ...startup,
+          id: randomUUID(),
+          source: source.provider,
+          sourceId: source.id,
+          sourceKey: "hackernews:internal-startup-regression",
+          isDemo: false,
+        },
+      ]);
+    try {
+      await store.updateWorkspace({ sources: [] });
+      const before = await store.getWorkspace();
+      const now = new Date().toISOString();
+      const run = {
+        id: randomUUID(),
+        workspaceId: store.workspaceId,
+        action: "discover" as const,
+        discoveryScope: "startups" as const,
+        status: "running" as const,
+        progress: 0,
+        message: "Isolated startup research",
+        createdAt: now,
+        updatedAt: now,
+      };
+      await processRun(store, run, async () => {});
+      expect(spy).toHaveBeenCalledTimes(1);
+      expect(spy.mock.calls[0][0].provider).toBe("hackernews");
+      const after = await store.getWorkspace();
+      expect(after.sources).toEqual([]);
+      expect(after.sourcesRevision).toBe(before.sourcesRevision);
+      const [saved] = await store.list("opportunities");
+      const feedId = spy.mock.calls[0][0].id;
+      expect(saved.sourceId).toBe(feedId);
+      const reference = await store.db
+        .from("opportunities")
+        .select("discovery_source_id")
+        .eq("workspace_id", store.workspaceId)
+        .eq("id", saved.id)
+        .single();
+      expect(reference.error).toBeNull();
+      expect(reference.data!.discovery_source_id).toBeNull();
+      expect(await store.runtime("source-health")).toMatchObject({
+        [feedId]: { status: "success", found: 1, evaluated: 1 },
+      });
+      await processRun(store, run, async () => {});
+      expect(await store.list("opportunities")).toHaveLength(1);
+    } finally {
+      spy.mockRestore();
+      await cleanup(store);
+    }
+  });
+
   it("loads the removed missing-salary setting as review and refreshes cached ready jobs", async () => {
     const store = await makeStore();
     const workspace = demoWorkspace();

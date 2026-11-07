@@ -30,7 +30,6 @@ import {
   Pencil,
   Play,
   Plus,
-  Radio,
   RefreshCw,
   Rocket,
   Save,
@@ -55,11 +54,11 @@ import type {
 } from "../shared/types";
 import { api, date, downloadFile, safeUrl, uid, words, write } from "./api";
 import {
+  additionalJobBoards,
   applicationCounts,
   followUpDue,
   matchesTargetRole,
 } from "../shared/discovery";
-import { SourcesPage as Sources } from "./SourcesPage";
 import { ApplicationProgress } from "./ApplicationProgress";
 import { SalaryFields } from "./SalaryFields";
 import { SalaryPolicies } from "./SalaryPolicies";
@@ -82,7 +81,6 @@ type Page =
   | "drafts"
   | "profile"
   | "settings"
-  | "sources"
   | "activity"
   | "account";
 type Perform = (
@@ -95,7 +93,6 @@ const nav = [
   { id: "drafts", label: "Drafts", icon: FileText },
   { id: "profile", label: "Resume", icon: FileUser },
   { id: "settings", label: "Search preferences", icon: SlidersHorizontal },
-  { id: "sources", label: "Discovery", icon: Radio },
   { id: "activity", label: "Activity", icon: ActivityIcon },
   { id: "account", label: "Account & access", icon: Users },
 ] as const;
@@ -293,8 +290,12 @@ export function App({
   useEffect(() => {
     const changed = () => {
       const next = location.hash.slice(1);
-      if (nav.some((n) => n.id === next)) setPage(next as Page);
+      if (next === "sources") {
+        history.replaceState(null, "", "#jobs");
+        setPage("jobs");
+      } else if (nav.some((n) => n.id === next)) setPage(next as Page);
     };
+    changed();
     window.addEventListener("hashchange", changed);
     return () => window.removeEventListener("hashchange", changed);
   }, []);
@@ -496,33 +497,6 @@ export function App({
             busy={busy}
           />
         )}
-        {page === "sources" && (
-          <Sources
-            initial={data.sources}
-            sourcesRevision={data.sourcesRevision}
-            preferences={data.preferences}
-            employerDiscovery={data.employerDiscovery}
-            health={data.sourceHealth}
-            latestSearch={
-              data.runs
-                .filter(
-                  (run) =>
-                    run.action === "discover" &&
-                    (run.discoveryScope ?? "jobs") === "jobs" &&
-                    !run.sourceId &&
-                    ["completed", "failed"].includes(run.status),
-                )
-                .sort((a, b) => b.createdAt.localeCompare(a.createdAt))[0]
-            }
-            searching={data.runs.some(
-              (r) =>
-                r.action === "discover" &&
-                ["queued", "running"].includes(r.status),
-            )}
-            perform={perform}
-            busy={busy}
-          />
-        )}
         {page === "activity" && (
           <ActivityPage events={data.events} data={data} />
         )}
@@ -565,8 +539,7 @@ function Opportunities({
     [stage, setStage] = useState(kind === "job" ? "matches" : "all"),
     [selected, setSelected] = useState<string | null>(null),
     [adding, setAdding] = useState(false),
-    [editing, setEditing] = useState<Opportunity | null>(null),
-    [discovering, setDiscovering] = useState(false);
+    [editing, setEditing] = useState<Opportunity | null>(null);
   const potentialMatch = (opportunity: Opportunity) =>
     opportunity.stage !== "archived" &&
     opportunity.assessment?.recommendation !== "excluded" &&
@@ -598,6 +571,7 @@ function Opportunities({
           .toLowerCase()
           .includes(query.toLowerCase()),
     );
+  const hasActive = all.some((opportunity) => opportunity.stage !== "archived");
   const chosen = list.find((o) => o.id === selected);
   const run = (action: RunAction, id: string) =>
     perform(
@@ -613,13 +587,59 @@ function Opportunities({
       ["queued", "running"].includes(r.status) &&
       (r.discoveryScope ?? "jobs") === (kind === "job" ? "jobs" : "startups"),
   );
-  const canSearchJobs =
-    data.sources.some(
-      (source) => source.enabled && source.provider !== "hackernews",
-    ) ||
-    ((data.preferences.discoverEmployers ?? true) &&
-      data.preferences.roles.some((role) => role.trim()) &&
-      Boolean(data.preferences.country.trim()));
+  const inSearch = (source: Bootstrap["sources"][number]) =>
+    kind === "startup"
+      ? source.provider === "hackernews"
+      : source.provider !== "hackernews";
+  const configured = data.sources.filter(inSearch);
+  const hasEnabledSources = configured.some((source) => source.enabled);
+  const canFindCompanies =
+    (data.preferences.discoverEmployers ?? true) &&
+    data.preferences.roles.some((role) => role.trim()) &&
+    Boolean(data.preferences.country.trim()) &&
+    data.sources.length < 50;
+  const paused =
+    configured.length > 0 &&
+    !hasEnabledSources &&
+    (kind === "startup" || !canFindCompanies);
+  const canSearch =
+    kind === "startup" || hasEnabledSources || canFindCompanies || paused;
+  const searchLabel = paused
+    ? kind === "job"
+      ? "Resume job search"
+      : "Resume startup research"
+    : kind === "job"
+      ? "Search jobs"
+      : "Find startup leads";
+  const search = () =>
+    perform(
+      async () => {
+        if (paused) {
+          const current = await api<Bootstrap>("/bootstrap");
+          // Resume only after an explicit click, retaining unrelated paused choices.
+          if (
+            !current.sources.some(
+              (source) => inSearch(source) && source.enabled,
+            )
+          )
+            await write(
+              "/sources",
+              {
+                sources: current.sources.map((source) =>
+                  inSearch(source) ? { ...source, enabled: true } : source,
+                ),
+                expectedRevision: current.sourcesRevision ?? 0,
+              },
+              "PUT",
+            );
+        }
+        await write("/runs", {
+          action: "discover",
+          discoveryScope: kind === "job" ? "jobs" : "startups",
+        });
+      },
+      kind === "job" ? "Job search queued." : "Startup research queued.",
+    );
   return (
     <section
       className="page opportunities-page"
@@ -643,36 +663,28 @@ function Opportunities({
           </button>
           <button
             className="button primary"
-            disabled={busy || searching || (kind === "job" && !canSearchJobs)}
-            onClick={() => {
-              if (kind === "startup") setDiscovering(true);
-              else
-                void perform(
-                  () =>
-                    write("/runs", {
-                      action: "discover",
-                      discoveryScope: "jobs",
-                    }),
-                  "Job search queued. Follow progress in Activity.",
-                );
-            }}
+            disabled={busy || searching || !canSearch}
+            onClick={() => void search()}
           >
             <Search size={16} />
-            {searching
-              ? "Searching…"
-              : kind === "job"
-                ? "Search jobs"
-                : "Find startup leads"}
+            {searching ? "Searching…" : searchLabel}
           </button>
         </div>
       </header>
-      {kind === "job" && !canSearchJobs && (
-        <p className="discovery-setup-note">
-          Set your target roles and working country, or follow a company to
-          start searching.{" "}
-          <button className="text-button" onClick={() => navigate("sources")}>
-            Set up discovery
+      {kind === "job" && !canSearch && (
+        <p className="search-setup-note">
+          Set your target roles and working country, and turn on automatic
+          company discovery to start searching.{" "}
+          <button className="text-button" onClick={() => navigate("settings")}>
+            Set search preferences
           </button>
+        </p>
+      )}
+      {paused && (
+        <p className="search-setup-note">
+          {kind === "job"
+            ? "Searches of your saved companies are paused. Resume to include them again."
+            : "Startup research is paused. Resume to find new leads."}
         </p>
       )}
       {kind === "job" && (
@@ -871,7 +883,7 @@ function Opportunities({
                   ? "No matches in this view"
                   : kind === "job" && stage === "matches"
                     ? "No potential matches yet"
-                    : all.length > 0
+                    : hasActive
                       ? "No opportunities in this view"
                       : kind === "job"
                         ? "Start with your next opportunity"
@@ -887,20 +899,22 @@ function Opportunities({
             >
               <button
                 className="button primary"
+                disabled={busy || (searching && !query && !hasActive)}
                 onClick={() => {
-                  if (
-                    kind === "job" &&
-                    stage === "matches" &&
-                    outsideMatches > 0
-                  ) {
+                  if (query || hasActive) {
                     setQuery("");
                     setStage("all");
-                  } else navigate("sources");
+                  } else if (!canSearch) navigate("settings");
+                  else void search();
                 }}
               >
-                {kind === "job" && stage === "matches" && outsideMatches > 0
+                {query || hasActive
                   ? "View all active opportunities"
-                  : "Set up discovery"}
+                  : !canSearch
+                    ? "Set search preferences"
+                    : searching
+                      ? "Searching…"
+                      : searchLabel}
                 <ArrowRight size={15} />
               </button>
             </Empty>
@@ -1236,84 +1250,6 @@ function Opportunities({
           busy={busy}
         />
       )}
-      {discovering && (
-        <Modal
-          title={
-            kind === "job"
-              ? "Discover job opportunities"
-              : "Discover startup prospects"
-          }
-          close={() => setDiscovering(false)}
-        >
-          <div className="modal-body">
-            <p className="muted">
-              Choose a source. New records will appear in your workspace with
-              their source and any unconfirmed facts.
-            </p>
-            {data.sources
-              .filter(
-                (s) =>
-                  s.enabled &&
-                  (kind === "startup"
-                    ? s.provider === "hackernews"
-                    : s.provider !== "hackernews"),
-              )
-              .map((source) => (
-                <button
-                  className="source-choice"
-                  disabled={busy}
-                  key={source.id}
-                  onClick={async () => {
-                    if (
-                      await perform(
-                        () =>
-                          write("/runs", {
-                            action: "discover",
-                            sourceId: source.id,
-                            discoveryScope: "startups",
-                          }),
-                        "Discovery queued.",
-                      )
-                    )
-                      setDiscovering(false);
-                  }}
-                >
-                  <Radio size={18} />
-                  <span>
-                    <strong>{source.label}</strong>
-                    <small>
-                      {source.provider} · {source.board || "Show HN launches"}
-                    </small>
-                  </span>
-                  <ArrowRight size={17} />
-                </button>
-              ))}
-            {!data.sources.some(
-              (s) =>
-                s.enabled &&
-                (kind === "startup"
-                  ? s.provider === "hackernews"
-                  : s.provider !== "hackernews"),
-            ) && (
-              <Empty
-                title="Add a discovery source"
-                detail={
-                  kind === "job"
-                    ? "Connect an Ashby, Greenhouse or Lever company board to discover its roles."
-                    : "Enable a startup discovery feed in Sources."
-                }
-              >
-                <button
-                  className="button primary"
-                  onClick={() => navigate("sources")}
-                >
-                  Manage sources
-                </button>
-              </Empty>
-            )}
-          </div>
-        </Modal>
-      )}
     </section>
   );
 }
@@ -1494,6 +1430,26 @@ function OpportunityForm({
     >
       <form onSubmit={submit}>
         <div className="modal-body form-grid">
+          {kind === "job" && !existing && (
+            <details className="wide job-site-links">
+              <summary>Browse job sites</summary>
+              <p>
+                Find a role, then add its original listing or description here.
+              </p>
+              <div>
+                {additionalJobBoards.map((board) => (
+                  <a
+                    key={board.name}
+                    href={board.url}
+                    target="_blank"
+                    rel="noreferrer"
+                  >
+                    {board.name} <ArrowUpRight size={14} />
+                  </a>
+                ))}
+              </div>
+            </details>
+          )}
           <Field label="Company">
             <input
               required
