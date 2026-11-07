@@ -1,4 +1,5 @@
 import { randomUUID } from "node:crypto";
+import { isDeepStrictEqual } from "node:util";
 import { z } from "zod";
 import {
   OpportunitySchema,
@@ -412,23 +413,44 @@ export async function analyze(
   useAI = true,
   options: { reuseFit?: boolean; persist?: boolean } = {},
 ) {
-  let assessment = useAI
+  const evaluated = useAI
     ? await assessWithAI(op, workspace, store.actorUserId)
     : localAssessment(op, workspace, !!options.reuseFit);
-  const current = await store.getWorkspace();
-  if (
-    profileFingerprint(current.profile) !==
-      profileFingerprint(workspace.profile) ||
-    preferencesFingerprint(current.preferences) !==
-      preferencesFingerprint(workspace.preferences)
-  )
-    assessment = localAssessment(op, current, false);
-  const assessed = assessedOpportunity(op, assessment);
-  if (options.persist === false) return assessed;
-  const saved = await store.saveDerivedOpportunity(op, assessed);
-  if (!saved)
-    throw new Error("This opportunity was removed while it was being evaluated.");
-  return saved;
+  let original = op;
+  for (let attempt = 0; attempt < 3; attempt++) {
+    const current = await store.getWorkspace();
+    const assessment =
+      profileFingerprint(current.profile) !==
+        profileFingerprint(workspace.profile) ||
+      preferencesFingerprint(current.preferences) !==
+        preferencesFingerprint(workspace.preferences)
+        ? localAssessment(original, current, false)
+        : evaluated;
+    const assessed = assessedOpportunity(original, assessment);
+    if (options.persist === false) return assessed;
+    const saved = await store.saveDerivedOpportunity(original, assessed);
+    if (!saved)
+      throw new Error("This opportunity was removed while it was being evaluated.");
+    // Timestamps can collide within one millisecond. Compare the persisted JSON
+    // too; storage omits undefined fields and may reorder object keys.
+    if (
+      saved.updatedAt === assessed.updatedAt &&
+      isDeepStrictEqual(
+        JSON.parse(JSON.stringify(saved.assessment ?? null)),
+        JSON.parse(JSON.stringify(assessment)),
+      )
+    )
+      return saved;
+    // Polling can save a preliminary local assessment while AI is running.
+    // Reapply the completed assessment to that newer row, preserving notes,
+    // application progress and archiving. Changed job facts invalidate it.
+    if (opportunityFingerprint(saved) !== opportunityFingerprint(op))
+      return saved;
+    original = saved;
+  }
+  throw new Error(
+    "This opportunity kept changing while its evaluation was saved. Retry evaluation.",
+  );
 }
 
 async function draftCountToday(store: WorkspaceStore) {

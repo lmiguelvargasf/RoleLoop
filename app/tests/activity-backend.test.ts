@@ -162,6 +162,166 @@ beforeEach(() => {
 });
 
 describe("useful discovery history", () => {
+  it.each(["drafted", "archived"] as const)(
+    "retains AI fit after a concurrent local refresh and preserves %s progress",
+    async (stage) => {
+      const [job] = demoOpportunities();
+      const t = setup([job]);
+      const local = assessOpportunity(
+        job,
+        t.workspace.profile,
+        t.workspace.preferences,
+      );
+      const semantic = {
+        ...assessOpportunity(
+          job,
+          t.workspace.profile,
+          t.workspace.preferences,
+          new Date(),
+          local.matches,
+        ),
+        fitSummary: "The required work is supported by the resume.",
+      };
+      const concurrent: Opportunity = {
+        ...job,
+        assessment: local,
+        stage,
+        notes: "Keep this note added while evaluation was running.",
+        application: {
+          status: "applied",
+          appliedAt: "2026-11-07T12:00:00Z",
+          notes: "Already sent through the employer website.",
+          nextAction: "Follow up next week",
+          followUpOn: "2026-11-14",
+        },
+        updatedAt: new Date(Date.parse(job.updatedAt) + 1000).toISOString(),
+      };
+      vi.mocked(assessWithAI).mockImplementation(async () => {
+        // Bootstrap can save a local assessment while the AI call is pending.
+        t.opportunities.set(job.id, concurrent);
+        return semantic;
+      });
+
+      const result = await analyze(t.store, job, t.workspace);
+
+      expect(result.assessment).toEqual(semantic);
+      expect(result).toMatchObject({
+        notes: concurrent.notes,
+        application: concurrent.application,
+        stage,
+      });
+      expect(t.opportunities.get(job.id)).toEqual(result);
+      expect(assessWithAI).toHaveBeenCalledTimes(1);
+    },
+  );
+
+  it("retains the AI result when a local refresh wins the final conditional write", async () => {
+    const [job] = demoOpportunities();
+    const t = setup([job]);
+    const local = assessOpportunity(job, t.workspace.profile, t.workspace.preferences);
+    const semantic = {
+      ...assessOpportunity(job, t.workspace.profile, t.workspace.preferences, new Date(), local.matches),
+      fitSummary: "Completed experience comparison.",
+    };
+    vi.mocked(assessWithAI).mockResolvedValue(semantic);
+    const conditionalSave = t.store.saveDerivedOpportunity;
+    let conflicted = false;
+    const save = vi.spyOn(t.store, "saveDerivedOpportunity").mockImplementation(
+      async (original, next) => {
+        if (!conflicted) {
+          conflicted = true;
+          t.opportunities.set(job.id, {
+            ...job,
+            assessment: local,
+            updatedAt: new Date(Date.parse(original.updatedAt) + 1000).toISOString(),
+          });
+        }
+        return conditionalSave(original, next);
+      },
+    );
+
+    const result = await analyze(t.store, job, t.workspace);
+
+    expect(result.assessment).toEqual(semantic);
+    expect(t.opportunities.get(job.id)?.assessment).toEqual(semantic);
+    expect(save.mock.calls.length).toBeGreaterThanOrEqual(2);
+    expect(assessWithAI).toHaveBeenCalledTimes(1);
+  });
+
+  it("does not mistake a same-millisecond local refresh for a successful AI save", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2030-01-01T12:00:00.000Z"));
+    try {
+      const [job] = demoOpportunities(new Date(Date.now() - 1000));
+      const t = setup([job]);
+      const local = assessOpportunity(job, t.workspace.profile, t.workspace.preferences);
+      const semantic = {
+        ...assessOpportunity(job, t.workspace.profile, t.workspace.preferences, new Date(), local.matches),
+        fitSummary: "Completed experience comparison.",
+      };
+      vi.mocked(assessWithAI).mockImplementation(async () => {
+        t.opportunities.set(job.id, {
+          ...job,
+          assessment: local,
+          updatedAt: new Date().toISOString(),
+        });
+        return semantic;
+      });
+
+      const result = await analyze(t.store, job, t.workspace);
+
+      expect(result.assessment).toEqual(semantic);
+      expect(t.opportunities.get(job.id)?.assessment).toEqual(semantic);
+      expect(assessWithAI).toHaveBeenCalledTimes(1);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it.each(["profile", "preferences"] as const)(
+    "discards stale AI fit when %s change between conditional-write attempts",
+    async (changed) => {
+      const [job] = demoOpportunities();
+      const t = setup([job]);
+      const snapshot = structuredClone(t.workspace);
+      const local = assessOpportunity(job, snapshot.profile, snapshot.preferences);
+      const semantic = {
+        ...assessOpportunity(job, snapshot.profile, snapshot.preferences, new Date(), local.matches),
+        fitSummary: "This comparison uses the old workspace facts.",
+      };
+      vi.mocked(assessWithAI).mockResolvedValue(semantic);
+      const conditionalSave = t.store.saveDerivedOpportunity;
+      let conflicted = false;
+      vi.spyOn(t.store, "saveDerivedOpportunity").mockImplementation(
+        async (original, next) => {
+          if (!conflicted) {
+            conflicted = true;
+            if (changed === "profile")
+              t.workspace.profile.cache!.facts!.evidence = [];
+            else t.workspace.preferences.minimumSalary = 1_000_000;
+            t.opportunities.set(job.id, {
+              ...job,
+              assessment: local,
+              notes: "Keep the concurrent note.",
+              updatedAt: new Date(Date.parse(original.updatedAt) + 1000).toISOString(),
+            });
+          }
+          return conditionalSave(original, next);
+        },
+      );
+
+      const result = await analyze(t.store, job, snapshot);
+
+      expect(result.assessment?.fitSummary).toBeUndefined();
+      expect(result.assessment?.fitEvaluation?.method).not.toBe("semantic");
+      expect(result.assessment?.profileFingerprint).toBe(profileFingerprint(t.workspace.profile));
+      expect(result.assessment?.preferencesFingerprint).toBe(preferencesFingerprint(t.workspace.preferences));
+      expect(result.notes).toBe("Keep the concurrent note.");
+      expect(t.opportunities.get(job.id)).toEqual(result);
+      expect(assessWithAI).toHaveBeenCalledTimes(1);
+    },
+  );
+
   it("preserves an edit and archive made while AI is evaluating a job", async () => {
     const [job] = demoOpportunities();
     const t = setup([job]);
@@ -174,7 +334,10 @@ describe("useful discovery history", () => {
     };
     vi.mocked(assessWithAI).mockImplementation(async (op, workspace) => {
       t.opportunities.set(job.id, edited);
-      return assessOpportunity(op, workspace.profile, workspace.preferences);
+      return {
+        ...assessOpportunity(op, workspace.profile, workspace.preferences),
+        fitSummary: "This assessment belongs to the previous job facts.",
+      };
     });
     const result = await analyze(t.store, job, t.workspace);
     expect(result).toEqual(edited);
@@ -192,12 +355,17 @@ describe("useful discovery history", () => {
     expect(t.opportunities.size).toBe(0);
   });
 
-  it("reports AI failures separately from successfully imported sources", async () => {
+  it("reports AI failures even when a concurrent local refresh updates the imported job", async () => {
     const [job] = demoOpportunities();
     const t = setup();
     vi.mocked(discover).mockResolvedValue([job]);
     vi.mocked(assessWithAI).mockImplementation(async (op, workspace) => {
       const base = assessOpportunity(op, workspace.profile, workspace.preferences);
+      t.opportunities.set(op.id, {
+        ...op,
+        assessment: base,
+        updatedAt: new Date(Date.parse(op.updatedAt) + 1000).toISOString(),
+      });
       return {
         ...base,
         recommendation: "review",
