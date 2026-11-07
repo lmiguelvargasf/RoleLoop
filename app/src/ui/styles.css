@@ -3509,18 +3509,6 @@ textarea {
 .create-account-form .button-row {
   margin-top: 22px;
 }
-.account-footer {
-  display: flex;
-  align-items: flex-start;
-  gap: 8px;
-  color: #8594a4;
-  font-size: 10px;
-  line-height: 1.7;
-  padding-top: 12px;
-}
-.account-footer svg {
-  flex-shrink: 0;
-}
 @keyframes account-appear {
   from {
     opacity: 0;

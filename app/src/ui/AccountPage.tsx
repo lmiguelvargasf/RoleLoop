@@ -5,7 +5,6 @@ import {
   CheckCircle2,
   KeyRound,
   LoaderCircle,
-  Mail,
   Save,
   UserPlus,
   Users,
@@ -281,13 +280,6 @@ export function AccountPage({
           </form>
         </section>
       )}
-      <div className="account-footer">
-        <Mail size={16} />
-        <span>
-          Passwords and sessions are managed by Supabase Auth. Applications and
-          outreach stay in local test mode.
-        </span>
-      </div>
     </section>
   );
 }
