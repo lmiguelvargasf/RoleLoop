@@ -109,6 +109,15 @@ export async function buildServer() {
           .join("; "),
       });
     const err = error as Error & { statusCode?: number; code?: string };
+    if (
+      /duplicate key value violates unique constraint "opportunities_startup_identity"/.test(
+        err.message,
+      )
+    )
+      return reply.code(409).send({
+        error:
+          "A startup with this company website is already saved. Open the existing prospect to edit its details or add your notes.",
+      });
     reply.code(err.statusCode || 500).send({
       error: err.message || "Request failed",
       ...(err.code === "WORKSPACE_ACCESS_DENIED" ? { code: err.code } : {}),
@@ -413,7 +422,7 @@ export async function buildServer() {
       ) as z.infer<typeof editable>;
       if (patch.requirements && patch.requirementsTruncated === undefined)
         patch.requirementsTruncated = false;
-      const saved = OpportunitySchema.parse({
+      let saved = OpportunitySchema.parse({
         ...existing,
         ...patch,
         updatedAt: new Date().toISOString(),
@@ -451,14 +460,13 @@ export async function buildServer() {
         ...corrections
       } = patch;
       if (existing.kind === "startup") {
-        await requestStore(req).setRuntime(`corrections:${existing.id}`, {
-          ...((await requestStore(req).runtime(
-            `corrections:${existing.id}`,
-          )) as object),
-          ...corrections,
-        });
+        saved = await requestStore(req).saveStartupWithCorrections(
+          saved,
+          corrections,
+        );
+      } else {
+        await requestStore(req).save("opportunities", saved);
       }
-      await requestStore(req).save("opportunities", saved);
       await service.recordOpportunityChanges(
         requestStore(req),
         existing,

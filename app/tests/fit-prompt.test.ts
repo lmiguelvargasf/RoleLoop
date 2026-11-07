@@ -45,7 +45,7 @@ describe("practical job-fit instructions and context", () => {
 
     const result = await assessWithAI(job, workspace, "test-user");
 
-    expect(FIT_PROMPT_VERSION).toBe(5);
+    expect(FIT_PROMPT_VERSION).toBe(6);
     expect(structuredAI).toHaveBeenCalledOnce();
     const call = vi.mocked(structuredAI).mock.calls[0];
     expect(call[2]).toBe(JOB_FIT_INSTRUCTIONS);

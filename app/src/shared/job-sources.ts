@@ -7,6 +7,7 @@ export const jobSourceLabels = {
   jobicy: "Jobicy",
   weworkremotely: "We Work Remotely",
   hackernews: "Hacker News",
+  seedcamp: "Seedcamp",
   manual: "Manual entry",
   other: "Other sources",
 } as const;
@@ -18,7 +19,7 @@ function provider(value: string): JobSourceProvider | undefined {
   const normalized = value.trim().toLowerCase().replace(/\s+/g, "");
   if (normalized === "manualentry") return "manual";
   return Object.hasOwn(jobSourceLabels, normalized)
-    ? normalized as JobSourceProvider
+    ? (normalized as JobSourceProvider)
     : undefined;
 }
 
@@ -57,5 +58,7 @@ export function jobMatchesSource(
   sources: readonly Source[],
   selected: JobSourceFilter,
 ): boolean {
-  return selected === "all" || jobSourceProvider(opportunity, sources) === selected;
+  return (
+    selected === "all" || jobSourceProvider(opportunity, sources) === selected
+  );
 }

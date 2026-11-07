@@ -24,6 +24,12 @@ integration("We Work Remotely source migration", () => {
       encoding: "utf8",
       timeout: 20000,
       input: `begin;
+        -- Replay an older provider constraint at its historical schema boundary.
+        -- These temporary removals and the migration itself are rolled back.
+        delete from public.workspace_sources where source_id in (
+          select id from public.discovery_sources where provider = 'seedcamp'
+        );
+        delete from public.discovery_sources where provider = 'seedcamp';
         insert into public.workspace(id, payload) values
           ('integration-wwr-eligible', '{"preferences":{"discoverEmployers":true,"country":"Ecuador","minimumSalary":123456},"sources":[{"id":"existing-feed","provider":"jobicy","label":"My feed","board":"typescript","enabled":true}]}'),
           ('integration-wwr-paused-discovery', '{"preferences":{"discoverEmployers":false},"sources":[{"id":"existing-feed","provider":"jobicy","label":"My feed","board":"","enabled":true}]}'),

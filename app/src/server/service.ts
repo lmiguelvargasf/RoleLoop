@@ -20,10 +20,10 @@ import {
   profileFingerprint,
   preferencesFingerprint,
   opportunityFingerprint,
+  STARTUP_CONTRIBUTION_UNCONFIRMED,
 } from "../domain/rules.js";
 import {
   discover,
-  research,
   freshFeedRecords,
   extractRequirementDetails,
   REQUIREMENT_EXTRACTION_VERSION,
@@ -48,6 +48,11 @@ import {
 } from "../shared/discovery.js";
 import { settings } from "./config.js";
 import { discoverEmployerBoards } from "../domain/employer-discovery.js";
+import {
+  researchAndSaveOpportunity,
+  STARTUP_RESEARCH_LIMIT,
+  type ResearchCache,
+} from "./startup-research.js";
 
 export const RunInput = z.object({
   action: z.enum(["discover", "analyze", "draft", "research", "simulate"]),
@@ -93,6 +98,7 @@ function localAssessment(
       profileFingerprint(workspace.profile) &&
     (op.assessment.fitSummary ||
       op.assessment.fitEvaluation?.method === "semantic") &&
+    (op.kind === "job" || op.assessment.startupFit?.method === "semantic") &&
     op.assessment.matches.every((match) =>
       op.requirements.some(
         (requirement) =>
@@ -110,6 +116,35 @@ function localAssessment(
     new Date(),
     previous?.matches,
   );
+  const reuseSummary =
+    previous &&
+    previous.preferencesFingerprint ===
+      preferencesFingerprint(workspace.preferences) &&
+    JSON.stringify(previous.blockers) === JSON.stringify(assessment.blockers) &&
+    JSON.stringify(previous.policyUnknowns ?? previous.unknowns) ===
+      JSON.stringify(assessment.policyUnknowns ?? assessment.unknowns);
+  if (op.kind === "startup") {
+    if (!reuseSummary || !previous?.fitSummary) return assessment;
+    const unknowns =
+      previous.startupFit?.status === "potential"
+        ? assessment.unknowns.filter(
+            (item) => item !== STARTUP_CONTRIBUTION_UNCONFIRMED,
+          )
+        : assessment.unknowns;
+    return {
+      ...assessment,
+      unknowns,
+      recommendation: assessment.blockers.length
+        ? ("excluded" as const)
+        : unknowns.length
+          ? ("review" as const)
+          : ("ready" as const),
+      fitSummary: previous.fitSummary,
+      learningGaps: previous.learningGaps,
+      relevantEvidenceIds: previous.relevantEvidenceIds,
+      startupFit: previous.startupFit,
+    };
+  }
   // Semantic evidence remains useful when preferences change. Policy questions
   // must be rebuilt, rather than carrying an old country's cautions forward.
   return previous
@@ -117,14 +152,7 @@ function localAssessment(
         ...assessment,
         // The prose may mention the old country, salary or policy context.
         // Requirement-level evidence is reusable; context-specific prose is not.
-        fitSummary:
-          previous.preferencesFingerprint ===
-          preferencesFingerprint(workspace.preferences) &&
-          JSON.stringify(previous.blockers) === JSON.stringify(assessment.blockers) &&
-          JSON.stringify(previous.policyUnknowns ?? previous.unknowns) ===
-            JSON.stringify(assessment.policyUnknowns ?? assessment.unknowns)
-            ? previous.fitSummary
-            : undefined,
+        fitSummary: reuseSummary ? previous.fitSummary : undefined,
         learningGaps: previous.learningGaps,
         relevantEvidenceIds: previous.relevantEvidenceIds,
       }
@@ -235,6 +263,7 @@ async function refreshCollection(
         op.assessment.profileFingerprint !== profile ||
         op.assessment.preferencesFingerprint !== preferences ||
         op.assessment.rulesVersion !== ASSESSMENT_RULES_VERSION ||
+        (op.kind === "startup" && !op.assessment.startupFit) ||
         (op.kind === "job" &&
           (!op.assessment.geography || !op.assessment.fitEvaluation)) ||
         (snapshot.preferences.missingSalary === "review" &&
@@ -430,7 +459,9 @@ export async function analyze(
     if (options.persist === false) return assessed;
     const saved = await store.saveDerivedOpportunity(original, assessed);
     if (!saved)
-      throw new Error("This opportunity was removed while it was being evaluated.");
+      throw new Error(
+        "This opportunity was removed while it was being evaluated.",
+      );
     // Timestamps can collide within one millisecond. Compare the persisted JSON
     // too; storage omits undefined fields and may reorder object keys.
     if (
@@ -637,6 +668,8 @@ export async function processRun(
       companiesConnected: 0,
       draftFailures: 0,
       evaluationFailures: 0,
+      companiesResearched: 0,
+      researchFailures: 0,
     };
     const eventContext = { runId: run.id, category: "search" as const };
     const scope = run.discoveryScope ?? (run.sourceId ? undefined : "jobs");
@@ -651,6 +684,7 @@ export async function processRun(
         summary.sourcesFailed ||
         summary.draftFailures ||
         summary.evaluationFailures ||
+        summary.researchFailures ||
         (expansion && expansion.status !== "success")
           ? "partial"
           : "success";
@@ -682,10 +716,14 @@ export async function processRun(
           "Company discovery has reached its current limit. New companies cannot be added in this search.";
       } else {
         try {
-          const storedOffset = await store.runtime<{ offset: number }>("employer-role-offset");
-          const roleOffset = Number.isSafeInteger(storedOffset?.offset) && storedOffset!.offset >= 0
-            ? storedOffset!.offset
-            : 0;
+          const storedOffset = await store.runtime<{ offset: number }>(
+            "employer-role-offset",
+          );
+          const roleOffset =
+            Number.isSafeInteger(storedOffset?.offset) &&
+            storedOffset!.offset >= 0
+              ? storedOffset!.offset
+              : 0;
           const found = await discoverEmployerBoards(workspace, {
             cache: { get: getGlobalRuntime, set: setGlobalRuntime },
             himalayasApiKey: settings.himalayasApiKey,
@@ -694,7 +732,9 @@ export async function processRun(
             onProgress: (message) => progress(5, message),
           });
           if (!found.errors.length || found.companiesFound)
-            await store.setRuntime("employer-role-offset", { offset: roleOffset + 3 });
+            await store.setRuntime("employer-role-offset", {
+              offset: roleOffset + 3,
+            });
           expansion.companiesFound = found.companiesFound;
           expansion.boardsChecked = found.boardsChecked;
           let limited = false;
@@ -794,6 +834,7 @@ export async function processRun(
       await store.setRuntime("source-health", { ...previous, [id]: health });
     };
     const shortlist: Opportunity[] = [];
+    const countedOpportunities = new Set<string>();
     const seenSourceKeys = new Set<string>();
     let imported = 0,
       failed = 0;
@@ -895,8 +936,11 @@ export async function processRun(
           const existing = importedOpportunity.opportunity;
           importedIds.set(parsed.sourceKey, existing.id);
           if (existing.stage === "archived") return;
-          if (importedOpportunity.created) summary.newOpportunities++;
-          else summary.existingOpportunities++;
+          if (!countedOpportunities.has(existing.id)) {
+            if (importedOpportunity.created) summary.newOpportunities++;
+            else summary.existingOpportunities++;
+            countedOpportunities.add(existing.id);
+          }
           const cacheKey = `fit:${existing.id}`;
           const fingerprint = `${FIT_PROMPT_VERSION}:${opportunityFingerprint(existing)}:${profileFingerprint(workspace.profile)}:${preferencesFingerprint(workspace.preferences)}:${store.actorUserId ?? "api"}`;
           const previous = await store.runtime<{
@@ -914,25 +958,31 @@ export async function processRun(
             previous?.fingerprint === fingerprint &&
             Date.now() - previous.at < 86400000;
           const op = reuseCachedFit
-              ? needsTimeRefresh(existing)
-                ? await analyze(store, existing, workspace, false, {
-                    reuseFit: true,
-                  })
-                : existing
-              : await analyze(
-                  store,
-                  existing,
-                  workspace,
+            ? needsTimeRefresh(existing)
+              ? await analyze(store, existing, workspace, false, {
+                  reuseFit: true,
+                })
+              : existing
+            : await analyze(
+                store,
+                existing,
+                workspace,
+                existing.kind === "job" &&
                   !basic.blockers.length &&
-                    (existing.kind !== "job" ||
-                      basic.geography?.status !== "excluded") &&
-                    matchesTargetRole(
-                      existing.title,
-                      workspace.preferences.roles,
-                      existing.company,
-                    ),
-                );
-          if (!reuseCachedFit && op !== existing && op.assessment?.fitSummary)
+                  (existing.kind !== "job" ||
+                    basic.geography?.status !== "excluded") &&
+                  matchesTargetRole(
+                    existing.title,
+                    workspace.preferences.roles,
+                    existing.company,
+                  ),
+              );
+          if (
+            !reuseCachedFit &&
+            op !== existing &&
+            ((op.kind === "job" && op.assessment?.fitSummary) ||
+              op.assessment?.startupFit?.method === "semantic")
+          )
             await store.setRuntime(cacheKey, { fingerprint, at: Date.now() });
           if (op.assessment?.fitEvaluation?.failureReason) {
             summary.evaluationFailures = (summary.evaluationFailures ?? 0) + 1;
@@ -944,7 +994,8 @@ export async function processRun(
             );
           }
           imported++;
-          summary.evaluated++;
+          if (!shortlist.some((saved) => saved.id === op.id))
+            summary.evaluated++;
           shortlist.push(op);
         };
         let nextCandidate = 0;
@@ -991,7 +1042,9 @@ export async function processRun(
             }
           }),
         );
-        const rejected = evaluations.find((result) => result.status === "rejected");
+        const rejected = evaluations.find(
+          (result) => result.status === "rejected",
+        );
         if (rejected?.status === "rejected") throw rejected.reason;
         await recordHealth(source.id, {
           checkedAt: new Date().toISOString(),
@@ -1023,12 +1076,134 @@ export async function processRun(
         "All selected sources failed. See Activity for source errors.",
       );
     }
+    // Select once across every source, so a noisy feed cannot consume the
+    // research budget before more relevant companies have been considered.
+    const uniqueShortlist = new Map(shortlist.map((op) => [op.id, op]));
+    const rankedStartups = orderOpportunities(
+      [...uniqueShortlist.values()],
+      workspace.preferences,
+    ).filter(
+      (op) =>
+        op.kind === "startup" &&
+        op.stage !== "archived" &&
+        !op.assessment?.blockers.length,
+    );
+    const researchCache = rankedStartups.length
+      ? await store.runtimeMany<ResearchCache>(
+          rankedStartups.map((op) => `company-research:${op.id}`),
+        )
+      : new Map<string, ResearchCache>();
+    const fitCache = rankedStartups.length
+      ? await store.runtimeMany<{ fingerprint: string; at: number }>(
+          rankedStartups.map((op) => `fit:${op.id}`),
+        )
+      : new Map<string, { fingerprint: string; at: number }>();
+    const researchCandidates = rankedStartups
+      .map((op) => {
+        const savedResearch = researchCache.get(`company-research:${op.id}`);
+        const savedFit = fitCache.get(`fit:${op.id}`);
+        const age = savedResearch ? Date.now() - savedResearch.at : Infinity;
+        const sameUrl = savedResearch?.url === (op.companyUrl || op.url);
+        const freshResearch =
+          sameUrl && !savedResearch?.error && age >= 0 && age < 7 * 86400000;
+        const researchBackoff =
+          sameUrl && savedResearch?.error && age >= 0 && age < 3600000;
+        const fingerprint = `${FIT_PROMPT_VERSION}:${opportunityFingerprint(op)}:${profileFingerprint(workspace.profile)}:${preferencesFingerprint(workspace.preferences)}:${store.actorUserId ?? "api"}`;
+        const freshFit =
+          savedFit?.fingerprint === fingerprint &&
+          Date.now() >= savedFit.at &&
+          Date.now() - savedFit.at < 86400000 &&
+          op.assessment?.startupFit?.method === "semantic";
+        return {
+          op,
+          complete: freshResearch && freshFit,
+          priority: researchBackoff ? 2 : freshResearch ? 1 : 0,
+        };
+      })
+      .filter((entry) => !entry.complete)
+      .sort((a, b) => a.priority - b.priority)
+      .slice(0, STARTUP_RESEARCH_LIMIT)
+      .map(({ op }) => op);
+    for (const [index, candidate] of researchCandidates.entries()) {
+      await progress(
+        80 + Math.round((index / researchCandidates.length) * 15),
+        `Researching ${candidate.company} (${index + 1}/${researchCandidates.length})`,
+      );
+      let current: Opportunity;
+      try {
+        current = await store.get("opportunities", candidate.id);
+      } catch (error) {
+        summary.researchFailures = (summary.researchFailures ?? 0) + 1;
+        await store.event(
+          `Website research for ${candidate.company}: ${error instanceof Error ? error.message : "Prospect is no longer available"}`,
+          "warning",
+          undefined,
+          { runId: run.id, category: "research" },
+        );
+        continue;
+      }
+      if (current.stage === "archived") continue;
+      try {
+        const result = await researchAndSaveOpportunity(store, current);
+        current = result.opportunity;
+        if (result.researched) {
+          summary.companiesResearched = (summary.companiesResearched ?? 0) + 1;
+          await invalidateDrafts(store, current.id);
+        }
+      } catch (error) {
+        summary.researchFailures = (summary.researchFailures ?? 0) + 1;
+        await store.event(
+          `Website research for ${current.company}: ${error instanceof Error ? error.message : "Could not read company website"}`,
+          "warning",
+          current.id,
+          { runId: run.id, category: "research" },
+        );
+      }
+      if (current.stage === "archived") continue;
+      try {
+        const cacheKey = `fit:${current.id}`;
+        const fingerprint = `${FIT_PROMPT_VERSION}:${opportunityFingerprint(current)}:${profileFingerprint(workspace.profile)}:${preferencesFingerprint(workspace.preferences)}:${store.actorUserId ?? "api"}`;
+        const cached = await store.runtime<{ fingerprint: string; at: number }>(
+          cacheKey,
+        );
+        if (
+          cached?.fingerprint !== fingerprint ||
+          Date.now() - cached.at >= 86400000 ||
+          current.assessment?.startupFit?.method !== "semantic"
+        ) {
+          current = await analyze(store, current, workspace, true);
+          if (current.assessment?.startupFit?.method === "semantic")
+            await store.setRuntime(cacheKey, { fingerprint, at: Date.now() });
+        }
+        if (current.assessment?.startupFit?.failureReason) {
+          summary.evaluationFailures = (summary.evaluationFailures ?? 0) + 1;
+          await store.event(
+            `${current.company}: ${current.assessment.startupFit.failureReason}`,
+            "warning",
+            current.id,
+            { runId: run.id, category: "evaluation" },
+          );
+        }
+        uniqueShortlist.set(current.id, current);
+      } catch (error) {
+        summary.evaluationFailures = (summary.evaluationFailures ?? 0) + 1;
+        await store.event(
+          `Evaluation for ${current.company}: ${error instanceof Error ? error.message : "Evaluation failed"}`,
+          "warning",
+          current.id,
+          { runId: run.id, category: "evaluation" },
+        );
+      }
+    }
     const drafted = new Set(
       (await store.list("drafts", 10000)).map((d) => d.opportunityId),
     );
     let remainingDrafts =
       workspace.preferences.dailyLimit - (await draftCountToday(store));
-    for (const op of orderOpportunities(shortlist, workspace.preferences)) {
+    for (const op of orderOpportunities(
+      [...uniqueShortlist.values()],
+      workspace.preferences,
+    )) {
       if (remainingDrafts <= 0) break;
       if (
         op.kind === "startup" &&
@@ -1068,15 +1243,8 @@ export async function processRun(
   }
   if (run.action === "research") {
     await progress(20, "Reading the public company website");
-    const facts = await research(op);
-    await analyze(
-      store,
-      OpportunitySchema.parse({
-        ...op,
-        ...facts,
-      }),
-      workspace,
-    );
+    const result = await researchAndSaveOpportunity(store, op, { force: true });
+    await analyze(store, result.opportunity, workspace);
     await invalidateDrafts(store, op.id);
     return "Public website research saved; confirm company facts";
   }

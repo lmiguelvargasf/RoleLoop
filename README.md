@@ -111,6 +111,12 @@ Company-country reference links, coverage notes, board identifiers and check dat
 
 The [7 November search audit](docs/SEARCH_AUDIT.md) records the algorithm, prompt and source findings, implemented fixes, verification and remaining coverage limits.
 
+Startup prospects searches [Show HN](https://news.ycombinator.com/show) and [Seedcamp’s public company portfolio](https://seedcamp.com/our-companies/) without source setup. Show HN supplies up to 25 dated product announcements; Seedcamp supplies up to 25 companies prioritized by industry interests and its listed investment year. Investment year is not treated as a launch date, and neither source establishes current hiring, headquarters or remote eligibility. Configured keywords and disabled sources remain respected; pausing all configured startup feeds pauses startup research.
+
+Each search researches up to ten eligible company websites across both sources, prioritizing prospects that still need research. Successful website research is reused for seven days and failures back off for one hour; explicit **Research & evaluate** refreshes immediately. A company’s canonical website identifies one prospect, with source announcements retained separately. Personal corrections, archives and application history survive refreshes. Historical duplicate records are retained to preserve their independent history.
+
+Startup cards show a possible contribution grounded in cited CV experience instead of a percentage. Without AI or sufficient experience, the explanation remains an unconfirmed connection to explore. Fully cleared prospects can receive outreach drafts within the daily limit; nothing is sent. The YC directory remains a manual browsing link: [YC’s terms](https://www.ycombinator.com/legal/) and [Techstars’ terms](https://www.techstars.com/terms-of-use) restrict automated extraction, so neither directory is an automatic connector.
+
 Older board URLs that failed or returned no jobs were excluded, including the empty Automattic `automatticjobs` board and Deel’s old Ashby feed. The functioning Automattic board is `automatticcareers`. Source selection is intentionally bounded. Source maintenance stays internal, and hiring-country and compensation checks remain independent of employer location.
 
 ## Résumé AI

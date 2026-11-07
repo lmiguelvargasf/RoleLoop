@@ -64,6 +64,8 @@ import {
 } from "../shared/job-sources";
 import { ApplicationsBoard } from "./ApplicationsBoard";
 import { JobFitDetails } from "./JobFitDetails";
+import { StartupFitDetails } from "./StartupFitDetails";
+import { sourceKind, sourcesForDiscovery } from "../shared/discovery";
 import {
   applicationColumn,
   applicationProgressFor,
@@ -561,8 +563,11 @@ function Opportunities({
   const all = data.opportunities.filter((o) => o.kind === kind),
     list = all.filter((o) =>
       kind === "job"
-        ? opportunityMatchesView(o, data.preferences, stage as OpportunityView) &&
-          jobMatchesSource(o, data.sources, sourceFilter)
+        ? opportunityMatchesView(
+            o,
+            data.preferences,
+            stage as OpportunityView,
+          ) && jobMatchesSource(o, data.sources, sourceFilter)
         : (stage === "all" ? o.stage !== "archived" : o.stage === stage) &&
           `${o.company} ${o.title} ${o.description}`
             .toLowerCase()
@@ -577,7 +582,10 @@ function Opportunities({
     sourceFilter !== "all" &&
     !sourceOptions.some((option) => option.value === sourceFilter)
   )
-    sourceOptions.push({ value: sourceFilter, label: jobSourceLabels[sourceFilter] });
+    sourceOptions.push({
+      value: sourceFilter,
+      label: jobSourceLabels[sourceFilter],
+    });
   const hasActive = all.some((opportunity) => opportunity.stage !== "archived");
   const visibleList = kind === "job" ? list.slice(0, visibleCount) : list;
   const recommendations = new Map(
@@ -627,8 +635,8 @@ function Opportunities({
   );
   const inSearch = (source: Bootstrap["sources"][number]) =>
     kind === "startup"
-      ? source.provider === "hackernews"
-      : source.provider !== "hackernews";
+      ? sourceKind(source) === "startup_feed"
+      : sourceKind(source) !== "startup_feed";
   const configured = data.sources.filter(inSearch);
   const hasEnabledSources = configured.some((source) => source.enabled);
   const canFindCompanies =
@@ -894,21 +902,7 @@ function Opportunities({
               kind="error"
             />
           )}
-          <div className="section-title">
-            <h3>Startup assessment</h3>
-            <span className="match-number">
-              {Math.round(chosen.assessment.score)}
-              <small>%</small>
-            </span>
-          </div>
-          <div className="match-track">
-            <i
-              style={{ width: `${Math.min(100, chosen.assessment.score)}%` }}
-            />
-          </div>
-          <div className="match-note">
-            Relevance to your experience; not a prediction of company success.
-          </div>
+          <StartupFitDetails opportunity={chosen} profile={data.profile} />
           {chosen.assessment.recommendation !== "excluded" &&
             chosen.assessment.blockers.length > 0 && (
               <NoticeList
@@ -930,12 +924,6 @@ function Opportunities({
               items={chosen.assessment.reasons}
               kind="neutral"
             />
-          )}
-          {chosen.assessment.fitSummary && (
-            <div className="form-section">
-              <h3>Your fit</h3>
-              <p>{chosen.assessment.fitSummary}</p>
-            </div>
           )}
           {!!chosen.assessment.learningGaps?.length && (
             <NoticeList
@@ -973,15 +961,15 @@ function Opportunities({
       )}
       {kind === "startup" && (
         <div className="contact-detail">
-          <h3>Founder contact</h3>
-          <p>{chosen.contactName || "Contact not yet verified"}</p>
+          <h3>Public contact</h3>
+          <p>{chosen.contactName || "Recipient not yet confirmed"}</p>
           {chosen.contactEmail && (
             <span className="mono">{chosen.contactEmail}</span>
           )}
           {chosen.contactSource && (
             <External url={chosen.contactSource}>Contact evidence</External>
           )}
-          <small>Only verified professional contact details belong here.</small>
+          <small>Confirm the recipient and their role before outreach.</small>
         </div>
       )}
       {kind === "startup" && (
@@ -999,6 +987,28 @@ function Opportunities({
           items={chosen.signals}
           kind="neutral"
         />
+      )}
+      {kind === "startup" && !!chosen.discoverySignals?.length && (
+        <div className="form-section">
+          <h3>Sources</h3>
+          <ul className="startup-source-signals">
+            {chosen.discoverySignals.map((signal) => (
+              <li key={`${signal.source}:${signal.sourceKey}`}>
+                <External url={signal.url}>{signal.title}</External>
+                <small>
+                  {signal.source === "hackernews"
+                    ? "Show HN"
+                    : signal.source === "seedcamp"
+                      ? "Seedcamp"
+                      : signal.source}
+                  {signal.publishedAt
+                    ? ` · ${date(signal.publishedAt)}`
+                    : " · Date not provided"}
+                </small>
+              </li>
+            ))}
+          </ul>
+        </div>
       )}
       {kind === "startup" && chosen.notes && (
         <div className="notes">
@@ -1086,6 +1096,18 @@ function Opportunities({
           </button>
         </div>
       </header>
+      {kind === "startup" && !paused && (
+        <p className="search-setup-note startup-source-note">
+          Sources:{" "}
+          {sourcesForDiscovery(data.sources, "startups")
+            .map((source) => source.label)
+            .join(" · ")}
+          .{" "}
+          <External url="https://www.ycombinator.com/companies">
+            Browse YC directory
+          </External>
+        </p>
+      )}
       {kind === "job" && !canSearch && (
         <p className="search-setup-note">
           Set your target roles and working country, and turn on automatic
@@ -1224,6 +1246,11 @@ function Opportunities({
                       {o.isDemo && <span className="demo-tag">SAMPLE</span>}
                     </span>
                     <strong>{o.title}</strong>
+                    {kind === "startup" && o.assessment?.fitSummary && (
+                      <span className="startup-contribution-preview">
+                        {o.assessment.fitSummary}
+                      </span>
+                    )}
                     {(kind !== "job" || stage !== "recommended") &&
                       preferredIndustryMatches(o, data.preferences).length >
                         0 && (
@@ -1236,7 +1263,24 @@ function Opportunities({
                     <span className="row-meta">
                       {o.location}
                       <span>·</span>
-                      {kind === "job" ? salary(o) : o.source}
+                      {kind === "job"
+                        ? salary(o)
+                        : [
+                            ...new Set(
+                              (o.discoverySignals?.length
+                                ? o.discoverySignals.map(
+                                    (signal) => signal.source,
+                                  )
+                                : [o.source]
+                              ).map((source) =>
+                                source === "hackernews"
+                                  ? "Show HN"
+                                  : source === "seedcamp"
+                                    ? "Seedcamp"
+                                    : source,
+                              ),
+                            ),
+                          ].join(" · ")}
                     </span>
                     {kind === "job" && stage === "recommended" && (
                       <span className="job-fit-explanation">
@@ -1258,8 +1302,14 @@ function Opportunities({
                         On application board
                       </span>
                     )}
-                    {kind === "job" &&
-                    recommendations.get(o.id)?.score == null ? (
+                    {kind === "startup" ? (
+                      <span className="fit-evaluation-label">
+                        {o.assessment?.startupFit?.method === "semantic" &&
+                        o.assessment.startupFit.status === "potential"
+                          ? "Potential contribution"
+                          : "To explore"}
+                      </span>
+                    ) : recommendations.get(o.id)?.score == null ? (
                       <span className="fit-evaluation-label">
                         {recommendations.get(o.id)?.fitLabel}
                       </span>
@@ -1268,15 +1318,9 @@ function Opportunities({
                         className={`score ${o.assessment?.recommendation === "ready" ? "good" : ""}`}
                       >
                         {o.assessment
-                          ? `${Math.round(
-                              kind === "job"
-                                ? recommendations.get(o.id)!.score!
-                                : o.assessment.score,
-                            )}%`
+                          ? `${Math.round(recommendations.get(o.id)!.score!)}%`
                           : "—"}
-                        <small>
-                          {kind === "job" ? "required match" : "relevance"}
-                        </small>
+                        <small>required match</small>
                       </span>
                     )}
                   </span>

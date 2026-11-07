@@ -1,5 +1,6 @@
 import { createClient, type SupabaseClient } from "@supabase/supabase-js";
 import { randomUUID } from "node:crypto";
+import { isDeepStrictEqual } from "node:util";
 import { z } from "zod";
 import { settings } from "./config.js";
 import { opportunityFingerprint } from "../domain/rules.js";
@@ -20,6 +21,11 @@ import {
   type Workspace,
 } from "../shared/types.js";
 import { normalizeSource, sourceIdentity } from "../shared/discovery.js";
+import {
+  mergeDiscoverySignals,
+  mergeStartupProspect,
+  startupIdentity,
+} from "../domain/startup-identity.js";
 
 if (!settings.supabaseKey)
   throw new Error(
@@ -523,6 +529,31 @@ export function createWorkspaceStore({
     if (next.assessment?.geography !== undefined)
       JobGeographySchema.parse(next.assessment.geography);
     OpportunitySchema.parse(next);
+    let expectedWriteTime = original.updatedAt;
+    if (original.kind === "startup") {
+      const current = checked(
+        await client
+          .from("opportunities")
+          .select(columns("opportunities"))
+          .eq("workspace_id", workspaceId)
+          .eq("id", original.id)
+          .maybeSingle(),
+      );
+      if (!current) return null;
+      const decoded = decode("opportunities", current as unknown as StoredRow);
+      // Website research can finish after a user edit made in the same
+      // millisecond. Compare normalized content before taking the SQL version;
+      // omit undefined values as JSON persistence does, without depending on
+      // PostgreSQL's object-key ordering.
+      if (
+        !isDeepStrictEqual(
+          JSON.parse(JSON.stringify(decoded)),
+          JSON.parse(JSON.stringify(OpportunitySchema.parse(original))),
+        )
+      )
+        return decoded;
+      expectedWriteTime = (current as unknown as StoredRow).updated_at!;
+    }
     // Background repairs must not overwrite a concurrent edit, recreate a
     // deleted job, or update a record outside the current workspace.
     const row = checked(
@@ -531,7 +562,10 @@ export function createWorkspaceStore({
         .update({ payload: next })
         .eq("workspace_id", workspaceId)
         .eq("id", original.id)
-        .eq("payload->>updatedAt", original.updatedAt)
+        .eq(
+          original.kind === "startup" ? "updated_at" : "payload->>updatedAt",
+          expectedWriteTime,
+        )
         .select(columns("opportunities"))
         .maybeSingle(),
     );
@@ -561,9 +595,36 @@ export function createWorkspaceStore({
       ),
     );
   }
+  async function saveStartupWithCorrections(
+    next: Opportunity,
+    corrections: Partial<Opportunity>,
+  ): Promise<Opportunity> {
+    if (next.kind !== "startup" || !safeId.test(next.id))
+      throw new Error("A valid startup opportunity is required.");
+    const payload = OpportunitySchema.parse(next);
+    const parsedPatch = OpportunitySchema.partial().parse(corrections);
+    // Zod defaults on optional fields must not manufacture corrections for
+    // facts the user did not supply (or add immutable defaulted fields).
+    const patch = Object.fromEntries(
+      Object.keys(corrections)
+        .filter((key) => Object.hasOwn(parsedPatch, key))
+        .map((key) => [key, parsedPatch[key as keyof typeof parsedPatch]]),
+    );
+    const rows = checked(
+      await client.rpc("save_startup_with_corrections", {
+        target_workspace: workspaceId,
+        target_opportunity: next.id,
+        opportunity_payload: payload,
+        correction_patch: patch,
+      }),
+    );
+    if (!rows?.[0]) return missing();
+    return decode("opportunities", rows[0] as unknown as StoredRow);
+  }
   async function importOpportunityWithStatus(
     op: Opportunity,
   ): Promise<{ opportunity: Opportunity; created: boolean }> {
+    if (op.kind === "startup") return importStartupWithStatus(op);
     const findExisting = () =>
       client
         .from("opportunities")
@@ -639,6 +700,175 @@ export function createWorkspaceStore({
       created: false,
     };
   }
+  async function importStartupWithStatus(
+    candidate: Opportunity,
+  ): Promise<{ opportunity: Opportunity; created: boolean }> {
+    const op = OpportunitySchema.parse({
+      ...candidate,
+      discoverySignals: mergeDiscoverySignals(candidate),
+    });
+    const identity = startupIdentity(op);
+    const findExisting = async (): Promise<StoredRow | null> => {
+      if (identity) {
+        const byCompany = checked(
+          await client
+            .from("opportunities")
+            .select(columns("opportunities"))
+            .eq("workspace_id", workspaceId)
+            .eq("startup_identity", identity)
+            .maybeSingle(),
+        );
+        if (byCompany) return byCompany as unknown as StoredRow;
+      }
+      const bySource = checked(
+        await client
+          .from("opportunities")
+          .select(columns("opportunities"))
+          .eq("workspace_id", workspaceId)
+          .eq("source_key", op.sourceKey)
+          .maybeSingle(),
+      );
+      if (bySource) return bySource as unknown as StoredRow;
+      // An additional source can later publish a different website. Its saved
+      // provenance still links the refresh to the existing company prospect.
+      const bySignal = checked(
+        await client
+          .from("opportunities")
+          .select(columns("opportunities"))
+          .eq("workspace_id", workspaceId)
+          .eq("kind", "startup")
+          .contains("payload", {
+            discoverySignals: [{ sourceKey: op.sourceKey }],
+          })
+          .order("id")
+          .limit(1)
+          .maybeSingle(),
+      );
+      return bySignal as unknown as StoredRow | null;
+    };
+    let existing = await findExisting();
+    if (!existing) {
+      if (!safeId.test(op.id)) throw new Error("Record identifier is invalid.");
+      const inserted = await client
+        .from("opportunities")
+        .insert({
+          id: op.id,
+          workspace_id: workspaceId,
+          kind: op.kind,
+          source_key: op.sourceKey,
+          payload: op,
+        })
+        .select(columns("opportunities"))
+        .single();
+      if (!inserted.error && inserted.data)
+        return {
+          opportunity: decode(
+            "opportunities",
+            inserted.data as unknown as StoredRow,
+          ),
+          created: true,
+        };
+      // The database identity index handles concurrent arrivals from different
+      // sources as well as identical source keys. Only one insertion is new.
+      if (inserted.error?.code === "23505") existing = await findExisting();
+      if (!existing) {
+        checked(inserted);
+        return missing();
+      }
+    }
+    let concurrentCorrections: Partial<Opportunity> = {};
+    for (let attempt = 0; attempt < 5; attempt++) {
+      const old = decode("opportunities", existing);
+      const corrections =
+        (await runtime<Partial<Opportunity>>(`corrections:${old.id}`)) || {};
+      const refreshed = mergeStartupProspect(old, op, {
+        ...concurrentCorrections,
+        ...corrections,
+      });
+      const changed =
+        opportunityFingerprint(old) !== opportunityFingerprint(refreshed);
+      const provenanceChanged =
+        JSON.stringify(old.discoverySignals) !==
+        JSON.stringify(refreshed.discoverySignals);
+      if (!changed && !provenanceChanged)
+        return { opportunity: old, created: false };
+      const next = OpportunitySchema.parse({
+        ...refreshed,
+        stage: changed && old.stage !== "archived" ? "new" : old.stage,
+        assessment: changed ? null : old.assessment,
+        updatedAt: new Date(
+          Math.max(Date.now(), Date.parse(old.updatedAt) + 1),
+        ).toISOString(),
+      });
+      const saved = checked(
+        await client
+          .from("opportunities")
+          .update({ payload: next })
+          .eq("workspace_id", workspaceId)
+          .eq("id", old.id)
+          // SQL's precise write timestamp changes on every startup mutation,
+          // including direct writes that reuse a JSON updatedAt value.
+          .eq("updated_at", existing.updated_at!)
+          .select(columns("opportunities"))
+          .maybeSingle(),
+      );
+      if (saved) {
+        if (changed) {
+          for (const draft of await list("drafts", 10000))
+            if (draft.opportunityId === old.id)
+              await save("drafts", {
+                ...draft,
+                status: "draft",
+                testReceipt: null,
+                updatedAt: new Date().toISOString(),
+              });
+        }
+        return {
+          opportunity: decode("opportunities", saved as unknown as StoredRow),
+          created: false,
+        };
+      }
+      // Preserve a concurrent edit and merge our source evidence into the
+      // newest row instead of losing another source's signals.
+      existing = checked(
+        await client
+          .from("opportunities")
+          .select(columns("opportunities"))
+          .eq("workspace_id", workspaceId)
+          .eq("id", old.id)
+          .maybeSingle(),
+      ) as unknown as StoredRow | null;
+      if (!existing) return missing();
+      const current = decode("opportunities", existing);
+      const editedFields = [
+        "company",
+        "title",
+        "description",
+        "descriptionTruncated",
+        "companyUrl",
+        "companyCountry",
+        "companyCountrySource",
+        "location",
+        "remoteScope",
+        "contactName",
+        "contactEmail",
+        "contactSource",
+        "publishedAt",
+        "url",
+      ] as const;
+      concurrentCorrections = {
+        ...concurrentCorrections,
+        ...Object.fromEntries(
+          editedFields
+            .filter((field) => current[field] !== old[field])
+            .map((field) => [field, current[field]]),
+        ),
+      };
+    }
+    throw new Error(
+      "The startup changed during discovery. Retry the search to merge its latest source evidence.",
+    );
+  }
   async function importOpportunity(op: Opportunity): Promise<Opportunity> {
     return (await importOpportunityWithStatus(op)).opportunity;
   }
@@ -672,6 +902,7 @@ export function createWorkspaceStore({
     get,
     save,
     saveDerivedOpportunity,
+    saveStartupWithCorrections,
     importOpportunity,
     importOpportunityWithStatus,
     event,

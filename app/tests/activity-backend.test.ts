@@ -6,7 +6,11 @@ import {
   processRun,
   recordOpportunityChanges,
 } from "../src/server/service.js";
-import { discover, freshFeedRecords } from "../src/domain/connectors.js";
+import {
+  discover,
+  freshFeedRecords,
+  research,
+} from "../src/domain/connectors.js";
 import { getGlobalRuntime } from "../src/server/store.js";
 import { discoverEmployerBoards } from "../src/domain/employer-discovery.js";
 import { generateDraft } from "../src/server/model.js";
@@ -100,6 +104,12 @@ function setup(existing: Opportunity[] = []) {
       return { opportunity, created: !old };
     },
     runtime: async (key: string) => runtime.get(key) ?? null,
+    runtimeMany: async (keys: string[]) =>
+      new Map(
+        keys
+          .filter((key) => runtime.has(key))
+          .map((key) => [key, runtime.get(key)]),
+      ),
     setRuntime: async (key: string, value: unknown) => runtime.set(key, value),
     event: vi.fn(
       async (
@@ -149,8 +159,23 @@ beforeEach(() => {
   vi.resetAllMocks();
   vi.mocked(discover).mockResolvedValue([]);
   vi.mocked(freshFeedRecords).mockImplementation((ops) => ops);
+  vi.mocked(research).mockImplementation(async (op) => ({
+    description: op.description,
+    notes: "The public company website was inspected for this test.",
+  }));
   vi.mocked(assessWithAI).mockImplementation(async (op, workspace) => ({
     ...assessOpportunity(op, workspace.profile, workspace.preferences),
+    ...(op.kind === "startup"
+      ? {
+          startupFit: {
+            method: "semantic" as const,
+            status: "potential" as const,
+          },
+          fitSummary:
+            "Your interface delivery experience could contribute to this collaboration product.",
+          relevantEvidenceIds: ["demo-e1"],
+        }
+      : {}),
     recommendation: "ready",
     blockers: [],
     unknowns: [],
@@ -585,7 +610,7 @@ describe("useful discovery history", () => {
     t.workspace.sources = demoWorkspace().sources;
     t.run.discoveryScope = "startups";
     vi.mocked(discover).mockResolvedValue([
-      { ...demoOpportunities()[3], title: "Software Engineer" },
+      { ...demoOpportunities()[3], title: "A collaborative product" },
     ]);
     vi.mocked(generateDraft).mockRejectedValue(
       new Error("Draft service unavailable"),
@@ -611,7 +636,10 @@ describe("useful discovery history", () => {
     const t = setup();
     t.workspace.sources = demoWorkspace().sources;
     t.run.discoveryScope = "startups";
-    const startup = { ...demoOpportunities()[3], title: "Software Engineer" };
+    const startup = {
+      ...demoOpportunities()[3],
+      title: "A collaborative product",
+    };
     vi.mocked(discover).mockResolvedValue([startup]);
     await processRun(t.store, t.run, async () => {});
     expect(generateDraft).toHaveBeenCalledTimes(1);

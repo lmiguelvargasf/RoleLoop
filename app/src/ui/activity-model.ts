@@ -566,6 +566,7 @@ function runItem(run: Run, op?: Opportunity): ActivityItem {
     !!run.summary?.sourcesFailed ||
     !!run.summary?.draftFailures ||
     !!run.summary?.evaluationFailures ||
+    !!run.summary?.researchFailures ||
     /\b[1-9]\d* source\(s\) failed/i.test(run.message);
   const item: ActivityItem = {
     id: `run:${run.id}`,
@@ -635,8 +636,14 @@ function runItem(run: Run, op?: Opportunity): ActivityItem {
       if (sourceFailures)
         item.description += ` ${plural(sourceFailures, "source")} did not finish successfully.`;
       if (summary?.evaluationFailures)
-        item.description += ` ${plural(summary.evaluationFailures, "AI evaluation")} could not finish; those jobs need review.`;
-      if (!sourceFailures && !summary?.evaluationFailures)
+        item.description += ` ${plural(summary.evaluationFailures, "AI evaluation")} could not finish; those opportunities need review.`;
+      if (summary?.researchFailures)
+        item.description += ` ${plural(summary.researchFailures, "company website")} could not be researched; the saved leads remain available.`;
+      if (
+        !sourceFailures &&
+        !summary?.evaluationFailures &&
+        !summary?.researchFailures
+      )
         item.description += " Some parts of the search could not finish.";
       item.nextStep =
         "Review the results and the issues from this search. You can search again later.";

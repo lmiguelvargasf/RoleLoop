@@ -29,7 +29,8 @@ describe("practical discovery", () => {
       enabled: false,
     }));
     const before = structuredClone(sources);
-    const [feed] = sourcesForDiscovery(sources, "startups");
+    const [feed, directory] = sourcesForDiscovery(sources, "startups");
+    expect(directory.provider).toBe("seedcamp");
     expect(feed).toMatchObject({
       provider: "hackernews",
       enabled: true,
@@ -45,11 +46,30 @@ describe("practical discovery", () => {
     const feed = { ...demoWorkspace().sources[0], board: "design tools" };
     expect(
       sourcesForDiscovery([...recommendedSources, feed], "startups"),
-    ).toEqual([feed]);
+    ).toEqual([
+      feed,
+      expect.objectContaining({
+        provider: "seedcamp",
+        enabled: true,
+        board: "",
+      }),
+    ]);
     expect(
       sourcesForDiscovery([{ ...feed, enabled: false }], "startups"),
     ).toEqual([]);
     expect(sourcesForDiscovery([], "startups", "missing-feed")).toEqual([]);
+    const directory = {
+      id: "seedcamp",
+      provider: "seedcamp" as const,
+      label: "Seedcamp",
+      enabled: false,
+      board: "fintech",
+    };
+    expect(sourcesForDiscovery([feed, directory], "startups")).toEqual([feed]);
+    expect(
+      sourcesForDiscovery([feed, { ...directory, enabled: true }], "startups"),
+    ).toEqual([feed, { ...directory, enabled: true }]);
+    expect(sourcesForDiscovery([feed, directory], "jobs")).toEqual([]);
   });
 
   it("excludes explicitly incompatible hiring regions while retaining multi-region LATAM roles", () => {

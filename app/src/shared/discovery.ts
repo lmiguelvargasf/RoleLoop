@@ -233,7 +233,7 @@ export function addRecommendedSources(
 export function sourceKind(
   source: Pick<Source, "provider">,
 ): "company_board" | "job_feed" | "startup_feed" {
-  return source.provider === "hackernews"
+  return ["hackernews", "seedcamp"].includes(source.provider)
     ? "startup_feed"
     : ["jobicy", "weworkremotely"].includes(source.provider)
       ? "job_feed"
@@ -258,7 +258,9 @@ export function normalizeSource(source: Source): Source {
     board = parts[0] ?? "";
   }
   if (
-    !["hackernews", "jobicy", "weworkremotely"].includes(provider) &&
+    !["hackernews", "seedcamp", "jobicy", "weworkremotely"].includes(
+      provider,
+    ) &&
     !/^[a-zA-Z0-9][a-zA-Z0-9._-]{0,99}$/.test(board)
   )
     throw new Error(
@@ -410,6 +412,20 @@ export const startupLibrary: SourceResearch[] = [
     careersUrl: "https://news.ycombinator.com/show",
     checkedAt: "2026-11-06",
   },
+  {
+    source: {
+      id: "seedcamp-startups",
+      provider: "seedcamp",
+      label: "Seedcamp portfolio",
+      board: "",
+      enabled: true,
+    },
+    description:
+      "Companies in Seedcamp’s public portfolio, prioritized by your industry interests. Confirm current company needs before outreach.",
+    coverage: "Company directory · no advertised vacancy implied",
+    careersUrl: "https://seedcamp.com/our-companies/",
+    checkedAt: "2026-11-07",
+  },
 ];
 
 export function sourcesForDiscovery(
@@ -426,20 +442,27 @@ export function sourcesForDiscovery(
           ? sourceKind(source) === "startup_feed"
           : sourceKind(source) !== "startup_feed")),
   );
-  if (
-    scope !== "startups" ||
-    sourceId ||
-    sources.some((source) => sourceKind(source) === "startup_feed")
-  )
+  if (scope !== "startups" || sourceId) return selected;
+  const configured = sources.filter(
+    (source) => sourceKind(source) === "startup_feed",
+  );
+  if (configured.length && !configured.some((source) => source.enabled))
     return selected;
 
   // Startup research is ready without source setup. Do not overwrite configured
   // feeds or consume company capacity; paused feeds remain an explicit opt-out.
   const ids = new Set(sources.map((source) => source.id));
-  return startupLibrary.map(({ source }) => {
-    let id = `managed:${source.id}`;
-    while (ids.has(id)) id += "-feed";
-    ids.add(id);
-    return { ...source, id };
-  });
+  const defaults = startupLibrary.filter(
+    ({ source }) =>
+      !configured.some((saved) => saved.provider === source.provider),
+  );
+  return [
+    ...selected,
+    ...defaults.map(({ source }) => {
+      let id = `managed:${source.id}`;
+      while (ids.has(id)) id += "-feed";
+      ids.add(id);
+      return { ...source, id };
+    }),
+  ];
 }

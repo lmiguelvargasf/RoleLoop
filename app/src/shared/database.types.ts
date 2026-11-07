@@ -213,6 +213,7 @@ export type Database = {
           kind: string
           payload: Json
           source_key: string
+          startup_identity: string | null
           updated_at: string
           workspace_id: string
         }
@@ -223,6 +224,7 @@ export type Database = {
           kind: string
           payload: Json
           source_key: string
+          startup_identity?: string | null
           updated_at?: string
           workspace_id: string
         }
@@ -233,6 +235,7 @@ export type Database = {
           kind?: string
           payload?: Json
           source_key?: string
+          startup_identity?: string | null
           updated_at?: string
           workspace_id?: string
         }
@@ -556,6 +559,35 @@ export type Database = {
           target_workspace: string
         }
         Returns: number
+      }
+      startup_website_identity: {
+        Args: { website: string }
+        Returns: string | null
+      }
+      save_startup_with_corrections: {
+        Args: {
+          target_workspace: string
+          target_opportunity: string
+          opportunity_payload: Json
+          correction_patch: Json
+        }
+        Returns: {
+          company_id: string | null
+          discovery_source_id: string | null
+          id: string
+          kind: string
+          payload: Json
+          source_key: string
+          startup_identity: string | null
+          updated_at: string
+          workspace_id: string
+        }[]
+        SetofOptions: {
+          from: "*"
+          to: "opportunities"
+          isOneToOne: false
+          isSetofReturn: true
+        }
       }
       update_workspace_profile_if_current: {
         Args: {

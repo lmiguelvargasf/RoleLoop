@@ -116,7 +116,15 @@ export const SourceSchema = z.object({
   kind: z.enum(["company_board", "job_feed", "startup_feed"]).optional(),
   companyId: z.string().optional(),
   companyName: z.string().optional(),
-  provider: z.enum(["ashby", "greenhouse", "lever", "hackernews", "jobicy", "weworkremotely"]),
+  provider: z.enum([
+    "ashby",
+    "greenhouse",
+    "lever",
+    "hackernews",
+    "seedcamp",
+    "jobicy",
+    "weworkremotely",
+  ]),
   label: z.string(),
   board: z.string(),
   enabled: z.boolean(),
@@ -155,6 +163,13 @@ export const AssessmentSchema = z.object({
   fitSummary: z.string().optional(),
   learningGaps: z.array(z.string()).optional(),
   relevantEvidenceIds: z.array(z.string()).optional(),
+  startupFit: z
+    .object({
+      method: z.enum(["semantic", "signals", "none"]),
+      status: z.enum(["potential", "unconfirmed"]),
+      failureReason: z.string().optional(),
+    })
+    .optional(),
   score: z.number(),
   essentialScore: z.number(),
   recommendation: z.enum(["ready", "review", "excluded"]),
@@ -215,6 +230,24 @@ export const OpportunitySchema = z.object({
   updatedAt: z.string(),
   requirements: z.array(RequirementSchema).default([]),
   signals: z.array(z.string()).default([]),
+  discoverySignals: z
+    .array(
+      z.object({
+        source: z.string().max(100),
+        sourceKey: z.string().max(2000),
+        url: z.string().url().max(2000),
+        publishedAt: z
+          .string()
+          .refine(
+            (value) => Number.isFinite(Date.parse(value)),
+            "Use a valid source date",
+          )
+          .nullable(),
+        title: z.string().max(2000),
+      }),
+    )
+    .max(100)
+    .optional(),
   contactName: z.string().default(""),
   contactEmail: z.string().default(""),
   contactSource: z.string().default(""),
@@ -289,7 +322,11 @@ export type Assessment = z.infer<typeof AssessmentSchema>;
 export type Draft = z.infer<typeof DraftSchema>;
 export type Requirement = z.infer<typeof RequirementSchema>;
 export type RunAction =
-  "discover" | "analyze" | "draft" | "simulate" | "research";
+  | "discover"
+  | "analyze"
+  | "draft"
+  | "simulate"
+  | "research";
 export interface Run {
   requestedBy?: string;
   id: string;
@@ -313,6 +350,8 @@ export interface Run {
     companiesConnected: number;
     draftFailures: number;
     evaluationFailures?: number;
+    companiesResearched?: number;
+    researchFailures?: number;
   };
   createdAt: string;
   updatedAt: string;

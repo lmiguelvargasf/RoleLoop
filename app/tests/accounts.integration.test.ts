@@ -726,7 +726,7 @@ integration(
               description: preferred
                 ? "Climate risk software"
                 : "Accounting software",
-              url: `https://example.com/${kind}/${preferred ? "climate" : "accounting"}`,
+              url: `https://${preferred ? "climate" : "accounting"}.example.com/${kind}`,
               publishedAt: new Date(
                 Date.now() - (preferred ? 2 : 1) * 86400000,
               ).toISOString(),
@@ -769,6 +769,147 @@ integration(
           );
         }
       }
+    });
+    it("returns an actionable conflict when manually adding an existing startup website", async () => {
+      const actor = await account("Duplicate startup test");
+      const requestHeaders = headers(actor, actor.workspaceId);
+      const first = await app.inject({
+        method: "POST",
+        url: "/api/opportunities",
+        headers: requestHeaders,
+        payload: {
+          kind: "startup",
+          company: "Original startup",
+          title: "Company research",
+          description: "Original saved description",
+          url: "https://duplicate-startup.example.test/",
+          notes: "Retain the original prospect",
+        },
+      });
+      expect(first.statusCode, first.body).toBe(200);
+      const duplicate = await app.inject({
+        method: "POST",
+        url: "/api/opportunities",
+        headers: requestHeaders,
+        payload: {
+          kind: "startup",
+          company: "Another name",
+          title: "Additional research",
+          description: "New form contents",
+          url: "https://www.duplicate-startup.example.test/about?ref=directory",
+        },
+      });
+      expect(duplicate.statusCode, duplicate.body).toBe(409);
+      expect(duplicate.json().error).toContain("Open the existing prospect");
+      const state = await app.inject({
+        url: "/api/bootstrap",
+        headers: requestHeaders,
+      });
+      expect(state.statusCode, state.body).toBe(200);
+      expect(state.json().opportunities).toHaveLength(1);
+      expect(state.json().opportunities[0]).toMatchObject({
+        id: first.json().id,
+        company: "Original startup",
+        description: "Original saved description",
+        notes: "Retain the original prospect",
+      });
+    });
+    it("rolls back duplicate startup edits and corrections together and enforces RPC ownership", async () => {
+      const actor = await account("Atomic startup corrections test");
+      const requestHeaders = headers(actor, actor.workspaceId);
+      const created = [];
+      for (const company of ["first", "second"]) {
+        const response = await app.inject({
+          method: "POST",
+          url: "/api/opportunities",
+          headers: requestHeaders,
+          payload: {
+            kind: "startup",
+            company,
+            title: `${company} company research`,
+            description: "Existing company description",
+            url: `https://${company}.atomic-startup.example.test/`,
+          },
+        });
+        expect(response.statusCode, response.body).toBe(200);
+        created.push(response.json());
+      }
+      const target = created[1];
+      for (const patch of [
+        { title: "Reviewed title" },
+        { notes: "Preserve both corrections" },
+      ]) {
+        const edited = await app.inject({
+          method: "PATCH",
+          url: `/api/opportunities/${target.id}`,
+          headers: requestHeaders,
+          payload: patch,
+        });
+        expect(edited.statusCode, edited.body).toBe(200);
+      }
+      const readOpportunity = () =>
+        actor.client
+          .from("opportunities")
+          .select("payload")
+          .eq("workspace_id", actor.workspaceId)
+          .eq("id", target.id)
+          .single();
+      const readCorrections = () =>
+        actor.client
+          .from("workspace_runtime")
+          .select("payload")
+          .eq("workspace_id", actor.workspaceId)
+          .eq("key", `corrections:${target.id}`)
+          .single();
+      const before = await readOpportunity();
+      const previousCorrections = await readCorrections();
+      expect(before.error).toBeNull();
+      expect(previousCorrections.error).toBeNull();
+      expect(previousCorrections.data!.payload).toEqual({
+        title: "Reviewed title",
+        notes: "Preserve both corrections",
+      });
+      const duplicate = await app.inject({
+        method: "PATCH",
+        url: `/api/opportunities/${target.id}`,
+        headers: requestHeaders,
+        payload: {
+          companyUrl: "https://www.first.atomic-startup.example.test/",
+          description:
+            "This rejected description must never become a correction",
+        },
+      });
+      expect(duplicate.statusCode, duplicate.body).toBe(409);
+      expect((await readOpportunity()).data).toEqual(before.data);
+      expect((await readCorrections()).data).toEqual(previousCorrections.data);
+
+      const parameters = {
+        target_workspace: actor.workspaceId,
+        target_opportunity: target.id,
+        opportunity_payload: before.data!.payload,
+        correction_patch: { notes: "Unauthorized replacement" },
+      };
+      const denied = await bob.client.rpc(
+        "save_startup_with_corrections",
+        parameters,
+      );
+      expect(denied.error?.code).toBe("42501");
+      for (const identity of [
+        { id: randomUUID() },
+        { kind: "job" },
+        { sourceKey: "forged:identity" },
+      ]) {
+        const invalid = await actor.client.rpc(
+          "save_startup_with_corrections",
+          {
+            ...parameters,
+            opportunity_payload: { ...before.data!.payload, ...identity },
+          },
+        );
+        expect(invalid.error?.code).toBe("22023");
+      }
+      expect((await readOpportunity()).data).toEqual(before.data);
+      expect((await readCorrections()).data).toEqual(previousCorrections.data);
     });
     it("blocks cross-workspace reads, updates, exports and direct database access", async () => {
       const created = await app.inject({

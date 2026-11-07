@@ -99,6 +99,53 @@ export function normalizeSkill(s: string): string {
 // A CV skill/language list is a declaration, not evidence of applying it.
 export const isListedClaim = (evidence: { category?: string }) =>
   evidence.category === "skills" || evidence.category === "language";
+// Contributions need examples of applied work, not a credential or a list of
+// tools. Older extracted facts did not have categories; retain those examples.
+export const isAppliedExperience = (evidence: { category?: string }) =>
+  !evidence.category ||
+  evidence.category === "experience" ||
+  evidence.category === "project";
+export const STARTUP_CONTRIBUTION_UNCONFIRMED =
+  "Your specific contribution to this startup still needs supporting evidence.";
+
+function startupSkillSignals(
+  description: string,
+  evidence: NonNullable<ReturnType<typeof careerFacts>>["evidence"],
+) {
+  const applied = evidence.filter(isAppliedExperience);
+  const skills = new Map<string, string>();
+  const evidenceIds: string[] = [];
+  for (const entry of applied) {
+    let relevant = false;
+    for (const skill of entry.skills) {
+      const normalized = normalizeSkill(skill);
+      const aliases = (
+        {
+          typescript: ["typescript", "ts"],
+          javascript: ["javascript", "js"],
+          nodejs: ["nodejs", "node.js"],
+          postgresql: ["postgresql", "postgres"],
+          react: ["react", "react.js"],
+          aws: ["aws", "amazon web services"],
+        } as Record<string, string[]>
+      )[normalized];
+      const found = [skill.trim(), ...(aliases ?? [normalized])]
+        .filter(Boolean)
+        .some((term) => {
+          const escaped = term.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+          return new RegExp(
+            `(?<![\\p{L}\\p{N}])${escaped}(?![\\p{L}\\p{N}])`,
+            "iu",
+          ).test(description);
+        });
+      if (!found) continue;
+      skills.set(normalized, skills.get(normalized) ?? skill);
+      relevant = true;
+    }
+    if (relevant) evidenceIds.push(entry.id);
+  }
+  return { skills: [...skills.values()], evidenceIds: evidenceIds.slice(0, 8) };
+}
 export function listedClaimExplanation(
   evidence: { category?: string; skills: string[] }[],
   requestedSkills: string[],
@@ -198,8 +245,11 @@ export function orderOpportunities(
         );
       return (
         a.rank - b.rank ||
-        b.freshness - a.freshness ||
+        // Directory entries often have no publication date. Prefer relevant
+        // company evidence before recency so launch feeds cannot monopolize
+        // both the list and its bounded research shortlist.
         b.priorityScore - a.priorityScore ||
+        b.freshness - a.freshness ||
         (b.op.assessment?.score || 0) - (a.op.assessment?.score || 0) ||
         (b.op.publishedAt || "").localeCompare(a.op.publishedAt || "")
       );
@@ -560,6 +610,10 @@ export function assessOpportunity(
     essentials.length && preferred.length
       ? Math.round(essentialScore * 0.8 + coverage(preferred) * 0.2)
       : coverage(matches);
+  let startupContribution: Pick<
+    Assessment,
+    "fitSummary" | "relevantEvidenceIds" | "startupFit"
+  > = {};
   if (op.kind === "job") {
     if (!matches.length)
       unknowns.push(
@@ -581,30 +635,36 @@ export function assessOpportunity(
         `Verified experience covers ${essentialScore}% of required qualifications; your minimum is ${prefs.essentialMatch}%.`,
       );
   } else {
-    const verifiedSkills = new Set(
-      evidence
-        .filter((e) => !isListedClaim(e))
-        .flatMap((e) => e.skills.map(normalizeSkill)),
-    );
-    const mentioned = [...verifiedSkills].filter((skill) =>
-      op.description.toLowerCase().includes(skill),
-    );
-    score = Math.min(100, mentioned.length * 20);
+    const signals = startupSkillSignals(op.description, evidence);
+    const labels = signals.skills.slice(0, 3).join(", ");
+    // This remains an internal ordering hint. It is not displayed as a fit
+    // percentage, and it cannot establish a contribution or hiring eligibility.
+    score = Math.min(100, signals.skills.length * 20);
+    startupContribution = {
+      startupFit: {
+        method: signals.evidenceIds.length ? "signals" : "none",
+        status: "unconfirmed",
+      },
+      relevantEvidenceIds: signals.evidenceIds,
+      fitSummary: signals.evidenceIds.length
+        ? `Your CV describes work with ${labels}, which also appear in the company description. Confirm how that experience relates to the team's current needs before outreach.`
+        : !evidence.some(isAppliedExperience)
+          ? "Add experience or project examples from your CV to assess a possible contribution. A skills list alone does not establish relevant work."
+          : "A specific contribution is not established from the available company description and CV experience. Research the product and confirm the team's needs before outreach.",
+    };
     reasons.push(
-      `Exploratory relevance indicator: ${mentioned.length} evidenced skill${mentioned.length === 1 ? "" : "s"} mentioned. This is not a job requirements score.`,
+      "Shared skill terms help order research leads; they do not establish a contribution and are not a job requirements score.",
     );
     if (!op.signals.length)
       unknowns.push("No dated company progress signals have been recorded.");
-    if (!mentioned.length)
-      unknowns.push(
-        "Your specific contribution to this startup still needs supporting evidence.",
-      );
+    unknowns.push(STARTUP_CONTRIBUTION_UNCONFIRMED);
   }
   if (!evidence.length)
     unknowns.push(
       "Upload a master CV and finish processing before preparing an application.",
     );
   return {
+    ...startupContribution,
     ...(op.kind === "job"
       ? {
           geography: {

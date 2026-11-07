@@ -276,6 +276,12 @@ function ActivityEntry({
                 {summary.sourcesFailed.toLocaleString()} sources failed ·{" "}
                 {summary.companiesConnected.toLocaleString()} companies
                 connected
+                {(summary.companiesResearched ?? 0) > 0
+                  ? ` · ${summary.companiesResearched} company websites researched`
+                  : ""}
+                {(summary.researchFailures ?? 0) > 0
+                  ? ` · ${summary.researchFailures} websites need retry`
+                  : ""}
                 {summary.draftFailures > 0
                   ? ` · ${summary.draftFailures.toLocaleString()} drafts could not be prepared`
                   : ""}

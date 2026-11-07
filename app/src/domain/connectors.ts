@@ -13,6 +13,7 @@ import {
 } from "../shared/types.js";
 import { dateWindow } from "./rules.js";
 import { requiresPhysicalPresence } from "./geography.js";
+import { discoverSeedcamp } from "./seedcamp-discovery.js";
 
 const LIMIT = 2 * 1024 * 1024;
 const IMPORT_LIMIT = 32 * 1024 * 1024;
@@ -656,6 +657,7 @@ export async function discover(
 ): Promise<Opportunity[]> {
   if (
     source.provider !== "hackernews" &&
+    source.provider !== "seedcamp" &&
     source.provider !== "jobicy" &&
     source.provider !== "weworkremotely" &&
     !/^[a-zA-Z0-9][a-zA-Z0-9._-]{0,99}$/.test(source.board)
@@ -664,7 +666,10 @@ export async function discover(
       "Use the public job-board identifier, such as acme, rather than a full URL.",
     );
   if (source.provider === "jobicy") return discoverJobicy(source);
-  if (source.provider === "weworkremotely") return discoverWeWorkRemotely(source);
+  if (source.provider === "weworkremotely")
+    return discoverWeWorkRemotely(source);
+  if (source.provider === "seedcamp")
+    return discoverSeedcamp(source, prefs, safeFetchText);
   const board = encodeURIComponent(source.board);
   if (source.provider === "ashby") {
     const data = await json(
@@ -847,6 +852,7 @@ export async function research(
 ): Promise<Partial<Opportunity>> {
   if (op.isDemo)
     return {
+      description: op.description,
       notes: [
         op.notes,
         "Demo research uses the existing fictional description; no website request was made.",

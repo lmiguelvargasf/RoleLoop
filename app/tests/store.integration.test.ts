@@ -85,7 +85,10 @@ async function cleanup(store: import("../src/server/store.js").WorkspaceStore) {
 integration("local Supabase source refresh and lifecycle", () => {
   it("preserves an edit made after import reads the previous source snapshot", async () => {
     const store = await makeStore();
-    const original = { ...isolatedOpportunity(), updatedAt: "2026-11-01T00:00:00.000Z" };
+    const original = {
+      ...isolatedOpportunity(),
+      updatedAt: "2026-11-01T00:00:00.000Z",
+    };
     const edited: Opportunity = {
       ...original,
       updatedAt: "2030-01-01T00:00:00.000Z",
@@ -132,10 +135,15 @@ integration("local Supabase source refresh and lifecycle", () => {
         expect(raced).toBe(true);
         expect(result.created).toBe(false);
         expect(result.opportunity).toMatchObject({
-          id: edited.id, stage: edited.stage, notes: edited.notes,
-          application: edited.application, salaryMin: original.salaryMin,
+          id: edited.id,
+          stage: edited.stage,
+          notes: edited.notes,
+          application: edited.application,
+          salaryMin: original.salaryMin,
         });
-        expect(await store.get("opportunities", original.id)).toEqual(result.opportunity);
+        expect(await store.get("opportunities", original.id)).toEqual(
+          result.opportunity,
+        );
       } finally {
         spy.mockRestore();
       }
@@ -384,7 +392,10 @@ integration("local Supabase source refresh and lifecycle", () => {
         { ...run, discoveryScope: "startups" },
         async () => {},
       );
-      expect(spy.mock.calls.map(([source]) => source.id)).toEqual(["startups"]);
+      expect(spy.mock.calls.map(([source]) => source.id)).toEqual([
+        "startups",
+        "managed:seedcamp-startups",
+      ]);
     } finally {
       spy.mockRestore();
       await cleanup(store);
@@ -396,6 +407,7 @@ integration("local Supabase source refresh and lifecycle", () => {
     const connectors = await import("../src/domain/connectors.js");
     const { processRun } = await import("../src/server/service.js");
     const startup = demoOpportunities().find((op) => op.kind === "startup")!;
+    const researchSpy = vi.spyOn(connectors, "research").mockResolvedValue({});
     const spy = vi
       .spyOn(connectors, "discover")
       .mockImplementation(async (source) => [
@@ -404,7 +416,7 @@ integration("local Supabase source refresh and lifecycle", () => {
           id: randomUUID(),
           source: source.provider,
           sourceId: source.id,
-          sourceKey: "hackernews:internal-startup-regression",
+          sourceKey: `${source.provider}:internal-startup-regression`,
           isDemo: false,
         },
       ]);
@@ -424,8 +436,11 @@ integration("local Supabase source refresh and lifecycle", () => {
         updatedAt: now,
       };
       await processRun(store, run, async () => {});
-      expect(spy).toHaveBeenCalledTimes(1);
-      expect(spy.mock.calls[0][0].provider).toBe("hackernews");
+      expect(spy).toHaveBeenCalledTimes(2);
+      expect(spy.mock.calls.map(([source]) => source.provider)).toEqual([
+        "hackernews",
+        "seedcamp",
+      ]);
       const after = await store.getWorkspace();
       expect(after.sources).toEqual([]);
       expect(after.sourcesRevision).toBe(before.sourcesRevision);
@@ -446,6 +461,7 @@ integration("local Supabase source refresh and lifecycle", () => {
       await processRun(store, run, async () => {});
       expect(await store.list("opportunities")).toHaveLength(1);
     } finally {
+      researchSpy.mockRestore();
       spy.mockRestore();
       await cleanup(store);
     }
