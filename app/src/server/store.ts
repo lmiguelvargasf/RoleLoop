@@ -141,9 +141,9 @@ export function createWorkspaceStore({
     if (!row) return missing();
     const [sourceRows, companyRows] = await Promise.all([
       client
-        .from("discovery_sources")
+        .from("workspace_sources")
         .select(
-          "id,kind,company_id,label,provider,board,enabled,discovered_from,discovered_at,companies(name,country,country_source)",
+          "id,source_id,keyword,company_id,label,enabled,discovered_from,discovered_at,discovery_sources!inner(kind,provider,board),companies(name,country,country_source)",
         )
         .eq("workspace_id", workspaceId)
         .order("position"),
@@ -156,12 +156,16 @@ export function createWorkspaceStore({
     const sources = (checked(sourceRows) ?? []).map((s: any) =>
       SourceSchema.parse({
         id: s.id,
-        kind: s.kind,
+        catalogId: s.source_id,
+        kind: s.discovery_sources.kind,
         companyId: s.company_id ?? undefined,
         companyName: s.companies?.name,
         label: s.label,
-        provider: s.provider,
-        board: s.board,
+        provider: s.discovery_sources.provider,
+        board:
+          s.discovery_sources.kind === "company_board"
+            ? s.discovery_sources.board
+            : s.keyword,
         enabled: s.enabled,
         companyCountry: s.companies?.country,
         countrySource: s.companies?.country_source ?? undefined,

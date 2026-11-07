@@ -22,6 +22,12 @@ integration(
       bob: Actor,
       carol: Actor;
     const users: string[] = [];
+    const testCatalogEntries: { provider: string; board: string }[] = [];
+    const testBoard = (provider: string) => {
+      const board = `account-source-test-${randomUUID()}`;
+      testCatalogEntries.push({ provider, board });
+      return board;
+    };
     const headers = (actor?: Actor, workspaceId?: string) => ({
       host: "127.0.0.1:4310",
       ...(actor ? { authorization: `Bearer ${actor.token}` } : {}),
@@ -104,6 +110,16 @@ integration(
           }
           await db.from("app_admins").delete().eq("user_id", id);
           const removed = await db.auth.admin.deleteUser(id);
+          if (removed.error) throw new Error(removed.error.message);
+        }
+        // Defaults may be shared with real workspaces. Clean only unique boards
+        // created by this test file, after their workspace memberships are gone.
+        for (const source of testCatalogEntries) {
+          const removed = await db
+            .from("discovery_sources")
+            .delete()
+            .eq("provider", source.provider)
+            .eq("board", source.board);
           if (removed.error) throw new Error(removed.error.message);
         }
       }
@@ -242,7 +258,7 @@ integration(
             id: "unique-company",
             provider: "ashby",
             label: "Unique graph company",
-            board: `company-${randomUUID()}`,
+            board: testBoard("ashby"),
             enabled: true,
           },
         ],
@@ -265,7 +281,7 @@ integration(
       expect(
         (
           await bob.client
-            .from("discovery_sources")
+            .from("workspace_sources")
             .select("id")
             .eq("workspace_id", actor.workspaceId)
         ).data,
@@ -313,7 +329,7 @@ integration(
         id: "source-health-test",
         provider: "greenhouse" as const,
         label: "Test board",
-        board: "test",
+        board: testBoard("greenhouse"),
         enabled: true,
       };
       await store.updateWorkspace({ sources: [source] });

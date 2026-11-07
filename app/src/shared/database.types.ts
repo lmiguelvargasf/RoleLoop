@@ -119,59 +119,23 @@ export type Database = {
       discovery_sources: {
         Row: {
           board: string
-          company_id: string | null
-          discovered_at: string | null
-          discovered_from: string | null
-          enabled: boolean
           id: string
           kind: string
-          label: string
-          position: number
           provider: string
-          workspace_id: string
         }
         Insert: {
           board: string
-          company_id?: string | null
-          discovered_at?: string | null
-          discovered_from?: string | null
-          enabled?: boolean
-          id: string
+          id?: string
           kind: string
-          label: string
-          position?: number
           provider: string
-          workspace_id: string
         }
         Update: {
           board?: string
-          company_id?: string | null
-          discovered_at?: string | null
-          discovered_from?: string | null
-          enabled?: boolean
           id?: string
           kind?: string
-          label?: string
-          position?: number
           provider?: string
-          workspace_id?: string
         }
-        Relationships: [
-          {
-            foreignKeyName: "discovery_sources_workspace_id_company_id_fkey"
-            columns: ["workspace_id", "company_id"]
-            isOneToOne: false
-            referencedRelation: "companies"
-            referencedColumns: ["workspace_id", "id"]
-          },
-          {
-            foreignKeyName: "discovery_sources_workspace_id_fkey"
-            columns: ["workspace_id"]
-            isOneToOne: false
-            referencedRelation: "workspace"
-            referencedColumns: ["id"]
-          },
-        ]
+        Relationships: []
       }
       drafts: {
         Row: {
@@ -291,7 +255,7 @@ export type Database = {
             foreignKeyName: "opportunity_discovery_source"
             columns: ["workspace_id", "discovery_source_id"]
             isOneToOne: false
-            referencedRelation: "discovery_sources"
+            referencedRelation: "workspace_sources"
             referencedColumns: ["workspace_id", "id"]
           },
         ]
@@ -430,6 +394,67 @@ export type Database = {
         Relationships: [
           {
             foreignKeyName: "workspace_runtime_workspace_id_fkey"
+            columns: ["workspace_id"]
+            isOneToOne: false
+            referencedRelation: "workspace"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      workspace_sources: {
+        Row: {
+          company_id: string | null
+          discovered_at: string | null
+          discovered_from: string | null
+          enabled: boolean
+          id: string
+          keyword: string
+          label: string
+          position: number
+          source_id: string
+          workspace_id: string
+        }
+        Insert: {
+          company_id?: string | null
+          discovered_at?: string | null
+          discovered_from?: string | null
+          enabled?: boolean
+          id: string
+          keyword?: string
+          label: string
+          position?: number
+          source_id: string
+          workspace_id: string
+        }
+        Update: {
+          company_id?: string | null
+          discovered_at?: string | null
+          discovered_from?: string | null
+          enabled?: boolean
+          id?: string
+          keyword?: string
+          label?: string
+          position?: number
+          source_id?: string
+          workspace_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "workspace_sources_source_id_fkey"
+            columns: ["source_id"]
+            isOneToOne: false
+            referencedRelation: "discovery_sources"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "workspace_sources_workspace_id_company_id_fkey"
+            columns: ["workspace_id", "company_id"]
+            isOneToOne: false
+            referencedRelation: "companies"
+            referencedColumns: ["workspace_id", "id"]
+          },
+          {
+            foreignKeyName: "workspace_sources_workspace_id_fkey"
             columns: ["workspace_id"]
             isOneToOne: false
             referencedRelation: "workspace"

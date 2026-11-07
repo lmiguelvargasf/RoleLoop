@@ -11,15 +11,21 @@ import { createDraft } from "../src/domain/templates.js";
 const integration =
   process.env.ROLELOOP_INTEGRATION === "1" ? describe : describe.skip;
 
-const companyBoard = (board = `company-${randomUUID()}`): Source => ({
-  id: randomUUID(),
-  provider: "ashby",
-  label: "Discovered employer",
-  board,
-  enabled: true,
-  discoveredFrom: "https://example.com/employers/acme",
-  discoveredAt: "2026-11-06T17:00:00.000Z",
-});
+const testCatalogBoards = new Set<string>();
+const companyBoard = (
+  board = `source-connections-test-${randomUUID()}`,
+): Source => {
+  testCatalogBoards.add(board.toLowerCase());
+  return {
+    id: randomUUID(),
+    provider: "ashby",
+    label: "Discovered employer",
+    board,
+    enabled: true,
+    discoveredFrom: "https://example.com/employers/acme",
+    discoveredAt: "2026-11-06T17:00:00.000Z",
+  };
+};
 
 integration("concurrent employer connections and source editing", () => {
   let db: SupabaseClient, app: FastifyInstance;
@@ -86,8 +92,278 @@ integration("concurrent employer connections and source editing", () => {
       const removed = await db.auth.admin.deleteUser(id);
       if (removed.error) throw removed.error;
     }
+    // Catalog entries outlive memberships. Remove only this suite's unique boards;
+    // shared built-in feeds and boards belonging to other workspaces stay intact.
+    if (testCatalogBoards.size) {
+      const removed = await db
+        .from("discovery_sources")
+        .delete()
+        .eq("provider", "ashby")
+        .in("board", [...testCatalogBoards]);
+      if (removed.error) throw removed.error;
+    }
     if (app) await app.close();
   }, 30000);
+
+  it("shares one canonical board across concurrent workspace connections with independent settings", async () => {
+    const alice = await actor(),
+      bob = await actor();
+    const first = companyBoard();
+    const second = {
+      ...first,
+      id: randomUUID(),
+      board: first.board.toUpperCase(),
+      label: "Bob's employer label",
+    };
+    const results = await Promise.all([
+      alice.worker.connectDiscoveredSource(first),
+      bob.worker.connectDiscoveredSource(second),
+    ]);
+    expect(results.map((result) => result.status)).toEqual(["added", "added"]);
+    const aliceBefore = await alice.store.getWorkspace();
+    const bobBefore = await bob.store.getWorkspace();
+    const a = aliceBefore.sources[0],
+      b = bobBefore.sources[0];
+    expect(a.id).toBe(first.id);
+    expect(b.id).toBe(second.id);
+    expect(a.catalogId).toBeTruthy();
+    expect(a.catalogId).toBe(b.catalogId);
+    const catalog = await db
+      .from("discovery_sources")
+      .select("*")
+      .eq("provider", "ashby")
+      .eq("board", first.board);
+    expect(catalog.error).toBeNull();
+    expect(catalog.data).toHaveLength(1);
+    expect(catalog.data![0]).toMatchObject({
+      id: a.catalogId,
+      kind: "company_board",
+      provider: "ashby",
+      board: first.board,
+    });
+    expect(catalog.data![0]).not.toHaveProperty("workspace_id");
+    expect(catalog.data![0]).not.toHaveProperty("label");
+    const memberships = await db
+      .from("workspace_sources")
+      .select("workspace_id,id,source_id")
+      .eq("source_id", a.catalogId!);
+    expect(memberships.error).toBeNull();
+    expect(memberships.data).toHaveLength(2);
+
+    await replace(alice.store, [
+      {
+        ...a,
+        label: "Alice's private label",
+        companyName: "Alice's private label",
+        enabled: false,
+      },
+    ]);
+    const aliceAfter = await alice.store.getWorkspace();
+    const bobAfter = await bob.store.getWorkspace();
+    expect(aliceAfter.sources[0]).toMatchObject({
+      catalogId: a.catalogId,
+      label: "Alice's private label",
+      enabled: false,
+    });
+    expect(bobAfter.sources).toEqual(bobBefore.sources);
+    expect(bobAfter.sourcesRevision).toBe(bobBefore.sourcesRevision);
+  });
+
+  it("shares a feed definition while keeping workspace keywords and labels private", async () => {
+    const alice = await actor(),
+      bob = await actor();
+    const feed: Source = {
+      id: randomUUID(),
+      provider: "jobicy",
+      label: "Alice's feed",
+      board: "private customer support query",
+      enabled: false,
+    };
+    const a = (await replace(alice.store, [feed])).sources[0];
+    const b = (
+      await replace(bob.store, [
+        {
+          ...feed,
+          id: randomUUID(),
+          label: "Bob's feed",
+          board: "private engineering query",
+          enabled: true,
+        },
+      ])
+    ).sources[0];
+    expect(a.catalogId).toBeTruthy();
+    expect(a.catalogId).toBe(b.catalogId);
+    expect(a.board).toBe(feed.board);
+    expect(b.board).toBe("private engineering query");
+    const catalog = await alice.client
+      .from("discovery_sources")
+      .select("*")
+      .eq("id", a.catalogId!)
+      .single();
+    expect(catalog.error).toBeNull();
+    expect(catalog.data).toMatchObject({ provider: "jobicy", board: "" });
+    expect(JSON.stringify(catalog.data)).not.toContain("private");
+    const memberships = await alice.client
+      .from("workspace_sources")
+      .select("label,keyword,enabled")
+      .eq("source_id", a.catalogId!);
+    expect(memberships.error).toBeNull();
+    expect(memberships.data).toEqual([
+      { label: feed.label, keyword: feed.board, enabled: false },
+    ]);
+    await replace(alice.store, [{ ...a, board: "updated private query" }]);
+    expect((await bob.store.getWorkspace()).sources[0]).toEqual(b);
+    expect((await alice.store.getWorkspace()).sources[0].catalogId).toBe(
+      a.catalogId,
+    );
+    const primary = (await alice.store.getWorkspace()).sources[0];
+    const multiple = await replace(alice.store, [
+      primary,
+      {
+        ...primary,
+        id: randomUUID(),
+        label: "Alice's second keyword subscription",
+        board: "another private query",
+        enabled: true,
+      },
+    ]);
+    expect(multiple.sources).toHaveLength(2);
+    expect(multiple.sources.map((source) => source.catalogId)).toEqual([
+      a.catalogId,
+      a.catalogId,
+    ]);
+    expect(multiple.sources.map((source) => source.board)).toEqual([
+      "updated private query",
+      "another private query",
+    ]);
+    expect((await bob.store.getWorkspace()).sources[0]).toEqual(b);
+  });
+
+  it("removes one workspace membership without deleting the shared board or application history", async () => {
+    const alice = await actor(),
+      bob = await actor();
+    const source = companyBoard();
+    const a = (await replace(alice.store, [source])).sources[0];
+    const b = (await replace(bob.store, [source])).sources[0];
+    const opportunity = await alice.store.importOpportunity({
+      ...demoOpportunities()[0],
+      id: randomUUID(),
+      source: source.provider,
+      sourceId: source.id,
+      sourceKey: `shared-source-history:${randomUUID()}`,
+      application: {
+        status: "applied",
+        appliedAt: new Date().toISOString(),
+        nextAction: "Follow up",
+        followUpOn: null,
+        notes: "Preserve application history",
+      },
+    });
+    const otherOpportunity = await bob.store.importOpportunity({
+      ...opportunity,
+      id: randomUUID(),
+      companyId: b.companyId,
+    });
+    await replace(alice.store, []);
+    expect((await bob.store.getWorkspace()).sources).toEqual([b]);
+    expect(
+      (await alice.store.get("opportunities", opportunity.id)).application,
+    ).toEqual(opportunity.application);
+    const references = await db
+      .from("opportunities")
+      .select("id,discovery_source_id")
+      .in("id", [opportunity.id, otherOpportunity.id]);
+    expect(references.error).toBeNull();
+    expect(references.data).toEqual(
+      expect.arrayContaining([
+        { id: opportunity.id, discovery_source_id: null },
+        { id: otherOpportunity.id, discovery_source_id: source.id },
+      ]),
+    );
+    expect(await alice.store.ignoredDiscoveryIdentities()).toEqual([
+      `ashby:${source.board}`,
+    ]);
+    expect(await bob.store.ignoredDiscoveryIdentities()).toEqual([]);
+    const hidden = await alice.client
+      .from("discovery_sources")
+      .select("id")
+      .eq("id", a.catalogId!);
+    expect(hidden.error).toBeNull();
+    expect(hidden.data).toEqual([]);
+    const retained = await bob.client
+      .from("discovery_sources")
+      .select("id")
+      .eq("id", b.catalogId!);
+    expect(retained.error).toBeNull();
+    expect(retained.data).toEqual([{ id: b.catalogId }]);
+  });
+
+  it("isolates memberships and prevents catalog writes or forged catalog identities", async () => {
+    const alice = await actor(),
+      bob = await actor();
+    const a = (await replace(alice.store, [companyBoard()])).sources[0];
+    const b = (await replace(bob.store, [companyBoard()])).sources[0];
+    const hiddenMembership = await alice.client
+      .from("workspace_sources")
+      .select("*")
+      .eq("workspace_id", bob.workspaceId);
+    expect(hiddenMembership.error).toBeNull();
+    expect(hiddenMembership.data).toEqual([]);
+    const hiddenCatalog = await alice.client
+      .from("discovery_sources")
+      .select("id")
+      .eq("id", b.catalogId!);
+    expect(hiddenCatalog.error).toBeNull();
+    expect(hiddenCatalog.data).toEqual([]);
+    const update = await alice.client
+      .from("discovery_sources")
+      .update({ board: "poisoned-board" })
+      .eq("id", a.catalogId!);
+    expect(update.error?.code).toBe("42501");
+    const insert = await alice.client.from("discovery_sources").insert({
+      id: randomUUID(),
+      kind: "company_board",
+      provider: "ashby",
+      board: `forged-${randomUUID()}`,
+    });
+    expect(insert.error?.code).toBe("42501");
+    const remove = await alice.client
+      .from("discovery_sources")
+      .delete()
+      .eq("id", a.catalogId!);
+    expect(remove.error?.code).toBe("42501");
+    const foreignEdit = await alice.client
+      .from("workspace_sources")
+      .update({ enabled: false })
+      .eq("workspace_id", bob.workspaceId);
+    expect(foreignEdit.error?.code).toBe("42501");
+
+    const saved = await replace(alice.store, [
+      { ...a, catalogId: b.catalogId },
+    ]);
+    expect(saved.sources[0].catalogId).toBe(a.catalogId);
+    const untouched = await db
+      .from("discovery_sources")
+      .select("provider,board")
+      .eq("id", b.catalogId!)
+      .single();
+    expect(untouched.error).toBeNull();
+    expect(untouched.data).toEqual({ provider: b.provider, board: b.board });
+    expect((await bob.store.getWorkspace()).sources).toEqual([b]);
+    const malformed = await alice.client.rpc("replace_discovery_sources", {
+      target_workspace: alice.workspaceId,
+      expected_revision: saved.sourcesRevision,
+      source_payload: [{ ...a, board: "https://invalid.example/not-a-board" }],
+    });
+    expect(malformed.error?.code).toBe("22023");
+    expect((await alice.store.getWorkspace()).sources).toEqual(saved.sources);
+    const poisoned = await db
+      .from("discovery_sources")
+      .select("id")
+      .eq("board", "https://invalid.example/not-a-board");
+    expect(poisoned.error).toBeNull();
+    expect(poisoned.data).toEqual([]);
+  });
 
   it("rejects a stale full-list edit after auto-connection and preserves paused boards and provenance", async () => {
     const { store, worker } = await actor();

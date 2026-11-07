@@ -112,6 +112,7 @@ export const CompanySchema = z.object({
 export type Company = z.infer<typeof CompanySchema>;
 export const SourceSchema = z.object({
   id: z.string(),
+  catalogId: z.string().optional(),
   kind: z.enum(["company_board", "job_feed", "startup_feed"]).optional(),
   companyId: z.string().optional(),
   companyName: z.string().optional(),
