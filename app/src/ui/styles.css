@@ -4112,6 +4112,9 @@ summary.source-editor-top::before {
   display: block;
   min-height: 0;
 }
+.opportunity-workspace .empty-state p:last-child {
+  margin-bottom: 0;
+}
 .job-browse-row {
   display: flex;
   align-items: stretch;

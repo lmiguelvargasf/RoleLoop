@@ -225,7 +225,7 @@ function Empty({
       <div className="empty-icon">{icon}</div>
       <h3>{title}</h3>
       <p>{detail}</p>
-      <div className="button-row">{children}</div>
+      {children && <div className="button-row">{children}</div>}
     </div>
   );
 }
@@ -1461,33 +1461,30 @@ function Opportunities({
                           : "Discover startups, review what they build, and add the companies you want to contact to outreach."
               }
             >
-              <button
-                className={`button ${all.length > 0 ? "secondary" : "primary"}`}
-                disabled={all.length === 0 && (busy || searching)}
-                onClick={() => {
-                  if (hasStartupFilter) {
-                    setQuery("");
-                    setStartupSource("all");
-                    setVisibleCount(50);
-                    setChecked(new Set());
-                  } else if (all.length > 0 || stage === "archived") {
-                    changeView(
-                      !hasActive && all.length > 0 ? "archived" : "all",
-                    );
-                  } else void search();
-                }}
-              >
-                {hasStartupFilter
-                  ? "Clear filters"
-                  : all.length > 0 || stage === "archived"
-                    ? !hasActive && all.length > 0
+              {(hasStartupFilter || all.length > 0 || stage === "archived") && (
+                <button
+                  className="button secondary"
+                  onClick={() => {
+                    if (hasStartupFilter) {
+                      setQuery("");
+                      setStartupSource("all");
+                      setVisibleCount(50);
+                      setChecked(new Set());
+                    } else {
+                      changeView(
+                        !hasActive && all.length > 0 ? "archived" : "all",
+                      );
+                    }
+                  }}
+                >
+                  {hasStartupFilter
+                    ? "Clear filters"
+                    : !hasActive && all.length > 0
                       ? "View archived companies"
-                      : "View all saved"
-                    : searching
-                      ? "Searching…"
-                      : searchLabel}
-                <ArrowRight size={15} />
-              </button>
+                      : "View all saved"}
+                  <ArrowRight size={15} />
+                </button>
+              )}
             </Empty>
           ) : (
             <Empty
@@ -1508,32 +1505,20 @@ function Opportunities({
                     : "Search for jobs using your preferences. RoleLoop finds openings and evaluates them against your resume."
               }
             >
-              <button
-                className="button primary"
-                disabled={
-                  !hasSourceFilter && (busy || (searching && !hasActive))
-                }
-                onClick={() => {
-                  if (hasSourceFilter) {
-                    setSourceFilter("all");
-                    setVisibleCount(stage === "recommended" ? 10 : 50);
-                  } else if (hasActive) {
-                    changeView("all");
-                  } else if (!canSearch) navigate("settings");
-                  else void search();
-                }}
-              >
-                {hasSourceFilter
-                  ? "Show all sources"
-                  : hasActive
-                    ? "View all saved jobs"
-                    : !canSearch
-                      ? "Set search preferences"
-                      : searching
-                        ? "Searching…"
-                        : searchLabel}
-                <ArrowRight size={15} />
-              </button>
+              {(hasSourceFilter || hasActive) && (
+                <button
+                  className="button secondary"
+                  onClick={() => {
+                    if (hasSourceFilter) {
+                      setSourceFilter("all");
+                      setVisibleCount(stage === "recommended" ? 10 : 50);
+                    } else changeView("all");
+                  }}
+                >
+                  {hasSourceFilter ? "Show all sources" : "View all saved jobs"}
+                  <ArrowRight size={15} />
+                </button>
+              )}
             </Empty>
           )}
           {visibleList.length < list.length && (
