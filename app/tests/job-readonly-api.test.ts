@@ -139,19 +139,37 @@ describe("read-only job facts through the API", () => {
     expect(mocks.store.setRuntime).not.toHaveBeenCalled();
   });
 
-  it("keeps startup facts editable without introducing omitted corrections", async () => {
-    const startup = demoOpportunities().find((op) => op.kind === "startup")!;
+  it.each([
+    { title: "Changed startup title" },
+    { description: "Changed product" },
+    { contactEmail: "new@example.com" },
+    { signals: ["Invented traction"] },
+    { notes: "Changed company source note" },
+    { stage: "archived", company: "Changed company" },
+  ])("rejects startup fact edits atomically: %j", async (payload) => {
+    const startup = demoOpportunities()[3];
     mocks.store.get.mockResolvedValue(startup);
-    const response = await patch(app, startup.id, {
-      title: "Reviewed startup prospect",
-    });
+    const response = await patch(app, startup.id, payload);
+    expect(response.statusCode, response.body).toBe(400);
+    expect(mocks.store.save).not.toHaveBeenCalled();
+    expect(mocks.store.setRuntime).not.toHaveBeenCalled();
+    expect(mocks.store.saveStartupWithCorrections).not.toHaveBeenCalled();
+    expect(mocks.analyze).not.toHaveBeenCalled();
+    expect(mocks.recordOpportunityChanges).not.toHaveBeenCalled();
+  });
 
-    expect(response.statusCode, response.body).toBe(200);
-    expect(response.json()).toEqual({
-      ...startup,
-      title: "Reviewed startup prospect",
-      updatedAt: expect.any(String),
-    });
-    expect(mocks.analyze).toHaveBeenCalledTimes(1);
+  it("allows startup archive and restore while preserving sourced facts and outreach", async () => {
+    let startup = demoOpportunities()[3];
+    for (const stage of ["archived", "new"] as const) {
+      mocks.store.get.mockResolvedValue(startup);
+      const response = await patch(app, startup.id, { stage });
+      expect(response.statusCode, response.body).toBe(200);
+      expect(response.json()).toEqual({
+        ...startup,
+        stage,
+        updatedAt: expect.any(String),
+      });
+      startup = response.json();
+    }
   });
 });

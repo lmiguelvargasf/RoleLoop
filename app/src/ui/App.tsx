@@ -17,18 +17,15 @@ import {
   Columns3,
   Check,
   CheckCircle2,
-  Database,
   Download,
   ExternalLink,
   FileText,
   FileUser,
   Inbox,
-  Link2,
   LoaderCircle,
   LogOut,
   MessagesSquare,
   Pencil,
-  Play,
   Plus,
   Rocket,
   Save,
@@ -40,7 +37,6 @@ import {
   X,
 } from "lucide-react";
 import type {
-  Company,
   AccountContext,
   Bootstrap,
   Draft,
@@ -49,7 +45,7 @@ import type {
   Profile,
   RunAction,
 } from "../shared/types";
-import { api, date, downloadFile, safeUrl, uid, words, write } from "./api";
+import { api, date, downloadFile, safeUrl, write } from "./api";
 import { jobLocationStatus } from "../shared/job-matches";
 import { recommendationForJob } from "../shared/job-recommendations";
 import {
@@ -83,6 +79,14 @@ import {
 } from "../shared/outreach-board";
 import { JobFitDetails } from "./JobFitDetails";
 import { StartupFitDetails } from "./StartupFitDetails";
+import {
+  StartupCompanyOverview,
+  StartupContributionPreview,
+  StartupIndustryLabels,
+  StartupSignalPreview,
+} from "./StartupCompanyProfile";
+import { opportunityMatchesQuery } from "../shared/opportunity-search";
+import { startupSummary } from "../shared/startup-company";
 import { sourceKind } from "../shared/discovery";
 import {
   applicationColumn,
@@ -559,8 +563,7 @@ function Opportunities({
     [checked, setChecked] = useState<Set<string>>(new Set()),
     [selected, setSelected] = useState<string | null>(() =>
       routeOpportunity(location.hash),
-    ),
-    [editing, setEditing] = useState<Opportunity | null>(null);
+    );
   useEffect(() => {
     const selectFromLink = () => {
       const id = routeOpportunity(location.hash);
@@ -592,12 +595,14 @@ function Opportunities({
             o,
             data.preferences,
             stage as OpportunityView,
-          ) && jobMatchesSource(o, data.sources, sourceFilter)
+          ) &&
+          jobMatchesSource(o, data.sources, sourceFilter) &&
+          opportunityMatchesQuery(o, query)
         : startupMatchesView(o, stage as StartupView) &&
           startupMatchesSource(o, startupSource) &&
           startupMatchesQuery(o, query),
     );
-  const hasQuery = kind === "startup" && Boolean(query.trim());
+  const hasQuery = Boolean(query.trim());
   const hasStartupFilter = hasQuery || startupSource !== "all";
   const hasSourceFilter = kind === "job" && sourceFilter !== "all";
   const sourceFilterLabel =
@@ -746,14 +751,6 @@ function Opportunities({
         </button>
         <Badge value={opportunityBadge(chosen)} />
         <div className="button-row">
-          {chosen.kind === "startup" && (
-            <IconButton
-              label="Edit opportunity details"
-              onClick={() => setEditing(chosen)}
-            >
-              <Pencil size={16} />
-            </IconButton>
-          )}
           <IconButton
             label={
               chosen.stage === "archived"
@@ -808,6 +805,7 @@ function Opportunities({
           perform={perform}
         />
       )}
+      {kind === "startup" && <StartupCompanyOverview opportunity={chosen} />}
       <div className="detail-grid">
         {kind === "job" && (
           <div className="job-salary">
@@ -815,10 +813,13 @@ function Opportunities({
             <span>{salary(chosen)}</span>
           </div>
         )}
-        <div>
-          <small>Location</small>
-          <span>{chosen.location}</span>
-        </div>
+        {(kind === "job" ||
+          !/^(unknown|location.*confirm)$/i.test(chosen.location.trim())) && (
+          <div>
+            <small>Location</small>
+            <span>{chosen.location}</span>
+          </div>
+        )}
         {kind === "job" && (
           <div>
             <small>
@@ -833,13 +834,13 @@ function Opportunities({
             </span>
           </div>
         )}
-        {kind === "startup" && (
+        {kind === "startup" && chosen.companyCountry !== "Unknown" && (
           <div>
             <small>Company country</small>
             <span>{chosen.companyCountry}</span>
           </div>
         )}
-        {kind === "startup" && (
+        {kind === "startup" && chosen.remoteScope !== "unknown" && (
           <div>
             <small>Remote arrangement</small>
             <span>
@@ -855,10 +856,12 @@ function Opportunities({
             </span>
           </div>
         )}
-        <div>
-          <small>{kind === "job" ? "Posted" : "Signal date"}</small>
-          <span>{date(chosen.publishedAt)}</span>
-        </div>
+        {(kind === "job" || chosen.publishedAt) && (
+          <div>
+            <small>{kind === "job" ? "Posted" : "Signal date"}</small>
+            <span>{date(chosen.publishedAt)}</span>
+          </div>
+        )}
       </div>
       <div className="inspector-links">
         <External url={chosen.url}>
@@ -959,77 +962,51 @@ function Opportunities({
           fit={chosenFit}
         />
       )}
-      {kind === "startup" && chosen.assessment && (
+      {kind === "startup" && (
         <>
-          {chosen.assessment.recommendation === "excluded" && (
+          {!!chosen.assessment?.blockers.length && (
             <NoticeList
               title="Outside your criteria"
-              items={
-                chosen.assessment.blockers.length > 0
-                  ? chosen.assessment.blockers
-                  : [
-                      "This opportunity does not meet your saved search criteria.",
-                    ]
-              }
+              items={chosen.assessment.blockers}
               kind="error"
             />
           )}
           <div id={board ? "outreach-fit-details" : undefined}>
             <StartupFitDetails opportunity={chosen} profile={data.profile} />
           </div>
-          {chosen.assessment.recommendation !== "excluded" &&
-            chosen.assessment.blockers.length > 0 && (
-              <NoticeList
-                title="Outside your criteria"
-                items={chosen.assessment.blockers}
-                kind="error"
-              />
-            )}
-          {chosen.assessment.unknowns.length > 0 && (
-            <NoticeList
-              title="Needs clarification"
-              items={chosen.assessment.unknowns}
-              kind="warning"
-            />
-          )}
-          {chosen.assessment.reasons.length > 0 && (
-            <NoticeList
-              title="Evaluation notes"
-              items={chosen.assessment.reasons}
-              kind="neutral"
-            />
-          )}
-          {!!chosen.assessment.learningGaps?.length && (
-            <NoticeList
-              title="Learning gaps to consider"
-              items={chosen.assessment.learningGaps}
-              kind="neutral"
-            />
-          )}
-          {chosen.assessment.matches.length > 0 && (
-            <div className="requirements">
-              <h3>Requirements & evidence</h3>
-              {chosen.assessment.matches.map((m) => (
-                <div className="requirement" key={m.requirementId}>
-                  <span className={`requirement-icon ${m.status}`}>
-                    {m.status === "matched" ? (
-                      <Check size={13} />
-                    ) : m.status === "partial" ? (
-                      "≈"
-                    ) : (
-                      "—"
-                    )}
-                  </span>
-                  <div>
-                    <strong>{m.requirement}</strong>
-                    <small>
-                      {m.essential ? "Essential" : "Preferred"} ·{" "}
-                      {m.explanation}
-                    </small>
-                  </div>
-                </div>
-              ))}
-            </div>
+          {chosen.assessment && (
+            <details className="startup-decision-details">
+              <summary>
+                Before outreach
+                {chosen.assessment.unknowns.length > 0
+                  ? ` · ${chosen.assessment.unknowns.length} things to confirm`
+                  : " · evaluation details"}
+              </summary>
+              {chosen.assessment.unknowns.length > 0 && (
+                <NoticeList
+                  title="To confirm"
+                  items={chosen.assessment.unknowns}
+                  kind="warning"
+                />
+              )}
+              {!!chosen.assessment.learningGaps?.length && (
+                <NoticeList
+                  title="Experience to discuss"
+                  items={chosen.assessment.learningGaps}
+                  kind="neutral"
+                />
+              )}
+              {chosen.assessment.reasons.length > 0 && (
+                <details className="startup-evaluation-details">
+                  <summary>Evaluation notes</summary>
+                  <NoticeList
+                    title="Evaluation notes"
+                    items={chosen.assessment.reasons}
+                    kind="neutral"
+                  />
+                </details>
+              )}
+            </details>
           )}
         </>
       )}
@@ -1048,19 +1025,12 @@ function Opportunities({
       )}
       {kind === "startup" && (
         <details className="description" open={!chosen.assessment}>
-          <summary>Company research</summary>
+          <summary>Full company source text</summary>
           <p>
             {chosen.description ||
-              "No description yet. Edit this opportunity to add source information."}
+              "No company description saved yet. Research the company website to learn more."}
           </p>
         </details>
-      )}
-      {kind === "startup" && chosen.signals.length > 0 && (
-        <NoticeList
-          title="Observed signals"
-          items={chosen.signals}
-          kind="neutral"
-        />
       )}
       {kind === "startup" && !!chosen.discoverySignals?.length && (
         <div className="form-section">
@@ -1162,16 +1132,6 @@ function Opportunities({
             {inspector}
           </Modal>
         )}
-        {kind === "startup" && editing && (
-          <OpportunityForm
-            companies={data.companies ?? []}
-            kind="startup"
-            existing={editing}
-            close={() => setEditing(null)}
-            perform={perform}
-            busy={busy}
-          />
-        )}
       </section>
     );
   return (
@@ -1222,9 +1182,7 @@ function Opportunities({
         </p>
       )}
       {(kind === "job" || all.length > 0) && (
-        <div
-          className={`job-list-toolbar ${kind === "startup" ? "startup-list-toolbar" : ""}`}
-        >
+        <div className="job-list-toolbar opportunity-browse-toolbar">
           {kind === "job" ? (
             <OpportunityFilters
               view={stage as OpportunityView}
@@ -1252,23 +1210,27 @@ function Opportunities({
                   setSelected(null);
                 }}
               />
-              <div className="startup-search-field">
-                <Search size={16} aria-hidden="true" />
-                <input
-                  type="search"
-                  aria-label="Search companies"
-                  placeholder="Search companies…"
-                  value={query}
-                  onChange={(e) => {
-                    setQuery(e.target.value);
-                    setVisibleCount(50);
-                    setChecked(new Set());
-                    setSelected(null);
-                  }}
-                />
-              </div>
             </>
           )}
+          <div className="opportunity-search-field">
+            <Search size={16} aria-hidden="true" />
+            <input
+              type="search"
+              aria-label={
+                kind === "job" ? "Search saved jobs" : "Search companies"
+              }
+              placeholder={
+                kind === "job" ? "Search saved jobs…" : "Search companies…"
+              }
+              value={query}
+              onChange={(e) => {
+                setQuery(e.target.value);
+                setVisibleCount(stage === "recommended" ? 10 : 50);
+                setChecked(new Set());
+                setSelected(null);
+              }}
+            />
+          </div>
           <span className="job-list-count" role="status">
             {visibleList.length < list.length
               ? `${visibleList.length} of ${list.length}`
@@ -1348,8 +1310,14 @@ function Opportunities({
                           {o.isDemo && <span className="demo-tag">SAMPLE</span>}
                         </strong>
                         <span className="startup-contribution-preview">
-                          {o.description || o.title}
+                          {startupSummary(o)}
                         </span>
+                        <StartupIndustryLabels opportunity={o} />
+                        <StartupSignalPreview opportunity={o} />
+                        <StartupContributionPreview
+                          opportunity={o}
+                          profile={data.profile}
+                        />
                       </>
                     ) : (
                       <>
@@ -1360,7 +1328,8 @@ function Opportunities({
                         <strong>{o.title}</strong>
                       </>
                     )}
-                    {(kind !== "job" || stage !== "recommended") &&
+                    {kind === "job" &&
+                      stage !== "recommended" &&
                       preferredIndustryMatches(o, data.preferences).length >
                         0 && (
                         <span className="industry-priority-badge">
@@ -1370,11 +1339,23 @@ function Opportunities({
                         </span>
                       )}
                     <span className="row-meta">
-                      {o.location}
-                      <span>·</span>
+                      {(kind === "job" ||
+                        !/^(unknown|location.*confirm)$/i.test(
+                          o.location.trim(),
+                        )) && (
+                        <>
+                          {o.location}
+                          <span>·</span>
+                        </>
+                      )}
                       {kind === "job"
                         ? salary(o)
-                        : startupSourceLabels(o).join(" · ")}
+                        : [
+                            startupSourceLabels(o).join(" · "),
+                            o.publishedAt ? date(o.publishedAt) : null,
+                          ]
+                            .filter(Boolean)
+                            .join(" · ")}
                     </span>
                     {kind === "job" && stage === "recommended" && (
                       <span className="job-fit-explanation">
@@ -1489,33 +1470,41 @@ function Opportunities({
           ) : (
             <Empty
               title={
-                hasSourceFilter
-                  ? "No jobs match this source"
-                  : stage === "recommended"
-                    ? "No strong recommendations yet"
-                    : hasActive
-                      ? "No opportunities in this view"
-                      : "Start with your next opportunity"
+                hasQuery
+                  ? "No jobs match these filters"
+                  : hasSourceFilter
+                    ? "No jobs match this source"
+                    : stage === "recommended"
+                      ? "No strong recommendations yet"
+                      : hasActive
+                        ? "No opportunities in this view"
+                        : "Start with your next opportunity"
               }
               detail={
-                hasSourceFilter
-                  ? `${sourceFilterLabel} has no jobs in this view. Choose another source or change the view.`
-                  : stage === "recommended" && hasActive
-                    ? `Recommendations need relevant experience at your ${data.preferences.essentialMatch}% minimum match and no confirmed preference conflict. All saved is ranked by fit, and jobs you are already pursuing stay in Applications.`
-                    : "Search for jobs using your preferences. RoleLoop finds openings and evaluates them against your resume."
+                hasQuery
+                  ? "Try another company, title or skill, or clear your filters to see the jobs in this view."
+                  : hasSourceFilter
+                    ? `${sourceFilterLabel} has no jobs in this view. Choose another source or change the view.`
+                    : stage === "recommended" && hasActive
+                      ? `Recommendations need relevant experience at your ${data.preferences.essentialMatch}% minimum match and no confirmed preference conflict. All saved is ranked by fit, and jobs you are already pursuing stay in Applications.`
+                      : "Search for jobs using your preferences. RoleLoop finds openings and evaluates them against your resume."
               }
             >
-              {(hasSourceFilter || hasActive) && (
+              {(hasQuery || hasSourceFilter || hasActive) && (
                 <button
                   className="button secondary"
                   onClick={() => {
-                    if (hasSourceFilter) {
+                    if (hasQuery || hasSourceFilter) {
+                      setQuery("");
+                      setChecked(new Set());
                       setSourceFilter("all");
                       setVisibleCount(stage === "recommended" ? 10 : 50);
                     } else changeView("all");
                   }}
                 >
-                  {hasSourceFilter ? "Show all sources" : "View all saved jobs"}
+                  {hasQuery || hasSourceFilter
+                    ? "Clear filters"
+                    : "View all saved jobs"}
                   <ArrowRight size={15} />
                 </button>
               )}
@@ -1550,16 +1539,6 @@ function Opportunities({
           </Modal>
         )}
       </div>
-      {kind === "startup" && editing && (
-        <OpportunityForm
-          companies={data.companies ?? []}
-          kind="startup"
-          existing={editing}
-          close={() => setEditing(null)}
-          perform={perform}
-          busy={busy}
-        />
-      )}
     </section>
   );
 }
@@ -1613,394 +1592,6 @@ function NoticeList({
         ))}
       </ul>
     </div>
-  );
-}
-
-function OpportunityForm({
-  companies,
-  kind,
-  existing,
-  close,
-  perform,
-  busy,
-}: {
-  companies: Company[];
-  kind: Opportunity["kind"];
-  existing?: Opportunity;
-  close: () => void;
-  perform: Perform;
-  busy: boolean;
-}) {
-  const [form, setForm] = useState({
-    company: existing?.company || "",
-    companyId: existing?.companyId || "",
-    title: existing?.title || "",
-    description: existing?.description || "",
-    descriptionTruncated: existing?.descriptionTruncated ?? false,
-    requirementsTruncated: existing?.requirementsTruncated ?? false,
-    url: existing?.url || "",
-    companyUrl: existing?.companyUrl || "",
-    location: existing?.location || "Unknown",
-    companyCountry: existing?.companyCountry || "Unknown",
-    companyCountrySource: existing?.companyCountrySource || "",
-    remoteScope: existing?.remoteScope || "unknown",
-    salaryMin: existing?.salaryMin?.toString() || "",
-    salaryMax: existing?.salaryMax?.toString() || "",
-    salaryCurrency: existing?.salaryCurrency || "USD",
-    salaryPeriod: existing?.salaryPeriod || "year",
-    publishedAt: existing?.publishedAt?.slice(0, 10) || "",
-    contactName: existing?.contactName || "",
-    contactEmail: existing?.contactEmail || "",
-    contactSource: existing?.contactSource || "",
-    notes: existing?.notes || "",
-    requirements:
-      existing?.requirements
-        .map(
-          (r) =>
-            `${r.hard ? "[hard] " : r.essential ? "[essential] " : "[preferred] "}${r.text} | ${r.skills.join(", ")}`,
-        )
-        .join("\n") || "",
-    signals: existing?.signals.join("\n") || "",
-  });
-  const [captureError, setCaptureError] = useState("");
-  const [capturing, setCapturing] = useState(false);
-  const capture = async () => {
-    setCaptureError("");
-    setCapturing(true);
-    try {
-      const result = await write<{
-        description: string;
-        descriptionTruncated: boolean;
-        requirementsTruncated: boolean;
-        requirements: Opportunity["requirements"];
-        remoteScope: Opportunity["remoteScope"];
-        salaryMin?: Opportunity["salaryMin"];
-        salaryMax?: Opportunity["salaryMax"];
-        salaryCurrency?: Opportunity["salaryCurrency"];
-        salaryPeriod?: Opportunity["salaryPeriod"];
-      }>("/opportunities/capture", { url: form.url });
-      setForm((p) => ({
-        ...p,
-        description: result.description,
-        descriptionTruncated: result.descriptionTruncated,
-        requirementsTruncated: result.requirementsTruncated,
-        requirements: result.requirements
-          .map(
-            (r) =>
-              `${r.hard ? "[hard] " : r.essential ? "[essential] " : "[preferred] "}${r.text} | ${r.skills.join(", ")}`,
-          )
-          .join("\n"),
-        remoteScope: result.remoteScope,
-        ...(!p.salaryMin &&
-        !p.salaryMax &&
-        (result.salaryMin != null || result.salaryMax != null)
-          ? {
-              salaryMin: result.salaryMin?.toString() ?? "",
-              salaryMax: result.salaryMax?.toString() ?? "",
-              salaryCurrency: result.salaryCurrency ?? "USD",
-              salaryPeriod: result.salaryPeriod ?? "unknown",
-            }
-          : {}),
-      }));
-    } catch (error) {
-      setCaptureError(
-        error instanceof Error
-          ? error.message
-          : "Could not read this page. Paste the job description below.",
-      );
-    } finally {
-      setCapturing(false);
-    }
-  };
-  const update = (key: keyof typeof form, value: string) =>
-    setForm((p) => ({
-      ...p,
-      [key]: value,
-      ...(key === "requirements" ? { requirementsTruncated: false } : {}),
-    }));
-  const submit = async (e: FormEvent) => {
-    e.preventDefault();
-    const requirements = form.requirements
-      .split("\n")
-      .filter((s) => s.trim())
-      .map((row, i) => {
-        const [text, skills = ""] = row.split("|");
-        return {
-          id: existing?.requirements[i]?.id || uid(),
-          text: text.replace(/^\[(essential|preferred|hard)\]\s*/i, "").trim(),
-          skills: words(skills),
-          essential: !/^\[preferred\]/i.test(text),
-          hard: /^\[hard\]/i.test(text),
-        };
-      });
-    const payload = {
-      ...form,
-      companyCountrySource: form.companyCountrySource || undefined,
-      companyId: form.companyId || undefined,
-      ...(!existing ? { kind } : {}),
-      salaryMin: form.salaryMin ? Number(form.salaryMin) : null,
-      salaryMax: form.salaryMax ? Number(form.salaryMax) : null,
-      publishedAt: form.publishedAt
-        ? new Date(`${form.publishedAt}T12:00:00Z`).toISOString()
-        : null,
-      requirements,
-      signals: form.signals.split("\n").filter(Boolean),
-    };
-    if (
-      await perform(
-        () =>
-          write(
-            existing ? `/opportunities/${existing.id}` : "/opportunities",
-            payload,
-            existing ? "PATCH" : "POST",
-          ),
-        existing
-          ? "Opportunity updated. Re-evaluate after changing facts."
-          : "Opportunity added.",
-      )
-    )
-      close();
-  };
-  return (
-    <Modal
-      title={`${existing ? "Edit" : "Add"} ${kind === "job" ? "job opportunity" : "startup prospect"}`}
-      close={close}
-    >
-      <form onSubmit={submit}>
-        <div className="modal-body form-grid">
-          <Field label="Company">
-            <input
-              required
-              list="known-companies"
-              value={form.company}
-              onChange={(e) => {
-                const matches = companies.filter(
-                  (c) => c.name.toLowerCase() === e.target.value.toLowerCase(),
-                );
-                const company = matches.length === 1 ? matches[0] : undefined;
-                setForm((p) => ({
-                  ...p,
-                  company: e.target.value,
-                  companyId: company?.id ?? "",
-                  companyCountry: company?.country ?? "Unknown",
-                  companyCountrySource: company?.countrySource ?? "",
-                }));
-              }}
-            />
-            <datalist id="known-companies">
-              {companies.map((c) => (
-                <option key={c.id} value={c.name} />
-              ))}
-            </datalist>
-          </Field>
-          <Field
-            label={kind === "job" ? "Role title" : "Product or opportunity"}
-          >
-            <input
-              required
-              value={form.title}
-              onChange={(e) => update("title", e.target.value)}
-            />
-          </Field>
-          <Field label="Source URL">
-            <input
-              type="url"
-              value={form.url}
-              onChange={(e) => update("url", e.target.value)}
-              placeholder="https://…"
-            />
-          </Field>
-          {kind === "job" && (
-            <div className="wide">
-              <button
-                type="button"
-                className="button"
-                disabled={busy || capturing || !form.url}
-                onClick={() => void capture()}
-              >
-                {capturing ? "Reading…" : "Read job page"}
-              </button>
-              <p className="muted">
-                Or paste the description below. Requirements are extracted when
-                you save; review the result before applying.
-              </p>
-              {captureError && <p role="alert">{captureError}</p>}
-            </div>
-          )}
-          <Field label="Description / source text" wide>
-            <textarea
-              required
-              rows={6}
-              value={form.description}
-              onChange={(e) => update("description", e.target.value)}
-            />
-          </Field>
-          <details className="wide" open={!!existing}>
-            <summary>Location, compensation and other details</summary>
-            <div className="form-grid">
-              <Field
-                label="Company country evidence URL"
-                hint="Official company page supporting its country."
-              >
-                <input
-                  type="url"
-                  value={form.companyCountrySource}
-                  onChange={(e) =>
-                    update("companyCountrySource", e.target.value)
-                  }
-                />
-              </Field>
-              <Field label="Company website">
-                <input
-                  type="url"
-                  value={form.companyUrl}
-                  onChange={(e) => update("companyUrl", e.target.value)}
-                  placeholder="https://…"
-                />
-              </Field>
-              <Field label="Location">
-                <input
-                  value={form.location}
-                  onChange={(e) => update("location", e.target.value)}
-                />
-              </Field>
-              <Field label="Company country">
-                <input
-                  value={form.companyCountry}
-                  onChange={(e) => update("companyCountry", e.target.value)}
-                />
-              </Field>
-              <Field label="Remote arrangement">
-                <select
-                  value={form.remoteScope}
-                  onChange={(e) => update("remoteScope", e.target.value)}
-                >
-                  <option value="unknown">To confirm</option>
-                  <option value="worldwide">Worldwide</option>
-                  <option value="latam">Latin America</option>
-                  <option value="us">US only</option>
-                  <option value="onsite">On-site</option>
-                </select>
-              </Field>
-              <Field label="Published / signal date">
-                <input
-                  type="date"
-                  value={form.publishedAt}
-                  onChange={(e) => update("publishedAt", e.target.value)}
-                />
-              </Field>
-              {kind === "job" && (
-                <>
-                  <Field label="Salary minimum">
-                    <input
-                      type="number"
-                      min="0"
-                      value={form.salaryMin}
-                      onChange={(e) => update("salaryMin", e.target.value)}
-                    />
-                  </Field>
-                  <Field label="Salary maximum">
-                    <input
-                      type="number"
-                      min="0"
-                      value={form.salaryMax}
-                      onChange={(e) => update("salaryMax", e.target.value)}
-                    />
-                  </Field>
-                  <Field label="Currency">
-                    <input
-                      maxLength={3}
-                      value={form.salaryCurrency}
-                      onChange={(e) =>
-                        update("salaryCurrency", e.target.value.toUpperCase())
-                      }
-                    />
-                  </Field>
-                  <Field label="Salary period">
-                    <select
-                      value={form.salaryPeriod}
-                      onChange={(e) => update("salaryPeriod", e.target.value)}
-                    >
-                      {["year", "month", "hour", "unknown"].map((s) => (
-                        <option key={s}>{s}</option>
-                      ))}
-                    </select>
-                  </Field>
-                  <Field
-                    label="Requirements"
-                    hint="Optional override. Leave blank to extract from the description. One per line: [essential] Build APIs | TypeScript, PostgreSQL."
-                    wide
-                  >
-                    <textarea
-                      rows={4}
-                      value={form.requirements}
-                      onChange={(e) => update("requirements", e.target.value)}
-                    />
-                  </Field>
-                </>
-              )}
-              {kind === "startup" && (
-                <>
-                  <Field label="Contact name">
-                    <input
-                      value={form.contactName}
-                      onChange={(e) => update("contactName", e.target.value)}
-                    />
-                  </Field>
-                  <Field label="Verified professional email">
-                    <input
-                      type="email"
-                      value={form.contactEmail}
-                      onChange={(e) => update("contactEmail", e.target.value)}
-                    />
-                  </Field>
-                  <Field
-                    label="Contact source URL"
-                    hint="Where this professional contact information is published."
-                    wide
-                  >
-                    <input
-                      type="url"
-                      value={form.contactSource}
-                      onChange={(e) => update("contactSource", e.target.value)}
-                    />
-                  </Field>
-                  <Field
-                    label="Observed company signals"
-                    hint="One sourced fact per line. Keep assumptions separate."
-                    wide
-                  >
-                    <textarea
-                      rows={3}
-                      value={form.signals}
-                      onChange={(e) => update("signals", e.target.value)}
-                    />
-                  </Field>
-                </>
-              )}
-              {kind === "startup" && (
-                <Field label="Your notes" wide>
-                  <textarea
-                    rows={2}
-                    value={form.notes}
-                    onChange={(e) => update("notes", e.target.value)}
-                  />
-                </Field>
-              )}
-            </div>
-          </details>
-        </div>
-        <div className="modal-footer">
-          <button type="button" className="button" onClick={close}>
-            Cancel
-          </button>
-          <button className="button primary" disabled={busy}>
-            <Save size={16} />
-            {existing ? "Save changes" : "Add opportunity"}
-          </button>
-        </div>
-      </form>
-    </Modal>
   );
 }
 

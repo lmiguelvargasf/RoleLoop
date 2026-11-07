@@ -342,7 +342,12 @@ export async function buildServer() {
     application: true,
     outreach: true,
   }).partial();
-  const startupEditable = editable.omit({ application: true }).strict();
+  const startupProgress = OpportunitySchema.pick({
+    stage: true,
+    outreach: true,
+  })
+    .partial()
+    .strict();
   const jobProgress = OpportunitySchema.pick({
     stage: true,
     application: true,
@@ -419,7 +424,7 @@ export async function buildServer() {
       const parsedPatch =
         existing.kind === "job"
           ? jobProgress.parse(req.body)
-          : startupEditable.parse(req.body);
+          : startupProgress.parse(req.body);
       // Optional schema defaults must not overwrite facts or progress omitted
       // from the request.
       const patch = Object.fromEntries(

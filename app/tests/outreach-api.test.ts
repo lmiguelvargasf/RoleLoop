@@ -149,18 +149,15 @@ describe("startup outreach API", () => {
     expect(mocks.store.saveDerivedOpportunity).toHaveBeenCalledTimes(2);
   });
 
-  it("does not put tracking data into company corrections when editing both", async () => {
+  it("rejects mixed company edits and tracking atomically", async () => {
     const response = await patch({
       company: "Reviewed company",
       outreach: { status: "saved" },
     });
-    expect(response.statusCode, response.body).toBe(200);
-    expect(mocks.store.saveStartupWithCorrections).toHaveBeenCalledWith(
-      expect.objectContaining({
-        outreach: expect.objectContaining({ status: "saved" }),
-      }),
-      { company: "Reviewed company" },
-    );
+    expect(response.statusCode, response.body).toBe(400);
+    expect(mocks.store.saveStartupWithCorrections).not.toHaveBeenCalled();
+    expect(mocks.store.saveDerivedOpportunity).not.toHaveBeenCalled();
+    expect(mocks.recordOpportunityChanges).not.toHaveBeenCalled();
   });
 
   it.each([
