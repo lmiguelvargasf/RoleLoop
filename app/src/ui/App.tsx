@@ -699,10 +699,10 @@ function Opportunities({
   const searchLabel = paused
     ? kind === "job"
       ? "Resume job search"
-      : "Resume startup research"
+      : "Resume startup search"
     : kind === "job"
       ? "Search jobs"
-      : "Find startup leads";
+      : "Search startups";
   const search = () =>
     perform(
       async () => {
@@ -730,7 +730,7 @@ function Opportunities({
           discoveryScope: kind === "job" ? "jobs" : "startups",
         });
       },
-      kind === "job" ? "Job search queued." : "Startup research queued.",
+      kind === "job" ? "Job search queued." : "Startup search queued.",
     );
   const inspector = chosen ? (
     <aside
@@ -1218,7 +1218,7 @@ function Opportunities({
         <p className="search-setup-note">
           {kind === "job"
             ? "Searches of your saved companies are paused. Resume to include them again."
-            : "Startup research is paused. Resume to find new leads."}
+            : "Startup search is paused. Resume to find new companies."}
         </p>
       )}
       {(kind === "job" || all.length > 0) && (
@@ -1444,7 +1444,7 @@ function Opportunities({
                       : all.length > 0
                         ? "Your saved companies are archived"
                         : searching
-                          ? "Finding startup prospects"
+                          ? "Searching startups"
                           : "Find companies worth exploring"
               }
               detail={
@@ -1453,9 +1453,9 @@ function Opportunities({
                   : stage === "archived"
                     ? "Companies you archive will appear here. You can restore them anytime."
                     : hasActive
-                      ? "Your saved companies are already in outreach. Find more leads or revisit your saved companies."
+                      ? "Your saved companies are already in outreach. Search for more companies or revisit your saved companies."
                       : all.length > 0
-                        ? "Find new leads or revisit your archived companies."
+                        ? "Search for new companies or revisit your archived companies."
                         : searching
                           ? "New companies will appear here as research completes. You can keep browsing while we search."
                           : "Discover startups, review what they build, and add the companies you want to contact to outreach."
