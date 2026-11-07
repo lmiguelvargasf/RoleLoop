@@ -4058,12 +4058,6 @@ textarea {
   flex-wrap: wrap;
   gap: 14px;
 }
-.chatgpt-summary p {
-  margin-top: 8px;
-  font-size: 12px;
-  color: var(--muted);
-  line-height: 1.6;
-}
 .chatgpt-status {
   display: inline-flex;
   align-items: center;
@@ -4110,15 +4104,6 @@ textarea {
 }
 .chatgpt-preferences > .policy-select {
   margin-top: 16px;
-}
-.chatgpt-settings {
-  margin-top: 20px;
-  font-size: 11px;
-  color: var(--muted);
-}
-.chatgpt-settings summary {
-  cursor: pointer;
-  width: fit-content;
 }
 .chatgpt-actions {
   display: flex;
