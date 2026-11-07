@@ -10,6 +10,7 @@ import {
   SourceSchema,
   OpportunitySchema,
   DraftSchema,
+  JobGeographySchema,
   type Activity,
   type Draft,
   type Opportunity,
@@ -379,6 +380,14 @@ export function createWorkspaceStore({
     item: Payloads[T],
   ): Promise<Payloads[T]> {
     if (!safeId.test(item.id)) throw new Error("Record identifier is invalid.");
+    // Validate before writing: decode() runs after the database mutation and
+    // cannot protect persisted records from an incomplete runtime snapshot.
+    if (table === "opportunities") {
+      const opportunity = item as Opportunity;
+      if (opportunity.assessment?.geography !== undefined)
+        JobGeographySchema.parse(opportunity.assessment.geography);
+      OpportunitySchema.parse(opportunity);
+    } else if (table === "drafts") DraftSchema.parse(item);
     const payload = table === "runs" ? { ...item, workspaceId } : item;
     const row: Record<string, unknown> = {
       id: item.id,

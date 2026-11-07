@@ -82,6 +82,33 @@ async function cleanup(store: import("../src/server/store.js").WorkspaceStore) {
 }
 
 integration("local Supabase source refresh and lifecycle", () => {
+  it("rejects incomplete geography before overwriting a valid saved job", async () => {
+    const store = await makeStore();
+    const workspace = demoWorkspace();
+    const candidate = isolatedOpportunity();
+    candidate.assessment = assessOpportunity(
+      candidate,
+      workspace.profile,
+      workspace.preferences,
+    );
+    try {
+      const saved = await store.save("opportunities", candidate);
+      const invalid = {
+        ...saved,
+        assessment: {
+          ...saved.assessment!,
+          geography: { workingCountry: "Ecuador", reasons: [] },
+        },
+      } as unknown as Opportunity;
+      await expect(store.save("opportunities", invalid)).rejects.toThrow();
+      expect((await store.get("opportunities", saved.id)).assessment).toEqual(
+        saved.assessment,
+      );
+    } finally {
+      await cleanup(store);
+    }
+  });
+
   it.each(["same ID", "different IDs"])(
     "counts only one new opportunity when concurrent imports use %s",
     async (caseName) => {
@@ -125,10 +152,15 @@ integration("local Supabase source refresh and lifecycle", () => {
         id: randomUUID(),
       });
       expect(otherWorkspace.created).toBe(true);
-      const event = await first.event("Saved a draft", "success", candidate.id, {
-        runId: "activity-run",
-        category: "draft",
-      });
+      const event = await first.event(
+        "Saved a draft",
+        "success",
+        candidate.id,
+        {
+          runId: "activity-run",
+          category: "draft",
+        },
+      );
       expect(await first.get("events", event.id)).toMatchObject({
         runId: "activity-run",
         category: "draft",

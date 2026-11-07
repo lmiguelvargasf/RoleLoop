@@ -66,28 +66,35 @@ export async function bootstrap(store: WorkspaceStore): Promise<Bootstrap> {
     store.runtime<Record<string, SourceHealth>>("source-health"),
     store.runtime<EmployerDiscoveryReport>("employer-discovery"),
   ]);
-  // Recheck legacy eligibility rules locally without repeating paid AI matching.
-  const currentOpportunities = await Promise.all(
-    opportunities.map((op) => {
-      if (
-        (op.assessment &&
-          op.assessment.profileFingerprint !==
-            profileFingerprint(workspace.profile)) ||
-        (workspace.preferences.missingSalary === "review" &&
-          op.kind === "job" &&
-          op.salaryMin === null &&
-          op.salaryMax === null &&
-          op.assessment?.recommendation === "ready")
-      )
-        return analyze(store, op, workspace, false);
-      if (
-        op.assessment &&
-        op.assessment.rulesVersion !== ASSESSMENT_RULES_VERSION
-      )
-        return analyze(store, op, workspace, false, { reuseFit: true });
-      return op;
-    }),
-  );
+  // Recheck derived eligibility locally without repeating paid AI matching.
+  // A rule rollout can affect all 300 loaded jobs; limit the database/Auth
+  // fanout while preserving analyze()'s fresh-workspace check before saving.
+  const currentOpportunities: Opportunity[] = [];
+  for (let offset = 0; offset < opportunities.length; offset += 4) {
+    const batch = await Promise.all(
+      opportunities.slice(offset, offset + 4).map((op) => {
+        if (
+          (op.assessment &&
+            op.assessment.profileFingerprint !==
+              profileFingerprint(workspace.profile)) ||
+          (workspace.preferences.missingSalary === "review" &&
+            op.kind === "job" &&
+            op.salaryMin === null &&
+            op.salaryMax === null &&
+            op.assessment?.recommendation === "ready")
+        )
+          return analyze(store, op, workspace, false);
+        if (
+          op.assessment &&
+          (op.assessment.rulesVersion !== ASSESSMENT_RULES_VERSION ||
+            (op.kind === "job" && !op.assessment.geography))
+        )
+          return analyze(store, op, workspace, false, { reuseFit: true });
+        return op;
+      }),
+    );
+    currentOpportunities.push(...batch);
+  }
   const connection = store.actorUserId
     ? await chatgptStatus(store.actorUserId)
     : null;

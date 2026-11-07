@@ -157,6 +157,8 @@ Job and startup prompts are separate named constants in `server/fit.ts`. Job ins
 
 Employer expansion requires at least one location-compatible opening. Both search and manual evaluation avoid AI calls for definite policy blockers or unresolved job locations; automatic drafting additionally requires geographic eligibility and overall readiness. `ASSESSMENT_RULES_VERSION` triggers local reassessment of saved records without paid AI calls, preserving previous semantic matches and application history. `FIT_PROMPT_VERSION` participates in the AI cache fingerprint, so a later eligible search cannot reuse the previous prompt's cached result.
 
+Incomplete stored geography is treated as missing derived data and rechecked even when the assessment already has the current rules version. Bootstrap limits reassessment to four concurrent jobs while retaining per-job preference freshness checks. Opportunity and draft writes are validated before mutation, with strict validation for supplied geography, so an incomplete runtime snapshot cannot corrupt a previously valid record.
+
 ## Shared source catalog
 
 Migration `20261107000100` changes source ownership into a many-to-many relationship. Global `discovery_sources` contains connector identity (`id`, `kind`, `provider`, canonical `board`); `workspace_sources` contains each workspace’s connection (`workspace_id`, legacy `id`, `source_id`, `label`, `enabled`, `keyword`, `company_id`, ordering and discovery provenance). Company board identity is provider plus lowercase board. Feed identity is provider plus empty board, so workspace keywords never create global catalog variants. Multiple keyword subscriptions remain distinct per workspace.

@@ -61,6 +61,107 @@ function restrictedOpportunity(): Opportunity {
 }
 
 integration("geography rules rollout", () => {
+  it("repairs malformed current-version geography in bounded batches while retaining career fit", async () => {
+    const t = await setup();
+    const fit = await import("../src/server/fit.js");
+    const ai = vi
+      .spyOn(fit, "assessWithAI")
+      .mockRejectedValue(
+        new Error("Derived location repair must not call AI."),
+      );
+    const { bootstrap } = await import("../src/server/service.js");
+    const jobs = Array.from({ length: 12 }, (_, index) => {
+      const op = restrictedOpportunity();
+      const assessment = assessOpportunity(
+        op,
+        t.workspace.profile,
+        t.workspace.preferences,
+      );
+      return {
+        ...op,
+        notes: `Keep note ${index}`,
+        assessment: {
+          ...assessment,
+          recommendation: "ready" as const,
+          blockers: [],
+          unknowns: [],
+          fitSummary: `Retain semantic fit ${index}`,
+          learningGaps: ["Confirm a tooling example."],
+          relevantEvidenceIds: assessment.matches[0].evidenceIds,
+        },
+        application: {
+          status: "applied" as const,
+          appliedAt: new Date().toISOString(),
+          notes: `Application history ${index}`,
+          nextAction: "Follow up",
+          followUpOn: null,
+        },
+      };
+    });
+    try {
+      for (const op of jobs) {
+        await t.store.save("opportunities", op);
+        // Reproduce a live-reload write that retained the rule version and
+        // geography metadata but omitted the new derived status field.
+        const { status: _status, ...brokenGeography } =
+          op.assessment.geography!;
+        const updated = await t.store.db
+          .from("opportunities")
+          .update({
+            payload: {
+              ...op,
+              assessment: { ...op.assessment, geography: brokenGeography },
+            },
+          })
+          .eq("workspace_id", t.workspaceId)
+          .eq("id", op.id);
+        expect(updated.error).toBeNull();
+      }
+      const readWorkspace = t.store.getWorkspace.bind(t.store);
+      let active = 0;
+      let peak = 0;
+      const reads = vi
+        .spyOn(t.store, "getWorkspace")
+        .mockImplementation(async () => {
+          active++;
+          peak = Math.max(peak, active);
+          try {
+            return await readWorkspace();
+          } finally {
+            active--;
+          }
+        });
+      const state = await bootstrap(t.store);
+      expect(state.opportunities).toHaveLength(jobs.length);
+      expect(peak).toBeLessThanOrEqual(4);
+      expect(reads).toHaveBeenCalledTimes(jobs.length + 1);
+      expect(ai).not.toHaveBeenCalled();
+      for (const original of jobs) {
+        const repaired = state.opportunities.find(
+          (op) => op.id === original.id,
+        )!;
+        expect(repaired.assessment).toMatchObject({
+          rulesVersion: ASSESSMENT_RULES_VERSION,
+          geography: { status: "excluded", workingCountry: "Ecuador" },
+          recommendation: "excluded",
+          fitSummary: original.assessment.fitSummary,
+          learningGaps: original.assessment.learningGaps,
+          relevantEvidenceIds: original.assessment.relevantEvidenceIds,
+          matches: original.assessment.matches,
+        });
+        expect(repaired.notes).toBe(original.notes);
+        expect(repaired.application).toEqual(original.application);
+        const persisted = await t.store.get("opportunities", original.id);
+        expect(persisted.assessment?.geography?.status).toBe("excluded");
+      }
+      reads.mockClear();
+      await bootstrap(t.store);
+      expect(reads).toHaveBeenCalledTimes(1);
+    } finally {
+      await t.cleanup();
+    }
+  });
+
   it("upgrades stored assessments without losing semantic fit, applications or draft content", async () => {
     const t = await setup();
     const fit = await import("../src/server/fit.js");

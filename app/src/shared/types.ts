@@ -132,14 +132,15 @@ export const RequirementSchema = z.object({
   essential: z.boolean(),
   hard: z.boolean().default(false),
 });
+export const JobGeographySchema = z.object({
+  status: z.enum(["eligible", "review", "excluded"]),
+  workingCountry: z.string(),
+  reasons: z.array(z.string()),
+});
 export const AssessmentSchema = z.object({
-  geography: z
-    .object({
-      status: z.enum(["eligible", "review", "excluded"]),
-      workingCountry: z.string(),
-      reasons: z.array(z.string()),
-    })
-    .optional(),
+  // Geography is derived data. Incomplete older snapshots must be rechecked,
+  // not prevent the entire workspace from loading or imply eligibility.
+  geography: JobGeographySchema.optional().catch(undefined),
   fitSummary: z.string().optional(),
   learningGaps: z.array(z.string()).optional(),
   relevantEvidenceIds: z.array(z.string()).optional(),
