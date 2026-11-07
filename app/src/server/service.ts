@@ -857,7 +857,9 @@ export async function processRun(
             );
         } else opportunities = await discover(source, workspace.preferences);
         found = opportunities.length;
-        for (const candidate of opportunities) {
+        // Reserve identities before starting asynchronous imports so concurrent
+        // jobs (including changed duplicates) keep the first snapshot in a run.
+        const candidates = opportunities.filter((candidate) => {
           if (
             candidate.kind === "job" &&
             workspace.preferences.roles.length &&
@@ -867,7 +869,13 @@ export async function processRun(
               candidate.company,
             )
           )
-            continue;
+            return false;
+          if (seenSourceKeys.has(candidate.sourceKey)) return false;
+          seenSourceKeys.add(candidate.sourceKey);
+          return true;
+        });
+        const importedIds = new Map<string, string>();
+        const evaluateCandidate = async (candidate: Opportunity) => {
           // Shared hourly feeds may contain rows parsed before the latest
           // extraction rules. Repair them before evaluation, not only later
           // when the UI reloads the saved collection.
@@ -882,15 +890,11 @@ export async function processRun(
                 }
               : {}),
           });
-          // Keep the first snapshot within a run. Importing a changed duplicate
-          // before skipping it would invalidate the assessment already selected
-          // for drafting, so deduplicate before any writes.
-          if (seenSourceKeys.has(parsed.sourceKey)) continue;
           const importedOpportunity =
             await store.importOpportunityWithStatus(parsed);
-          seenSourceKeys.add(parsed.sourceKey);
           const existing = importedOpportunity.opportunity;
-          if (existing.stage === "archived") continue;
+          importedIds.set(parsed.sourceKey, existing.id);
+          if (existing.stage === "archived") return;
           if (importedOpportunity.created) summary.newOpportunities++;
           else summary.existingOpportunities++;
           const cacheKey = `fit:${existing.id}`;
@@ -942,7 +946,53 @@ export async function processRun(
           imported++;
           summary.evaluated++;
           shortlist.push(op);
-        }
+        };
+        let nextCandidate = 0;
+        let checked = 0;
+        let progressUpdates = Promise.resolve();
+        const reportEvaluationProgress = () => {
+          const finished = checked;
+          const amount = Math.round(
+            (expand ? 15 : 0) +
+              ((index + finished / candidates.length) / sources.length) *
+                (expand ? 65 : 80),
+          );
+          // Database writes for progress must retain completion order even when
+          // three evaluations finish together. A failed write is still surfaced
+          // by its worker after all other in-flight evaluations have settled.
+          const update = progressUpdates.then(() =>
+            progress(
+              amount,
+              `Evaluating ${source.label}: ${finished}/${candidates.length} checked`,
+            ),
+          );
+          progressUpdates = update.catch(() => {});
+          return update;
+        };
+        if (candidates.length) await reportEvaluationProgress();
+        const evaluations = await Promise.allSettled(
+          Array.from({ length: Math.min(3, candidates.length) }, async () => {
+            while (nextCandidate < candidates.length) {
+              const candidate = candidates[nextCandidate++];
+              try {
+                await evaluateCandidate(candidate);
+              } catch (error) {
+                summary.evaluationFailures = (summary.evaluationFailures ?? 0) + 1;
+                await store.event(
+                  `Evaluation for ${candidate.company}: ${error instanceof Error ? error.message : "Evaluation failed"}`,
+                  "warning",
+                  importedIds.get(candidate.sourceKey),
+                  { runId: run.id, category: "evaluation" },
+                );
+              } finally {
+                checked++;
+                await reportEvaluationProgress();
+              }
+            }
+          }),
+        );
+        const rejected = evaluations.find((result) => result.status === "rejected");
+        if (rejected?.status === "rejected") throw rejected.reason;
         await recordHealth(source.id, {
           checkedAt: new Date().toISOString(),
           status: "success",
@@ -1009,7 +1059,7 @@ export async function processRun(
       undefined,
       eventContext,
     );
-    return `Evaluated ${imported} opportunities${expansion?.boardsConnected ? ` · ${expansion.boardsConnected} ${expansion.boardsConnected === 1 ? "company" : "companies"} connected` : ""}${failed ? `; ${failed} source(s) failed` : ""}${summary.evaluationFailures ? `; ${summary.evaluationFailures} AI evaluation(s) need retry` : ""}`;
+    return `Evaluated ${imported} opportunities${expansion?.boardsConnected ? ` · ${expansion.boardsConnected} ${expansion.boardsConnected === 1 ? "company" : "companies"} connected` : ""}${failed ? `; ${failed} source(s) failed` : ""}${summary.evaluationFailures ? `; ${summary.evaluationFailures} evaluation(s) need retry` : ""}`;
   }
   const op = await store.get("opportunities", run.opportunityId!);
   if (run.action === "analyze") {

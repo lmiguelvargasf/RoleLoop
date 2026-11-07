@@ -140,7 +140,9 @@ describe("practical job recommendations", () => {
     ]) {
       const candidate = setup({ requirements });
       expect(candidate.result().score).toBeNull();
-      expect(candidate.result().fitLabel).toBe("Not evaluated");
+      expect(candidate.result().fitLabel).toBe(
+        requirements.length ? "Needs AI evaluation" : "Requirements unavailable",
+      );
       expect(candidate.result().recommendable).toBe(false);
     }
     const candidate = setup();
@@ -158,7 +160,7 @@ describe("practical job recommendations", () => {
       hard: false,
     });
     candidate.assess();
-    expect(candidate.result().fitLabel).toBe("Partial assessment");
+    expect(candidate.result().fitLabel).toBe("Needs AI evaluation");
     expect(candidate.result().score).toBeNull();
     expect(candidate.result().recommendable).toBe(false);
     candidate.workspace.preferences.essentialMatch = 60;
@@ -176,11 +178,27 @@ describe("practical job recommendations", () => {
     });
     expect(candidate.job.assessment!.recommendation).toBe("review");
     expect(candidate.result().score).toBeNull();
-    expect(candidate.result().fitLabel).toBe("Partial assessment");
+    expect(candidate.result().fitLabel).toBe("Needs AI evaluation");
     expect(candidate.result().question).toContain("skill tags");
     // Legacy complete skill snapshots must not expose a misleading score.
     candidate.job.assessment!.fitEvaluation!.status = "complete";
     expect(candidate.result().score).toBeNull();
+  });
+
+  it("explains why a percentage is unavailable instead of labeling every case partial", () => {
+    const excluded = setup({ location: "United States", remoteScope: "us" });
+    expect(excluded.result().fitLabel).toBe("Excluded by criteria");
+    expect(excluded.result().score).toBeNull();
+
+    const failed = setup();
+    failed.job.assessment!.fitEvaluation!.failureReason = "AI request timed out.";
+    expect(failed.result().fitLabel).toBe("Evaluation failed");
+    expect(failed.result().score).toBeNull();
+
+    const truncated = setup({ descriptionTruncated: true });
+    expect(truncated.result().fitLabel).toBe("Incomplete job description");
+    const requirements = setup({ requirementsTruncated: true });
+    expect(requirements.result().fitLabel).toBe("Incomplete requirements");
   });
 
   it("uses preferred qualifications to break required-fit ties before freshness", () => {

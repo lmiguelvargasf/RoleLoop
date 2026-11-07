@@ -621,23 +621,198 @@ describe("useful discovery history", () => {
     expect(t.run.summary?.draftsCreated).toBe(1);
   });
 
-  it("preserves counts for a failed search and does not claim saved records were evaluated", async () => {
+  it("reports evaluation failure without misclassifying a successful source fetch", async () => {
     const t = setup();
     vi.mocked(discover).mockResolvedValue([demoOpportunities()[0]]);
     vi.mocked(assessWithAI).mockRejectedValue(
       new Error("Assessment interrupted"),
     );
-    await expect(processRun(t.store, t.run, async () => {})).rejects.toThrow(
-      "All selected sources failed",
+    await expect(processRun(t.store, t.run, async () => {})).resolves.toContain(
+      "1 evaluation(s) need retry",
     );
-    expect(t.runs.get(t.run.id)?.summary).toMatchObject({
-      newOpportunities: 1,
-      evaluated: 0,
-      sourcesFailed: 1,
-      draftsCreated: 0,
+    expect(t.runs.get(t.run.id)).toMatchObject({
+      outcome: "partial",
+      summary: {
+        newOpportunities: 1,
+        evaluated: 0,
+        sourcesFailed: 0,
+        evaluationFailures: 1,
+        draftsCreated: 0,
+      },
     });
-    expect(t.events).toHaveLength(1);
-    expect(t.events[0].runId).toBe(t.run.id);
+    expect(t.events).toHaveLength(2);
+    expect(t.events[0]).toMatchObject({
+      runId: t.run.id,
+      category: "evaluation",
+      kind: "warning",
+    });
+    expect(t.runtime.get("source-health")).toMatchObject({
+      acme: { status: "success", found: 1, evaluated: 0 },
+    });
+  });
+});
+
+describe("concurrent discovery evaluations", () => {
+  function gate() {
+    let release!: () => void;
+    const promise = new Promise<void>((resolve) => { release = resolve; });
+    return { promise, release };
+  }
+
+  it("evaluates at most three unique jobs together and reports ordered progress", async () => {
+    const [base] = demoOpportunities();
+    const jobs = Array.from({ length: 5 }, (_, index) => ({
+      ...base,
+      id: `parallel-${index}`,
+      sourceKey: `ashby:parallel-${index}`,
+    }));
+    const t = setup();
+    t.workspace.sources.push({
+      ...t.workspace.sources[0], id: "next", board: "next", label: "Next board",
+    });
+    vi.mocked(discover)
+      .mockResolvedValueOnce([jobs[0], { ...jobs[0], id: "duplicate" }, ...jobs.slice(1)])
+      .mockResolvedValueOnce([]);
+    const firstWave = gate();
+    const fourthJob = gate();
+    const pending = new Map<string, ReturnType<typeof gate>>();
+    const started: string[] = [];
+    let active = 0, peak = 0, releaseRemaining = false;
+    vi.mocked(assessWithAI).mockImplementation(async (op, workspace) => {
+      active++;
+      peak = Math.max(peak, active);
+      started.push(op.id);
+      const deferred = gate();
+      pending.set(op.id, deferred);
+      if (started.length === 3) firstWave.release();
+      if (started.length === 4) fourthJob.release();
+      if (!releaseRemaining) await deferred.promise;
+      active--;
+      return assessOpportunity(op, workspace.profile, workspace.preferences);
+    });
+    const messages: string[] = [];
+    const amounts: number[] = [];
+    let progressActive = 0, progressPeak = 0;
+    const run = processRun(t.store, t.run, async (amount, message) => {
+      progressActive++;
+      progressPeak = Math.max(progressPeak, progressActive);
+      amounts.push(amount);
+      messages.push(message);
+      await Promise.resolve();
+      progressActive--;
+    });
+    try {
+      await firstWave.promise;
+      expect(active).toBe(3);
+      expect(started).toEqual(jobs.slice(0, 3).map((job) => job.id));
+      expect(discover).toHaveBeenCalledTimes(1);
+      pending.get(jobs[1].id)!.release();
+      await fourthJob.promise;
+      expect(active).toBe(3);
+      expect(started).toHaveLength(4);
+      expect(t.opportunities.has("duplicate")).toBe(false);
+    } finally {
+      releaseRemaining = true;
+      for (const deferred of pending.values()) deferred.release();
+      await run;
+    }
+    expect(peak).toBe(3);
+    expect(progressPeak).toBe(1);
+    expect(assessWithAI).toHaveBeenCalledTimes(5);
+    expect(discover).toHaveBeenCalledTimes(2);
+    expect(amounts).toEqual([...amounts].sort((a, b) => a - b));
+    expect(messages.filter((message) => message.startsWith("Evaluating Acme:"))).toEqual(
+      Array.from({ length: 6 }, (_, finished) => `Evaluating Acme: ${finished}/5 checked`),
+    );
+    expect(t.run.summary).toMatchObject({ evaluated: 5, newOpportunities: 5, sourcesFailed: 0 });
+    expect(t.runtime.get("source-health")).toMatchObject({
+      acme: { status: "success", found: 6, evaluated: 5 },
+    });
+  });
+
+  it("continues after an individual failure and waits for every in-flight job", async () => {
+    const [base] = demoOpportunities();
+    const jobs = Array.from({ length: 4 }, (_, index) => ({
+      ...base,
+      id: `failure-${index}`,
+      sourceKey: `ashby:failure-${index}`,
+    }));
+    const t = setup();
+    vi.mocked(discover).mockResolvedValue(jobs);
+    const waiting = gate();
+    const release = gate();
+    let active = 0;
+    vi.mocked(assessWithAI).mockImplementation(async (op, workspace) => {
+      if (op.id === jobs[0].id) throw new Error("One assessment failed");
+      active++;
+      if (active === 3) waiting.release();
+      await release.promise;
+      active--;
+      return assessOpportunity(op, workspace.profile, workspace.preferences);
+    });
+    let settled = false;
+    const run = processRun(t.store, t.run, async () => {}).finally(() => { settled = true; });
+    try {
+      await waiting.promise;
+      expect(settled).toBe(false);
+      expect(active).toBe(3);
+    } finally {
+      release.release();
+      await run;
+    }
+    expect(active).toBe(0);
+    expect(t.run).toMatchObject({
+      outcome: "partial",
+      summary: { evaluated: 3, newOpportunities: 4, evaluationFailures: 1, sourcesFailed: 0 },
+    });
+    expect(jobs.slice(1).every((job) => t.opportunities.get(job.id)?.assessment)).toBe(true);
+    expect(t.events.filter((event) => event.category === "evaluation")).toEqual([
+      expect.objectContaining({ opportunityId: jobs[0].id, kind: "warning", message: expect.stringContaining("One assessment failed") }),
+    ]);
+  });
+
+  it("drains in-flight evaluations before returning a progress-write failure", async () => {
+    const [base] = demoOpportunities();
+    const jobs = Array.from({ length: 3 }, (_, index) => ({
+      ...base,
+      id: `progress-error-${index}`,
+      sourceKey: `ashby:progress-error-${index}`,
+    }));
+    const t = setup();
+    vi.mocked(discover).mockResolvedValue(jobs);
+    const started = gate();
+    const failedProgress = gate();
+    const pending = jobs.map(() => gate());
+    let active = 0, settled = false;
+    vi.mocked(assessWithAI).mockImplementation(async (op, workspace) => {
+      active++;
+      if (active === 3) started.release();
+      await pending[jobs.findIndex((job) => job.id === op.id)].promise;
+      active--;
+      return assessOpportunity(op, workspace.profile, workspace.preferences);
+    });
+    const result = processRun(t.store, t.run, async (_, message) => {
+      if (message === "Evaluating Acme: 1/3 checked") {
+        failedProgress.release();
+        throw new Error("Progress storage unavailable");
+      }
+    }).then(
+      () => { settled = true; return null; },
+      (error: unknown) => { settled = true; return error; },
+    );
+    try {
+      await started.promise;
+      pending[0].release();
+      await failedProgress.promise;
+      expect(settled).toBe(false);
+      expect(active).toBe(2);
+    } finally {
+      pending.forEach((deferred) => deferred.release());
+    }
+    expect(await result).toEqual(new Error("All selected sources failed. See Activity for source errors."));
+    expect(active).toBe(0);
+    expect(jobs.every((job) => t.opportunities.get(job.id)?.assessment)).toBe(true);
+    expect(t.run.summary).toMatchObject({ evaluated: 3, sourcesFailed: 1 });
   });
 });
 

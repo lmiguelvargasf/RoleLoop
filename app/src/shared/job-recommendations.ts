@@ -6,7 +6,7 @@ import {
 import { matchesTargetRole } from "./discovery.js";
 import type { Opportunity, Preferences } from "./types.js";
 
-export const JOB_RECOMMENDATION_RULES_VERSION = 10;
+export const JOB_RECOMMENDATION_RULES_VERSION = 11;
 
 export function credentialCondition(text: string): {
   kind:
@@ -132,9 +132,15 @@ export function recommendationForJob(
   const score = complete ? assessment!.essentialScore : null;
   const fitLabel = complete
     ? "Required match"
-    : quality && quality.status !== "not_evaluated"
-      ? "Partial assessment"
-      : "Not evaluated";
+    : quality?.failureReason
+      ? "Evaluation failed"
+      : !required.length
+        ? "Requirements unavailable"
+        : opportunity.descriptionTruncated
+          ? "Incomplete job description"
+          : opportunity.requirementsTruncated
+            ? "Incomplete requirements"
+            : "Needs AI evaluation";
   const result: JobRecommendation = {
     recommendable: false,
     reason:
@@ -154,6 +160,7 @@ export function recommendationForJob(
   ) {
     return {
       ...result,
+      fitLabel: complete ? fitLabel : "Excluded by criteria",
       reason:
         geography.blockers[0] ||
         assessment?.blockers[0] ||
@@ -170,6 +177,7 @@ export function recommendationForJob(
   )
     return {
       ...result,
+      fitLabel: complete ? fitLabel : "Outside target roles",
       reason: "The role is outside your selected career targets.",
       rankScore: -150,
     };

@@ -540,6 +540,8 @@ export function assessOpportunity(
       fitConcerns.push("The role is below your selected seniority level.");
     unknowns.push(...fitConcerns);
   }
+  // A completed comparison can establish a poor match. Fit concerns affect
+  // recommendation, not whether the requirements have been evaluated.
   const fitEvaluation: NonNullable<Assessment["fitEvaluation"]> = {
     method: assessedRequired ? (hasSemantic ? "semantic" : "skills") : "none",
     status: !assessedRequired
@@ -547,8 +549,7 @@ export function assessOpportunity(
       : hasSemantic &&
           assessedRequired === required.length &&
           !op.descriptionTruncated &&
-          !op.requirementsTruncated &&
-          !fitConcerns.length
+          !op.requirementsTruncated
         ? "complete"
         : "partial",
     assessedRequired,

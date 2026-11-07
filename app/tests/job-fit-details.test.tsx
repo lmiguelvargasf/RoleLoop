@@ -68,7 +68,7 @@ describe("job fit details", () => {
         />,
       ),
     );
-    expect($(".job-fit-score").text()).toBe("Not evaluated");
+    expect($(".job-fit-score").text()).toBe("Needs AI evaluation");
     expect($(".job-fit-status.pending")).toHaveLength(3);
     expect($(".job-fit-status.missing")).toHaveLength(0);
     expect($(".job-fit-score").text()).not.toContain("%");
@@ -101,7 +101,7 @@ describe("job fit details", () => {
     const row = $(".job-fit-required > details").first();
     expect(row.find(".job-fit-status").text()).toBe("Not assessed");
     expect(row.find(".job-fit-evidence").text()).toContain("Re-evaluate fit");
-    expect($(".job-fit-score").text()).toBe("Partial assessment");
+    expect($(".job-fit-score").text()).toBe("Needs AI evaluation");
   });
 
   it("leaves all requirements pending when the resume has no evidence", () => {

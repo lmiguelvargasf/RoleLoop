@@ -3,6 +3,7 @@ import { assessOpportunity } from "../src/domain/rules.js";
 import { createDraft } from "../src/domain/templates.js";
 import { validateFit } from "../src/server/fit.js";
 import { PreferencesSchema } from "../src/shared/types.js";
+import { recommendationForJob } from "../src/shared/job-recommendations.js";
 import { demoOpportunities, demoWorkspace } from "./fixtures.js";
 
 const now = new Date("2026-11-05T17:00:00Z");
@@ -97,6 +98,61 @@ describe("required qualifications as the matching minimum", () => {
     expect(migrated.essentialMatch).toBe(preferences.essentialMatch);
     expect(migrated).not.toHaveProperty("minimumMatch");
   });
+});
+
+describe("evaluation completeness is separate from career fit", () => {
+  it.each([
+    ["Embedded Software Engineer", "Develop production embedded firmware"],
+    ["Staff Software Engineer", "Lead engineering teams and technical direction"],
+  ])("shows the evaluated percentage despite a fit gap for %s", (title, gap) => {
+    const { job, profile, preferences } = setup();
+    job.title = title;
+    job.requirements = [job.requirements[0], {
+      id: "scope-gap",
+      text: gap,
+      skills: [],
+      essential: true,
+      hard: false,
+    }];
+    const semantic = job.requirements.map((requirement, index) => ({
+      requirementId: requirement.id,
+      requirement: requirement.text,
+      essential: true,
+      status: index === 0 ? "matched" as const : "missing" as const,
+      evidenceIds: index === 0 ? ["demo-e1"] : [],
+      explanation: index === 0
+        ? "The CV describes building TypeScript and React applications."
+        : "The CV does not demonstrate the required scope.",
+    }));
+
+    const assessment = assessOpportunity(job, profile, preferences, now, semantic);
+    const recommendation = recommendationForJob({ ...job, assessment }, preferences);
+
+    expect(assessment.fitEvaluation).toMatchObject({
+      method: "semantic",
+      status: "complete",
+      assessedRequired: 2,
+      totalRequired: 2,
+    });
+    expect(assessment.fitEvaluation!.concerns!.length).toBeGreaterThan(0);
+    expect(assessment.essentialScore).toBe(50);
+    expect(assessment.recommendation).toBe("review");
+    expect(recommendation.score).toBe(50);
+    expect(recommendation.recommendable).toBe(false);
+    expect(assessment.unknowns.join(" ")).not.toContain("partially evaluated");
+  });
+
+  it.each(["descriptionTruncated", "requirementsTruncated"] as const)(
+    "keeps genuinely incomplete input under review: %s",
+    (field) => {
+      const { job, profile, preferences } = setup();
+      job[field] = true;
+      const assessment = assessedFit(job, profile, preferences, now);
+
+      expect(assessment.fitEvaluation?.status).toBe("partial");
+      expect(recommendationForJob({ ...job, assessment }, preferences).score).toBeNull();
+    },
+  );
 });
 
 describe("listed claims and demonstrated experience", () => {
