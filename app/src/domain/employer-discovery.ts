@@ -560,16 +560,22 @@ export async function discoverEmployerBoards(
           });
           throw error;
         }
-        const relevant = opportunities.some(
-          (op) =>
+        const relevant = opportunities.some((op) => {
+          const assessment = assessOpportunity(
+            op,
+            workspace.profile,
+            workspace.preferences,
+          );
+          return (
             matchesTargetRole(
               op.title,
               workspace.preferences.roles,
               op.company,
             ) &&
-            assessOpportunity(op, workspace.profile, workspace.preferences)
-              .blockers.length === 0,
-        );
+            assessment.geography?.status === "eligible" &&
+            assessment.blockers.length === 0
+          );
+        });
         if (relevant && result.boards.length < capacity)
           result.boards.push({ source, opportunities });
         if (!relevant)

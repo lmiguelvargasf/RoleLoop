@@ -5,7 +5,12 @@ import { discover } from "../src/domain/connectors.js";
 import { discoverEmployerBoards } from "../src/domain/employer-discovery.js";
 import { generateDraft } from "../src/server/model.js";
 import { assessWithAI } from "../src/server/fit.js";
-import { assessOpportunity } from "../src/domain/rules.js";
+import {
+  assessOpportunity,
+  opportunityFingerprint,
+  preferencesFingerprint,
+  profileFingerprint,
+} from "../src/domain/rules.js";
 import { createDraft } from "../src/domain/templates.js";
 import type { WorkspaceStore } from "../src/server/store.js";
 import type { Activity, Draft, Opportunity, Run } from "../src/shared/types.js";
@@ -23,7 +28,10 @@ vi.mock("../src/domain/connectors.js", () => ({
 vi.mock("../src/domain/employer-discovery.js", () => ({
   discoverEmployerBoards: vi.fn(),
 }));
-vi.mock("../src/server/fit.js", () => ({ assessWithAI: vi.fn() }));
+vi.mock("../src/server/fit.js", () => ({
+  assessWithAI: vi.fn(),
+  FIT_PROMPT_VERSION: 2,
+}));
 vi.mock("../src/server/model.js", () => ({ generateDraft: vi.fn() }));
 vi.mock("../src/server/chatgpt.js", () => ({ chatgptStatus: vi.fn() }));
 vi.mock("../src/server/documents.js", () => ({
@@ -53,7 +61,8 @@ function setup(existing: Opportunity[] = []) {
     getWorkspace: async () => workspace,
     ignoredDiscoveryIdentities: async () => [],
     list: async (table: keyof typeof tables) => [...tables[table].values()],
-    get: async (table: keyof typeof tables, id: string) => tables[table].get(id),
+    get: async (table: keyof typeof tables, id: string) =>
+      tables[table].get(id),
     save: async (
       table: keyof typeof tables,
       value: Opportunity | Draft | Run,
@@ -108,7 +117,16 @@ function setup(existing: Opportunity[] = []) {
     createdAt: now,
     updatedAt: now,
   };
-  return { workspace, store, run, runs, opportunities, drafts, events };
+  return {
+    workspace,
+    store,
+    run,
+    runs,
+    opportunities,
+    drafts,
+    events,
+    runtime,
+  };
 }
 
 beforeEach(() => {
@@ -127,6 +145,70 @@ beforeEach(() => {
 });
 
 describe("useful discovery history", () => {
+  it("refreshes fit produced by the old prompt, then reuses the current prompt result", async () => {
+    const [job] = demoOpportunities();
+    const t = setup([job]);
+    job.assessment = {
+      ...assessOpportunity(job, t.workspace.profile, t.workspace.preferences),
+      fitSummary: "Previous prompt summary",
+    };
+    t.runtime.set(`fit:${job.id}`, {
+      fingerprint: `${opportunityFingerprint(job)}:${profileFingerprint(t.workspace.profile)}:${preferencesFingerprint(t.workspace.preferences)}:api`,
+      at: Date.now(),
+    });
+    vi.mocked(discover).mockResolvedValue([job]);
+    vi.mocked(assessWithAI).mockImplementation(async (op, workspace) => ({
+      ...assessOpportunity(op, workspace.profile, workspace.preferences),
+      fitSummary: "Current pragmatic fit summary",
+    }));
+    await processRun(t.store, t.run, async () => {});
+    expect(assessWithAI).toHaveBeenCalledTimes(1);
+    expect(t.opportunities.get(job.id)?.assessment?.fitSummary).toBe(
+      "Current pragmatic fit summary",
+    );
+    await processRun(t.store, t.run, async () => {});
+    expect(assessWithAI).toHaveBeenCalledTimes(1);
+  });
+
+  it("only spends AI and drafting work on country-compatible jobs", async () => {
+    const [base] = demoOpportunities();
+    const jobs = [
+      { ...base, id: "eligible", sourceKey: "ashby:eligible" },
+      {
+        ...base,
+        id: "foreign",
+        sourceKey: "ashby:foreign",
+        location: "Bangalore, India",
+        description: "Fully remote. Candidates must be based in India.",
+        remoteScope: "worldwide" as const,
+      },
+      {
+        ...base,
+        id: "unclear",
+        sourceKey: "ashby:unclear",
+        location: "Remote",
+        description: "Build TypeScript applications for our global customers.",
+        remoteScope: "worldwide" as const,
+      },
+    ];
+    const t = setup();
+    vi.mocked(discover).mockResolvedValue(jobs);
+    await processRun(t.store, t.run, async () => {});
+    expect(assessWithAI).toHaveBeenCalledTimes(1);
+    expect(vi.mocked(assessWithAI).mock.calls[0][0].id).toBe("eligible");
+    expect(generateDraft).toHaveBeenCalledTimes(1);
+    expect([...t.drafts.values()].map((draft) => draft.opportunityId)).toEqual([
+      "eligible",
+    ]);
+    expect(t.opportunities.get("foreign")?.assessment?.recommendation).toBe(
+      "excluded",
+    );
+    expect(t.opportunities.get("unclear")?.assessment?.geography?.status).toBe(
+      "review",
+    );
+    expect(t.opportunities.size).toBe(3);
+  });
+
   it("counts new and existing records separately, skips archives and duplicate results, and links generated drafts", async () => {
     const [old] = demoOpportunities();
     const archived = {

@@ -284,6 +284,21 @@ describe("employer discovery", () => {
 
   it.each([
     {
+      name: "Bangalore-only role",
+      patch: {
+        location: "Bangalore",
+        descriptionPlain:
+          "Fully remote role. Candidates must be based in India.",
+      },
+    },
+    {
+      name: "remote role with no hiring-country evidence",
+      patch: {
+        location: "Remote",
+        descriptionPlain: "Build software for our global customers.",
+      },
+    },
+    {
       name: "US-only role",
       patch: {
         location: "Remote United States only",

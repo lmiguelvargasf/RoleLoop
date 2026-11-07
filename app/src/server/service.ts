@@ -30,7 +30,7 @@ import { assertApproved, assertFresh } from "./guards.js";
 import { generateDraft } from "./model.js";
 import { resumePdf, sendToLocalInbox } from "./documents.js";
 import { chatgptStatus } from "./chatgpt.js";
-import { assessWithAI } from "./fit.js";
+import { assessWithAI, FIT_PROMPT_VERSION } from "./fit.js";
 import {
   matchesTargetRole,
   sourceIdentity,
@@ -644,16 +644,15 @@ export async function processRun(
           // before skipping it would invalidate the assessment already selected
           // for drafting, so deduplicate before any writes.
           if (seenSourceKeys.has(parsed.sourceKey)) continue;
-          const importedOpportunity = await store.importOpportunityWithStatus(
-            parsed,
-          );
+          const importedOpportunity =
+            await store.importOpportunityWithStatus(parsed);
           seenSourceKeys.add(parsed.sourceKey);
           const existing = importedOpportunity.opportunity;
           if (existing.stage === "archived") continue;
           if (importedOpportunity.created) summary.newOpportunities++;
           else summary.existingOpportunities++;
           const cacheKey = `fit:${existing.id}`;
-          const fingerprint = `${opportunityFingerprint(existing)}:${profileFingerprint(workspace.profile)}:${preferencesFingerprint(workspace.preferences)}:${store.actorUserId ?? "api"}`;
+          const fingerprint = `${FIT_PROMPT_VERSION}:${opportunityFingerprint(existing)}:${profileFingerprint(workspace.profile)}:${preferencesFingerprint(workspace.preferences)}:${store.actorUserId ?? "api"}`;
           const previous = await store.runtime<{
             fingerprint: string;
             at: number;
@@ -674,6 +673,8 @@ export async function processRun(
                   existing,
                   workspace,
                   !basic.blockers.length &&
+                    (existing.kind !== "job" ||
+                      basic.geography?.status === "eligible") &&
                     matchesTargetRole(
                       existing.title,
                       workspace.preferences.roles,
@@ -725,6 +726,7 @@ export async function processRun(
       if (remainingDrafts <= 0) break;
       if (
         op.assessment?.recommendation === "ready" &&
+        (op.kind !== "job" || op.assessment.geography?.status === "eligible") &&
         !drafted.has(op.id) &&
         (!op.application || op.application.status === "saved")
       ) {

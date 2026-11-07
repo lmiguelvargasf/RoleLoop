@@ -52,8 +52,12 @@ import {
   additionalJobBoards,
   applicationCounts,
   followUpDue,
-  matchesTargetRole,
 } from "../shared/discovery";
+import {
+  isPotentialJobMatch,
+  jobLocationStatus,
+  needsLocationReview,
+} from "../shared/job-matches";
 import { ApplicationProgress } from "./ApplicationProgress";
 import { SalaryFields } from "./SalaryFields";
 import { SalaryPolicies } from "./SalaryPolicies";
@@ -524,13 +528,9 @@ function Opportunities({
     return () => window.removeEventListener("hashchange", selectFromLink);
   }, [data.opportunities]);
   const potentialMatch = (opportunity: Opportunity) =>
-    opportunity.stage !== "archived" &&
-    opportunity.assessment?.recommendation !== "excluded" &&
-    matchesTargetRole(
-      opportunity.title,
-      data.preferences.roles,
-      opportunity.company,
-    );
+    isPotentialJobMatch(opportunity, data.preferences);
+  const locationReview = (opportunity: Opportunity) =>
+    needsLocationReview(opportunity, data.preferences);
   const all = data.opportunities.filter((o) => o.kind === kind),
     outsideMatches = all.filter(
       (opportunity) =>
@@ -540,16 +540,18 @@ function Opportunities({
       (o) =>
         (stage === "matches"
           ? potentialMatch(o)
-          : stage === "excluded"
-            ? o.stage !== "archived" &&
-              o.assessment?.recommendation === "excluded"
-            : stage === "all"
-              ? o.stage !== "archived"
-              : stage === "followups"
-                ? followUpDue(o, new Date().toLocaleDateString("en-CA"))
-                : stage.startsWith("application:")
-                  ? o.application?.status === stage.slice(12)
-                  : o.stage === stage) &&
+          : stage === "location-review"
+            ? locationReview(o)
+            : stage === "excluded"
+              ? o.stage !== "archived" &&
+                o.assessment?.recommendation === "excluded"
+              : stage === "all"
+                ? o.stage !== "archived"
+                : stage === "followups"
+                  ? followUpDue(o, new Date().toLocaleDateString("en-CA"))
+                  : stage.startsWith("application:")
+                    ? o.application?.status === stage.slice(12)
+                    : o.stage === stage) &&
         `${o.company} ${o.title} ${o.description}`
           .toLowerCase()
           .includes(query.toLowerCase()),
@@ -766,7 +768,14 @@ function Opportunities({
           value={stage}
           onChange={(e) => setStage(e.target.value)}
         >
-          {kind === "job" && <option value="matches">Potential matches</option>}
+          {kind === "job" && (
+            <>
+              <option value="matches">
+                Matches for {data.preferences.country || "your country"}
+              </option>
+              <option value="location-review">Needs location review</option>
+            </>
+          )}
           <option value="all">All active opportunities</option>
           {kind === "job" && (
             <option value="excluded">Excluded by preferences</option>
@@ -792,6 +801,20 @@ function Opportunities({
           {list.length} {list.length === 1 ? "opportunity" : "opportunities"}
         </span>
       </div>
+      {kind === "job" && stage === "matches" && (
+        <p className="opportunity-filter-note">
+          Remote roles whose hiring scope includes{" "}
+          {data.preferences.country || "your working country"}. Review each
+          role’s qualifications and remaining questions before applying.
+        </p>
+      )}
+      {kind === "job" && stage === "location-review" && (
+        <p className="opportunity-filter-note">
+          These roles need confirmation that you can work from{" "}
+          {data.preferences.country || "your selected country"}. They are kept
+          out of your matches until the location is clarified.
+        </p>
+      )}
       {kind === "job" &&
         stage === "matches" &&
         outsideMatches > 0 &&
@@ -865,7 +888,7 @@ function Opportunities({
                 query
                   ? "No matches in this view"
                   : kind === "job" && stage === "matches"
-                    ? "No potential matches yet"
+                    ? "No location-compatible matches yet"
                     : hasActive
                       ? "No opportunities in this view"
                       : kind === "job"
@@ -876,7 +899,7 @@ function Opportunities({
                 query
                   ? "Try another search or change the stage filter."
                   : kind === "job" && stage === "matches" && outsideMatches > 0
-                    ? "Saved roles outside your target roles or preferences remain available in All active opportunities."
+                    ? "Check Needs location review for unclear hiring locations, or All active opportunities for roles outside your preferences."
                     : "Search for opportunities using your preferences, or add one manually."
               }
             >
@@ -969,6 +992,21 @@ function Opportunities({
                 <small>Location</small>
                 <span>{chosen.location}</span>
               </div>
+              {kind === "job" && (
+                <div>
+                  <small>
+                    Hiring from {data.preferences.country || "your country"}
+                  </small>
+                  <span>
+                    {jobLocationStatus(chosen, data.preferences) === "eligible"
+                      ? "Included in the remote hiring scope"
+                      : jobLocationStatus(chosen, data.preferences) ===
+                          "excluded"
+                        ? "Outside the hiring location"
+                        : "Needs confirmation"}
+                  </span>
+                </div>
+              )}
               <div>
                 <small>
                   {kind === "job" ? "Compensation" : "Company country"}
@@ -1026,7 +1064,14 @@ function Opportunities({
               </button>
               <button
                 className="button primary"
-                disabled={busy}
+                disabled={
+                  busy || chosen.assessment?.recommendation === "excluded"
+                }
+                title={
+                  chosen.assessment?.recommendation === "excluded"
+                    ? "Resolve the exclusion before preparing a draft."
+                    : undefined
+                }
                 onClick={() => void run("draft", chosen.id)}
               >
                 <FileText size={15} />

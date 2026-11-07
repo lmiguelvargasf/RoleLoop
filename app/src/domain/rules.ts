@@ -31,7 +31,7 @@ const hash = (value: unknown) =>
     .digest("hex");
 export const profileFingerprint = (profile: Profile) => hash(profile);
 // Bump when eligibility rules change so saved assessments are rechecked.
-export const ASSESSMENT_RULES_VERSION = 2;
+export const ASSESSMENT_RULES_VERSION = 3;
 export const preferencesFingerprint = (prefs: Preferences) => {
   // Search expansion does not change a candidate's fit or invalidate drafts.
   const { discoverEmployers: _discovery, ...matchingPreferences } = prefs;
@@ -161,10 +161,12 @@ export function orderOpportunities(
   };
   const rank = (op: Opportunity) =>
     op.assessment?.recommendation === "excluded"
-      ? 2
-      : op.assessment?.recommendation === "ready"
-        ? 0
-        : 1;
+      ? 3
+      : op.kind === "job" && op.assessment?.geography?.status !== "eligible"
+        ? 2
+        : op.assessment?.recommendation === "ready"
+          ? 0
+          : 1;
   return opportunities
     .map((op) => ({
       op,
@@ -426,6 +428,15 @@ export function assessOpportunity(
       "Upload a master CV and finish processing before preparing an application.",
     );
   return {
+    ...(op.kind === "job"
+      ? {
+          geography: {
+            status: geography.status,
+            workingCountry: prefs.country,
+            reasons: [...geography.blockers, ...geography.unknowns],
+          },
+        }
+      : {}),
     rulesVersion: ASSESSMENT_RULES_VERSION,
     score,
     essentialScore,

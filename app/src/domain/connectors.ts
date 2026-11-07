@@ -12,6 +12,7 @@ import {
   type Source,
 } from "../shared/types.js";
 import { dateWindow } from "./rules.js";
+import { requiresPhysicalPresence } from "./geography.js";
 
 const LIMIT = 2 * 1024 * 1024;
 const IMPORT_LIMIT = 32 * 1024 * 1024;
@@ -322,37 +323,48 @@ const skills: Record<string, RegExp> = {
 export function extractRequirements(description: string): Requirement[] {
   const lines = description
     .split(/[\n•]/)
-    .map((x) => x.trim())
+    .map((x) => x.trim().replace(/^(?:#{1,6}\s+|[-*]\s+|\d+[.)]\s+)/, ""))
     .filter(Boolean);
   const out: Requirement[] = [];
   const seen = new Set<string>();
   let section: "essential" | "preferred" | "unknown" = "unknown";
-  for (const raw of lines) {
-    if (
-      /^(?:what you bring|requirements|qualifications|required|what we're looking for)/i.test(
-        raw,
-      )
-    )
-      section = "essential";
-    else if (/^(?:nice to have|preferred|bonus)/i.test(raw))
-      section = "preferred";
-    else if (/^(?:benefits|what we offer|about us|compensation)/i.test(raw))
-      section = "unknown";
+  const headings = [
+    [
+      "preferred",
+      /^(?:nice[- ]to[- ]haves?|preferred(?: qualifications| skills| experience)?|bonus(?: points)?|desirable(?: qualifications| skills)?)$/i,
+    ],
+    [
+      "essential",
+      /^(?:requirements|qualifications|required(?: qualifications| skills| experience)?|(?:minimum|basic|essential) qualifications|must[- ]haves?|what you bring|what (?:we're|we are) looking for|what you(?:'ll| will) need|who you are|about you)$/i,
+    ],
+    [
+      "unknown",
+      /^(?:benefits|(?:perks and )?benefits|what we offer|about us|about (?:the|this) (?:role|company|team)|compensation(?: and benefits)?|responsibilities|(?:key |your )responsibilities|what you(?:'ll| will) do|the role|equal (?:employment )?opportunity|how to apply)$/i,
+    ],
+  ] as const;
+  for (const line of lines) {
+    let raw = line;
+    const colon = raw.indexOf(":");
+    const label = (colon >= 0 ? raw.slice(0, colon) : raw).trim();
+    const heading = headings.find(([, pattern]) => pattern.test(label));
+    if (heading) {
+      section = heading[0];
+      // Headings are context, not qualifications. Preserve an inline item.
+      raw = colon >= 0 ? raw.slice(colon + 1).trim() : "";
+      if (!raw) continue;
+    }
     const mentioned = Object.entries(skills)
       .filter(([, re]) => re.test(raw))
       .map(([name]) => name);
     const explicitlyRequired = /\b(?:must|required|essential|minimum)\b/i.test(
       raw,
     );
-    if (
-      (!explicitlyRequired && section === "unknown") ||
-      /^(?:requirements|qualifications|required|nice to have|preferred|bonus)\s*:?$/i.test(
-        raw,
-      )
-    )
-      continue;
+    if (!explicitlyRequired && section === "unknown") continue;
     const preferred =
-      /\b(?:nice to have|preferred|bonus)\b/i.test(raw) ||
+      /\b(?:nice[- ]to[- ]have|preferred|bonus|a plus|optional|not (?:required|necessary))\b/i.test(
+        raw,
+      ) ||
+      /^no\b.+\brequired\b/i.test(raw) ||
       section === "preferred";
     const text = raw.slice(0, 700);
     if (seen.has(text)) continue;
@@ -362,24 +374,27 @@ export function extractRequirements(description: string): Requirement[] {
       text,
       skills: mentioned,
       essential: !preferred,
-      hard: /\b(?:must|mandatory|minimum)\b/i.test(raw),
+      hard: !preferred && /\b(?:must|mandatory|minimum)\b/i.test(raw),
     });
     if (out.length >= 30) break;
   }
   return out;
 }
 export function remoteScope(text: string): Opportunity["remoteScope"] {
+  const clauses = text.split(/[\n.!?;]+/).map((clause) => clause.trim());
+  if (requiresPhysicalPresence(text)) return "onsite";
   if (
-    /\bhybrid\s+(?:role|position|work|schedule|working|office)|\b(?:role|position|work|schedule|working)\s+(?:is\s+)?hybrid\b|\bon[- ]?site\s+(?:role|position|work|office)|\b(?:work|working)\s+on[- ]?site\b/i.test(
-      text,
-    ) &&
-    !/\bfully remote\b/i.test(text)
-  )
-    return "onsite";
-  if (
-    /remote.{0,35}(?:worldwide|globally|anywhere)|(?:worldwide|global).{0,25}remote/i.test(
-      text,
-    )
+    clauses.some((clause) => {
+      const worldwide = clause.match(
+        /\bremote(?:\s+(?:role|position|work|working|opportunity|job))?\s*[-–—,:()]*\s*(?:(?:from|across|in)\s+)?(?:worldwide|globally|anywhere(?!\s+(?:in|within|across|throughout)\s+(?!(?:the\s+)?world\b)))\b|\bwork(?:\s+remotely)?\s+from\s+anywhere\s+in\s+the\s+world\b|^(?:worldwide|global)[ -]+remote(?:\s+(?:role|position|job|work))?$/i,
+      );
+      return (
+        worldwide &&
+        !/\b(?:not|never|no|no longer)\s+(?:fully\s+)?$/i.test(
+          clause.slice(0, worldwide.index),
+        )
+      );
+    })
   )
     return "worldwide";
   if (/\blatam\b|latin america/i.test(text) && /remote/i.test(text))
@@ -389,6 +404,37 @@ export function remoteScope(text: string): Opportunity["remoteScope"] {
   )
     return "us";
   return "unknown";
+}
+function postingScope(
+  location: string,
+  description: string,
+  workplace?: string,
+  remoteFlag?: boolean,
+): Opportunity["remoteScope"] {
+  const mode = workplace?.toLowerCase();
+  if (
+    /^(?:on[- ]?site|hybrid|office)$/.test(mode ?? "") ||
+    /\b(?:hybrid|on[- ]?site)\b/i.test(location) ||
+    (mode !== "remote" && remoteFlag === false)
+  )
+    return "onsite";
+  // A source's remote flag establishes work mode, never worldwide permission.
+  const prefix = mode === "remote" || remoteFlag === true ? "Remote " : "";
+  return remoteScope(`${prefix}${location}\n${description}`);
+}
+function postingLocation(
+  location: string,
+  scope: Opportunity["remoteScope"],
+  workplace?: string,
+  remoteFlag?: boolean,
+) {
+  // Keep explicit source work-mode evidence for country-specific remote jobs,
+  // which cannot be represented by the coarse remoteScope enum alone.
+  return scope !== "onsite" &&
+    (workplace?.toLowerCase() === "remote" || remoteFlag === true) &&
+    !/\bremote\b/i.test(location)
+    ? `Remote — ${location}`
+    : location;
 }
 function iso(value: unknown): string | null {
   if (typeof value !== "string" && typeof value !== "number") return null;
@@ -498,15 +544,14 @@ export async function discover(
             ? structuredPay
             : (publishedSalary(j.title ?? "", desc) ?? structuredPay);
         const workplace = j.workplaceType;
+        const location = j.location ?? "Unknown";
+        const scope = postingScope(location, desc, workplace, j.isRemote);
         return base(source, j.id ?? j.jobUrl, {
           title: j.title ?? "Untitled role",
           description: desc,
           url: j.jobUrl ?? j.applyUrl ?? "",
-          location: j.location ?? "Unknown",
-          remoteScope:
-            workplace && workplace !== "Remote"
-              ? "onsite"
-              : remoteScope(`Remote ${j.location ?? ""}\n${desc}`),
+          location: postingLocation(location, scope, workplace, j.isRemote),
+          remoteScope: scope,
           publishedAt: iso(j.publishedAt),
           ...salary,
           requirements: extractRequirements(desc),
@@ -527,7 +572,7 @@ export async function discover(
         description: desc,
         url: j.absolute_url ?? "",
         location: j.location?.name ?? "Unknown",
-        remoteScope: remoteScope(`${j.location?.name ?? ""}\n${desc}`),
+        remoteScope: postingScope(j.location?.name ?? "", desc),
         publishedAt: iso(j.first_published),
         ...(publishedSalary(j.title ?? "", desc) ?? {
           salaryPeriod: "unknown",
@@ -574,15 +619,14 @@ export async function discover(
         structuredPay.salaryMin !== null || structuredPay.salaryMax !== null
           ? structuredPay
           : (publishedSalary(j.text ?? "", desc) ?? structuredPay);
+      const location = j.categories?.location ?? "Unknown";
+      const scope = postingScope(location, desc, j.workplaceType);
       return base(source, j.id, {
         title: j.text ?? "Untitled role",
         description: desc,
         url: j.hostedUrl ?? j.applyUrl ?? "",
-        location: j.categories?.location ?? "Unknown",
-        remoteScope:
-          j.workplaceType === "on-site" || j.workplaceType === "hybrid"
-            ? "onsite"
-            : remoteScope(`${j.categories?.location ?? ""}\n${desc}`),
+        location: postingLocation(location, scope, j.workplaceType),
+        remoteScope: scope,
         publishedAt: iso(j.createdAt),
         ...salary,
         requirements: extractRequirements(desc),
@@ -696,13 +740,16 @@ async function discoverJobicy(source: Source): Promise<Opportunity[]> {
         continue;
       const desc = plainText(String(j.jobDescription ?? j.jobExcerpt ?? ""));
       const geo = String(j.jobGeo ?? "Unknown");
-      const scope = /^(anywhere|worldwide)$/i.test(geo)
-        ? "worldwide"
-        : /^(usa|united states|us)$/i.test(geo)
-          ? "us"
-          : /^(latam|latin america)$/i.test(geo)
-            ? "latam"
-            : "unknown";
+      const scope =
+        postingScope(geo, desc, "remote") === "onsite"
+          ? "onsite"
+          : /^(anywhere|worldwide)$/i.test(geo)
+            ? "worldwide"
+            : /^(usa|united states|us)$/i.test(geo)
+              ? "us"
+              : /^(latam|latin america)$/i.test(geo)
+                ? "latam"
+                : "unknown";
       jobs.set(
         String(j.id),
         base(source, j.id, {
@@ -711,7 +758,7 @@ async function discoverJobicy(source: Source): Promise<Opportunity[]> {
           sourceKey: `jobicy:${j.id}`,
           title: j.jobTitle ?? "Untitled role",
           url: j.url,
-          location: geo,
+          location: postingLocation(geo, scope, "remote"),
           remoteScope: scope,
           description: desc,
           publishedAt: iso(j.pubDate),

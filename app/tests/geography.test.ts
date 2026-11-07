@@ -227,3 +227,271 @@ describe("geographic hiring eligibility", () => {
     ).toContain("Brazil");
   });
 });
+
+describe("country-first application shortlist", () => {
+  it.each([
+    "Bangalore",
+    "Bengaluru, Karnataka",
+    "Remote — Bangalore, India",
+    "Remote — India",
+    "Mumbai",
+    "Remote — Tokyo",
+    "Shanghai",
+    "Manila",
+    "Remote — Singapore",
+    "Remote — Asia",
+    "Remote — APAC",
+    "Remote — EMEA",
+  ])("excludes %s when working from Ecuador", (location) => {
+    const result = assess(
+      "Build software for our global customers.",
+      "Ecuador",
+      location,
+    );
+    expect(result.status).toBe("excluded");
+    expect(result.blockers.length).toBeGreaterThan(0);
+  });
+
+  it.each([
+    ["Remote — Ecuador", "Build software."],
+    ["Remote — Quito", "Build software."],
+    ["Remote — LATAM", "Build software."],
+    ["Remote — Americas", "Build software."],
+    ["Remote · worldwide", "Build software."],
+    ["Remote", "This is a fully remote worldwide role."],
+    ["Remote", "Work remotely from anywhere in the world."],
+  ])("accepts affirmative coverage: %s / %s", (location, description) => {
+    expect(assess(description, "Ecuador", location).status).toBe("eligible");
+  });
+
+  it.each([
+    ["Remote", "We are a global company. Build software."],
+    ["Remote", "Join our global remote team."],
+    ["Remote", "We serve customers worldwide."],
+    ["Remote", "We have offices in Bangalore and Singapore."],
+    ["Remote — Unmapped City", "We are fully remote worldwide."],
+    ["Remote", "Hiring locations will be confirmed during interviews."],
+  ])(
+    "keeps unproven eligibility out of the shortlist: %s / %s",
+    (location, description) => {
+      expect(assess(description, "Ecuador", location).status).toBe("review");
+    },
+  );
+
+  it("compares cities to the selected country instead of banning India", () => {
+    expect(
+      assess("Build software.", "India", "Remote — Bengaluru").status,
+    ).toBe("eligible");
+    expect(assess("Build software.", "Japan", "Remote — Tokyo").status).toBe(
+      "eligible",
+    );
+    expect(assess("Build software.", "Germany", "Remote — Europe").status).toBe(
+      "eligible",
+    );
+    expect(assess("Build software.", "India", "Remote — Ecuador").status).toBe(
+      "excluded",
+    );
+  });
+
+  it.each([
+    "Remote worldwide. Candidates must be based in Bangalore.",
+    "Remote worldwide. This role is based in Bengaluru.",
+    "Remote worldwide. Only candidates in India may apply.",
+    "Remote worldwide. Candidates must be based in APAC.",
+    "Remote worldwide. Asia only.",
+    "Remote worldwide. Work remotely from Asia Pacific only.",
+    "Remote worldwide except Ecuador.",
+  ])(
+    "honors narrow restrictions over worldwide language: %s",
+    (description) => {
+      expect(assess(description).status).toBe("excluded");
+    },
+  );
+
+  it("does not treat office cities or sales markets as hiring restrictions", () => {
+    const description =
+      "Fully remote worldwide. Our offices are in Bangalore. We serve customers in India and Asia.";
+    expect(assess(description).status).toBe("eligible");
+  });
+
+  it("keeps contradictory explicit locations for review", () => {
+    expect(assess("Remote worldwide. India only. Ecuador only.").status).toBe(
+      "review",
+    );
+    expect(
+      assess("Remote Latin America", "Ecuador", "Remote — India").status,
+    ).toBe("review");
+  });
+
+  it("does not use a stale worldwide flag as affirmative eligibility", () => {
+    expect(
+      assessGeography(
+        {
+          location: "Remote",
+          description: "We serve a global market.",
+          remoteScope: "worldwide",
+        },
+        "Ecuador",
+      ).status,
+    ).toBe("review");
+  });
+});
+
+describe("geography edge cases and stale classifications", () => {
+  it.each([
+    "Worldwide (Remote)",
+    "Anywhere — Remote",
+    "Remote — South America",
+  ])(
+    "accepts explicit location coverage in either word order: %s",
+    (location) => {
+      expect(assess("Build software.", "Ecuador", location).status).toBe(
+        "eligible",
+      );
+    },
+  );
+  it("recognizes remotely as affirmative work mode", () => {
+    expect(
+      assess("Work remotely worldwide.", "Ecuador", "Worldwide").status,
+    ).toBe("eligible");
+  });
+  it.each([
+    "Remote anywhere in India.",
+    "Work from anywhere within India.",
+    "Remote from anywhere in Asia.",
+  ])("does not promote country-limited anywhere wording: %s", (description) => {
+    expect(assess(description).status).toBe("excluded");
+  });
+  it.each([
+    "This role is remote worldwide.",
+    "Fully remote. Candidates may work from Ecuador.",
+  ])(
+    "reviews specific permission conflicting with a foreign location: %s",
+    (description) => {
+      expect(assess(description, "Ecuador", "Bangalore").status).toBe("review");
+    },
+  );
+  it.each(["Israel", "United Arab Emirates", "Kazakhstan"])(
+    "does not assume %s is in an unspecified APAC hiring footprint",
+    (country) => {
+      expect(assess("Build software.", country, "Remote APAC").status).toBe(
+        "review",
+      );
+    },
+  );
+  it.each([
+    "Fully remote worldwide. This is a hybrid role in Bangalore.",
+    "Fully remote worldwide. You must attend the office twice a week.",
+  ])(
+    "rechecks compulsory office presence on old records: %s",
+    (description) => {
+      expect(
+        assessGeography(
+          {
+            location: "Remote worldwide",
+            description,
+            remoteScope: "worldwide",
+          },
+          "Ecuador",
+        ).status,
+      ).toBe("excluded");
+    },
+  );
+});
+
+describe("working hours versus country eligibility", () => {
+  it.each([
+    "Remote worldwide. Candidates must work in US time zones.",
+    "Remote worldwide. Candidates must overlap US business hours.",
+    "Remote worldwide. Required working hours are 9am to 5pm Pacific time.",
+  ])(
+    "keeps eligible countries visible while reviewing the schedule: %s",
+    (description) => {
+      const result = assess(description);
+      expect(result.status).toBe("eligible");
+      expect(result.blockers).toEqual([]);
+      expect(result.unknowns).toContain(
+        "Required working hours or time-zone overlap need confirmation.",
+      );
+    },
+  );
+  it("still reviews unresolved work authorization", () => {
+    expect(
+      assess("Remote worldwide. Work authorization is required.").status,
+    ).toBe("review");
+  });
+});
+
+describe("unrecognized location assertions cannot inherit worldwide eligibility", () => {
+  it.each([
+    "Applicants should be based in Bangalore.",
+    "Residency in India is required.",
+    "Location requirement: Bangalore.",
+    "We can only consider applicants living in India.",
+    "Candidates must be based in an unlisted city.",
+    "This role requires Indian citizenship.",
+  ])("requests review for unresolved hiring evidence: %s", (description) => {
+    expect(assess(description, "Ecuador", "Remote worldwide").status).toBe(
+      "review",
+    );
+  });
+  it.each([
+    "You will be based in Bangalore.",
+    "This position is based out of Bangalore.",
+    "This is a remote position for India residents.",
+  ])("excludes concrete incompatible residency: %s", (description) => {
+    expect(assess(description, "Ecuador", "Remote worldwide").status).toBe(
+      "excluded",
+    );
+  });
+  it.each([
+    "Remote - Global",
+    "Anywhere in the world",
+    "Remote - Anywhere in the World",
+  ])("accepts explicit global location labels: %s", (location) => {
+    expect(assess("This is a remote role.", "Ecuador", location).status).toBe(
+      "eligible",
+    );
+  });
+});
+
+describe("shared work-mode interpretation", () => {
+  it.each([
+    "On-site work is not required.",
+    "Our other teams have hybrid work schedules.",
+    "Candidates can work remotely worldwide or use a hybrid work schedule.",
+  ])(
+    "preserves worldwide remote eligibility for optional or unrelated attendance: %s",
+    (description) => {
+      expect(
+        assessGeography(
+          {
+            location: "Remote worldwide",
+            description,
+            remoteScope: "worldwide",
+          },
+          "Ecuador",
+        ).status,
+      ).toBe("eligible");
+    },
+  );
+  it("still excludes mandatory office attendance alongside optional wording", () => {
+    const description =
+      "Candidates can work remotely or use a hybrid work schedule, but must attend our office three days per week.";
+    expect(
+      assessGeography(
+        { location: "Remote worldwide", description, remoteScope: "worldwide" },
+        "Ecuador",
+      ).status,
+    ).toBe("excluded");
+  });
+  it.each([
+    "This role is open to Indian nationals only.",
+    "Supported countries: see our hiring policy.",
+    "Candidates must work US hours. Applicants should be based in Bangalore.",
+  ])("reviews unresolved legal and location constraints: %s", (description) => {
+    expect(assess(description, "Ecuador", "Remote worldwide").status).toBe(
+      "review",
+    );
+  });
+});

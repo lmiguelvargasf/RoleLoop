@@ -129,9 +129,17 @@ describe("evidence and eligibility", () => {
     const { profile, preferences, job } = setup();
     job.companyCountry = "Unknown";
     job.remoteScope = "unknown";
+    job.location = "Remote";
+    job.description = "Build software for our customers.";
     const result = assessOpportunity(job, profile, preferences, now);
     expect(result.recommendation).toBe("review");
-    expect(result.unknowns).toHaveLength(2);
+    expect(result.geography?.status).toBe("review");
+    expect(result.unknowns).toContain(
+      "Company headquarters country is not verified.",
+    );
+    expect(result.unknowns.join(" ")).toContain(
+      "does not confirm remote hiring",
+    );
   });
   it("still flags mandatory requirements with a relaxed matching minimum", () => {
     const { profile, preferences, job } = setup();

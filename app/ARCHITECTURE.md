@@ -112,6 +112,51 @@ Search metadata uses a daily global cache, careers metadata a seven-day cache, a
 
 Directory queries prioritize advertised salary when the candidate has a floor and cache that ordering separately. Role checks ignore an appended employer name and require an explicitly requested management role for management titles. The default job view shows potential matches, with all saved roles and application history accessible through other filters. ATS text cleanup handles one escaped HTML layer. A conservative fallback reads explicit salary currencies/ranges/periods from titles and labelled compensation sections only when structured amounts are absent; ambiguous currencies, OTE and unrelated financial amounts are not treated as base salary. Unknown periods remain unknown, regardless of the apparent magnitude of the amount.
 
+## Country-aware job evaluation
+
+The selected working country controls eligibility. `assessGeography` returns `eligible`, `review`, or `excluded`, separately from career fit. Explicit residence restrictions override broad remote labels; a finite city dictionary resolves Bangalore/Bengaluru and other known locations, while unfamiliar places stay unresolved. The algorithm requires affirmative compatible remote hiring evidence rather than interpreting the absence of a restriction as permission. Headquarters, offices, customers and time-zone overlap do not establish candidate residence. Conflicting evidence remains reviewable.
+
+```mermaid
+flowchart TD
+    A[Search jobs] --> B[Load saved target roles, working country,<br/>salary, freshness and match preferences]
+    B --> C{Find new companies enabled?}
+    C -->|Yes| D[Query Himalayas by role and country<br/>Inspect observed careers links]
+    D --> E[Check supported boards for a matching role<br/>with compatible location and no policy blocker]
+    E --> F[Connect up to 5 qualifying boards<br/>Preserve existing source choices]
+    C -->|No| G[Read enabled employer boards and Jobicy]
+    F --> G
+    G --> H[Parse actual remote or onsite mode,<br/>location, required and preferred qualifications]
+    H --> I{Title matches target role?}
+    I -->|No| J[Skip unrelated listing]
+    I -->|Yes| K[Deduplicate and save or refresh listing<br/>Preserve application history and user corrections]
+    K --> L{Hiring location compatible<br/>with selected country?}
+    L -->|Clear mismatch or onsite| M[Excluded by preferences<br/>Record the location reason]
+    L -->|Unclear or contradictory| N[Needs location review<br/>Record what needs confirmation]
+    L -->|Affirmative remote coverage| O{Salary, company-country<br/>or date policy blocker?}
+    O -->|Yes| M
+    O -->|No| P{Current unchanged AI fit cached?}
+    P -->|Yes| Q[Reuse fit for up to 24 hours]
+    P -->|No| R[Versioned job-fit prompt<br/>Job requirements + verified career facts<br/>Working country + deterministic checks]
+    R --> S[Validate evidence IDs and completeness<br/>Retain required vs preferred distinction]
+    S --> T[Compute fit and retain unresolved facts<br/>AI cannot override policy or geography]
+    Q --> T
+    T --> U[Matches for selected country<br/>Ready roles first, then compatible review roles<br/>Freshness and industry preference rank results]
+    U --> V{Ready, no existing draft or application,<br/>and daily draft budget available?}
+    V -->|Yes| W[Prepare evidence-based draft for review]
+    V -->|No| X[Keep saved for review or follow-up]
+    M --> Y[Activity: counts, reasons and failures]
+    N --> Y
+    W --> Y
+    X --> Y
+    Y --> Z[UI refreshes every 3 seconds<br/>Application submission remains manual]
+```
+
+Job and startup prompts are separate named constants in `server/fit.ts`. Job instructions ask for demonstrated outcomes, truthful transferable evidence, concrete gaps and a useful next action, without inventing tenure, credentials, residence or success probabilities. The structured response must cover each extracted requirement exactly once and cite existing career-fact IDs. Preferred qualifications cannot become mandatory through parsing or prompting. An unavailable or invalid AI response falls back to deterministic review.
+
+`Assessment.geography` persists the eligibility status, working country and unresolved/blocking reasons. The default job view requires a current-country eligible status and the existing role/preference checks. Location-review and excluded filters preserve access to all saved records. These categories describe advertised scope, not independent verification that an employer can legally employ a particular candidate. Remote mode and restrictions come from the posting; a strong skills score cannot override them.
+
+Employer expansion requires at least one location-compatible opening. Both search and manual evaluation avoid AI calls for definite policy blockers or unresolved job locations; automatic drafting additionally requires geographic eligibility and overall readiness. `ASSESSMENT_RULES_VERSION` triggers local reassessment of saved records without paid AI calls, preserving previous semantic matches and application history. `FIT_PROMPT_VERSION` participates in the AI cache fingerprint, so a later eligible search cannot reuse the previous prompt's cached result.
+
 ## Shared source catalog
 
 Migration `20261107000100` changes source ownership into a many-to-many relationship. Global `discovery_sources` contains connector identity (`id`, `kind`, `provider`, canonical `board`); `workspace_sources` contains each workspace’s connection (`workspace_id`, legacy `id`, `source_id`, `label`, `enabled`, `keyword`, `company_id`, ordering and discovery provenance). Company board identity is provider plus lowercase board. Feed identity is provider plus empty board, so workspace keywords never create global catalog variants. Multiple keyword subscriptions remain distinct per workspace.

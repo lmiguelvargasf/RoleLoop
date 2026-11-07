@@ -133,6 +133,13 @@ export const RequirementSchema = z.object({
   hard: z.boolean().default(false),
 });
 export const AssessmentSchema = z.object({
+  geography: z
+    .object({
+      status: z.enum(["eligible", "review", "excluded"]),
+      workingCountry: z.string(),
+      reasons: z.array(z.string()),
+    })
+    .optional(),
   fitSummary: z.string().optional(),
   learningGaps: z.array(z.string()).optional(),
   relevantEvidenceIds: z.array(z.string()).optional(),
@@ -264,11 +271,7 @@ export type Assessment = z.infer<typeof AssessmentSchema>;
 export type Draft = z.infer<typeof DraftSchema>;
 export type Requirement = z.infer<typeof RequirementSchema>;
 export type RunAction =
-  | "discover"
-  | "analyze"
-  | "draft"
-  | "simulate"
-  | "research";
+  "discover" | "analyze" | "draft" | "simulate" | "research";
 export interface Run {
   requestedBy?: string;
   id: string;
