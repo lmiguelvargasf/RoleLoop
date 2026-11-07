@@ -1,6 +1,6 @@
 import { useId, useState } from "react";
 import type { Preferences } from "../shared/types";
-import { PolicySelect } from "./PolicySelect";
+import { SelectField } from "./SelectField";
 
 type FreshnessKey = "lookback" | "lookbackUnit" | "dateMode";
 
@@ -46,7 +46,7 @@ export function FreshnessPreferences({
       <div className="freshness-preferences">
         <div className="freshness-controls">
           <div className="freshness-age">
-            <PolicySelect
+            <SelectField
               label="Look back"
               value={selectedAge}
               onChange={changeAge}
@@ -98,7 +98,7 @@ export function FreshnessPreferences({
               </div>
             )}
           </div>
-          <PolicySelect
+          <SelectField
             label="Include older results?"
             value={dateMode}
             onChange={(value) => onChange("dateMode", value)}

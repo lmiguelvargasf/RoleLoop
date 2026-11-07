@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { ExternalLink, LoaderCircle, Unplug } from "lucide-react";
 import type { ChatGPTConnection } from "../shared/types";
 import { api, write } from "./api";
+import { SelectField } from "./SelectField";
 
 export function ChatGPTConnectionPanel() {
   const [connection, setConnection] = useState<ChatGPTConnection>();
@@ -162,36 +163,23 @@ export function ChatGPTConnectionPanel() {
       {!!connection?.profiles.length && (usingPlan || usingApi) && (
         <div className="chatgpt-preferences">
           {connection.profiles.length > 1 ? (
-            <label className="field">
-              <span>Account</span>
-              <select
-                value={
-                  connection.mode === "chatgpt" ? connection.activeId || "" : ""
-                }
-                disabled={busy}
-                onChange={(e) =>
-                  void action(() =>
-                    write("/account/chatgpt/select", {
-                      profileId: e.target.value,
-                    }),
-                  )
-                }
-              >
-                <option value="" disabled>
-                  Select an account
-                </option>
-                {connection.profiles.map((p) => (
-                  <option value={p.id} key={p.id}>
-                    {p.label}
-                    {!p.connected
-                      ? " · reconnect"
-                      : !p.planEnabled
-                        ? " · enable plan usage"
-                        : ""}
-                  </option>
-                ))}
-              </select>
-            </label>
+            <SelectField
+              label="Account"
+              value={
+                connection.mode === "chatgpt" ? connection.activeId || "" : ""
+              }
+              disabled={busy}
+              placeholder="Select an account"
+              onChange={(profileId) =>
+                void action(() =>
+                  write("/account/chatgpt/select", { profileId }),
+                )
+              }
+              options={connection.profiles.map((profile) => ({
+                value: profile.id,
+                label: `${profile.label}${!profile.connected ? " · reconnect" : !profile.planEnabled ? " · enable plan usage" : ""}`,
+              }))}
+            />
           ) : connection.mode === "chatgpt" && active ? (
             <p className="chatgpt-account">{active.email || active.label}</p>
           ) : (
@@ -226,35 +214,28 @@ export function ChatGPTConnectionPanel() {
             </div>
           )}
           {usingPlan && active && (
-            <label className="field">
-              <span>Model</span>
-              <select
-                aria-label="Model"
-                disabled={busy || !active.models.length}
-                value={active.model || ""}
-                onChange={(e) =>
-                  void action(() =>
-                    write("/account/chatgpt/select", {
-                      profileId: active.id,
-                      model: e.target.value,
-                    }),
-                  )
-                }
-              >
-                {!active.models.length && (
-                  <option value="">
-                    {connection.modelsError
-                      ? "Models unavailable"
-                      : "Loading models…"}
-                  </option>
-                )}
-                {active.models.map((model) => (
-                  <option key={model.slug} value={model.slug}>
-                    {model.displayName}
-                  </option>
-                ))}
-              </select>
-            </label>
+            <SelectField
+              label="Model"
+              value={active.model || ""}
+              disabled={busy || !active.models.length}
+              placeholder={
+                connection.modelsError
+                  ? "Models unavailable"
+                  : "Loading models…"
+              }
+              onChange={(model) =>
+                void action(() =>
+                  write("/account/chatgpt/select", {
+                    profileId: active.id,
+                    model,
+                  }),
+                )
+              }
+              options={active.models.map((model) => ({
+                value: model.slug,
+                label: model.displayName,
+              }))}
+            />
           )}
         </div>
       )}

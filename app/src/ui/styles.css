@@ -4108,7 +4108,7 @@ textarea {
   max-width: 440px;
   margin-top: 20px;
 }
-.chatgpt-preferences > .field {
+.chatgpt-preferences > .policy-select {
   margin-top: 16px;
 }
 .chatgpt-settings {

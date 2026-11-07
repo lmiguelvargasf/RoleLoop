@@ -1,5 +1,5 @@
 import { useId } from "react";
-import { PolicySelect } from "./PolicySelect";
+import { SelectField } from "./SelectField";
 import { salaryReviewMinimum } from "../shared/salary";
 import type { Preferences } from "../shared/types";
 
@@ -29,7 +29,7 @@ export function SalaryPolicies({
 
   return (
     <div className="salary-policies">
-      <PolicySelect
+      <SelectField
         label="Salary range policy"
         value={salaryPolicy}
         onChange={(value) => onChange("salaryPolicy", value)}
@@ -48,7 +48,7 @@ export function SalaryPolicies({
           },
         ]}
       />
-      <PolicySelect
+      <SelectField
         label="When salary is missing"
         value={missingSalary}
         onChange={(value) => onChange("missingSalary", value)}

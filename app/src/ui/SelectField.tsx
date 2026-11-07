@@ -1,24 +1,28 @@
 import { useEffect, useId, useRef, useState, type KeyboardEvent } from "react";
 import { Check, ChevronDown } from "lucide-react";
 
-type PolicyOption<T extends string> = {
+type SelectOption<T extends string> = {
   value: T;
   label: string;
   description?: string;
 };
 
-export function PolicySelect<T extends string>({
+export function SelectField<T extends string>({
   label,
   value,
   options,
   onChange,
   hint,
+  disabled = false,
+  placeholder = "Select an option",
 }: {
   label: string;
   value: T;
-  options: PolicyOption<T>[];
+  options: SelectOption<T>[];
   onChange: (value: T) => void;
   hint?: string;
+  disabled?: boolean;
+  placeholder?: string;
 }) {
   const id = useId();
   const [open, setOpen] = useState(false);
@@ -26,14 +30,25 @@ export function PolicySelect<T extends string>({
   const [activeIndex, setActiveIndex] = useState(0);
   const root = useRef<HTMLDivElement>(null);
   const trigger = useRef<HTMLButtonElement>(null);
+  const restoreFocus = useRef(false);
   const items = useRef<(HTMLButtonElement | null)[]>([]);
-  const selected = options.find((option) => option.value === value)!;
-  const description = hint ?? selected.description;
+  const selected = options.find((option) => option.value === value);
+  const description = hint ?? selected?.description;
 
   useEffect(() => {
-    if (!open) return;
+    if (disabled || !options.length) setOpen(false);
+  }, [disabled, options.length]);
+
+  useEffect(() => {
+    if (open || disabled || !restoreFocus.current) return;
+    restoreFocus.current = false;
+    if (document.activeElement === document.body) trigger.current?.focus();
+  }, [open, disabled]);
+
+  useEffect(() => {
+    if (!open || disabled) return;
     items.current[activeIndex]?.focus({ preventScroll: true });
-  }, [open, activeIndex]);
+  }, [open, activeIndex, disabled]);
 
   useEffect(() => {
     if (!open) return;
@@ -45,19 +60,27 @@ export function PolicySelect<T extends string>({
   }, [open]);
 
   function showMenu() {
+    if (disabled || !options.length) return;
     const bounds = trigger.current!.getBoundingClientRect();
     setAbove(innerHeight - bounds.bottom < 260 && bounds.top > 260);
-    setActiveIndex(options.findIndex((option) => option.value === value));
+    setActiveIndex(
+      Math.max(
+        0,
+        options.findIndex((option) => option.value === value),
+      ),
+    );
     setOpen(true);
   }
 
   function select(next: T) {
+    restoreFocus.current = true;
     onChange(next);
     setOpen(false);
     trigger.current?.focus();
   }
 
   function handleKey(event: KeyboardEvent) {
+    if (disabled || !options.length) return;
     if (event.key === "Escape" && open) {
       event.preventDefault();
       event.stopPropagation();
@@ -68,7 +91,9 @@ export function PolicySelect<T extends string>({
       if (!open) showMenu();
       else
         setActiveIndex(
-          (activeIndex + (event.key === "ArrowDown" ? 1 : -1) + options.length) %
+          (activeIndex +
+            (event.key === "ArrowDown" ? 1 : -1) +
+            options.length) %
             options.length,
         );
     } else if (open && (event.key === "Home" || event.key === "End")) {
@@ -93,6 +118,7 @@ export function PolicySelect<T extends string>({
         <button
           type="button"
           className="policy-trigger"
+          disabled={disabled || !options.length}
           ref={trigger}
           aria-haspopup="listbox"
           aria-expanded={open}
@@ -101,7 +127,7 @@ export function PolicySelect<T extends string>({
           aria-describedby={description ? `${id}-hint` : undefined}
           onClick={() => (open ? setOpen(false) : showMenu())}
         >
-          <span id={`${id}-value`}>{selected.label}</span>
+          <span id={`${id}-value`}>{selected?.label || placeholder}</span>
           <ChevronDown size={16} aria-hidden="true" />
         </button>
         {open && (
@@ -153,4 +179,3 @@ export function PolicySelect<T extends string>({
     </div>
   );
 }
-
