@@ -7,6 +7,16 @@ import {
 import type { Draft, Opportunity, Workspace } from "../shared/types.js";
 import { assessGeography } from "../domain/geography.js";
 
+export function assertCanPrepare(opportunity: Opportunity) {
+  if (opportunity.stage === "archived")
+    throw Object.assign(
+      new Error(
+        "Restore this opportunity before preparing an application or outreach draft.",
+      ),
+      { statusCode: 409 },
+    );
+}
+
 export function assertFresh(
   draft: Draft,
   opportunity: Opportunity,

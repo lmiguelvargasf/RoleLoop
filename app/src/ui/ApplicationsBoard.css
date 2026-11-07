@@ -241,7 +241,62 @@
   margin-top: 8px;
   line-height: 1.6;
 }
+.application-preparation {
+  border-top: 1px solid var(--line);
+  padding-top: 9px;
+  margin-top: 13px;
+}
+.application-review-actions {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+.application-review-actions .icon-button {
+  flex-shrink: 0;
+}
+.application-prepare-button {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  width: 100%;
+  min-height: 36px;
+  padding: 4px 0;
+  border: 0;
+  background: transparent;
+  color: var(--accent);
+  text-align: left;
+  font-size: 11px;
+  font-weight: 600;
+  line-height: 1.5;
+}
+.application-prepare-button svg,
+.application-preparing svg {
+  flex-shrink: 0;
+}
+.application-prepare-button:hover {
+  text-decoration: underline;
+}
+.application-preparing {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  min-height: 36px;
+  color: var(--muted);
+  font-size: 11px;
+  line-height: 1.5;
+}
+.application-preparation-error {
+  color: var(--danger);
+  font-size: 11px;
+  line-height: 1.6;
+}
+.application-preparation-error a {
+  text-decoration: underline;
+}
 @media (max-width: 700px) {
+  .application-prepare-button {
+    min-height: 44px;
+  }
   .application-board-toolbar {
     flex-wrap: wrap;
     gap: 12px;

@@ -34,7 +34,7 @@ import {
   setGlobalRuntime,
   type WorkspaceStore,
 } from "./store.js";
-import { assertApproved, assertFresh } from "./guards.js";
+import { assertApproved, assertCanPrepare, assertFresh } from "./guards.js";
 import { generateDraft } from "./model.js";
 import { resumePdf, sendToLocalInbox } from "./documents.js";
 import { chatgptStatus } from "./chatgpt.js";
@@ -331,8 +331,10 @@ export async function enqueue(
     throw Object.assign(new Error("Choose an opportunity for this action."), {
       statusCode: 400,
     });
-  if (parsed.opportunityId)
-    await store.get("opportunities", parsed.opportunityId);
+  if (parsed.opportunityId) {
+    const opportunity = await store.get("opportunities", parsed.opportunityId);
+    if (parsed.action === "draft") assertCanPrepare(opportunity);
+  }
   if (
     parsed.sourceId &&
     !(await store.getWorkspace()).sources.some(
@@ -382,7 +384,7 @@ export async function analyze(
   op: Opportunity,
   workspace: Workspace,
   useAI = true,
-  options: { reuseFit?: boolean } = {},
+  options: { reuseFit?: boolean; persist?: boolean } = {},
 ) {
   let assessment = useAI
     ? await assessWithAI(op, workspace, store.actorUserId)
@@ -395,7 +397,10 @@ export async function analyze(
       preferencesFingerprint(workspace.preferences)
   )
     assessment = localAssessment(op, current, false);
-  return store.save("opportunities", assessedOpportunity(op, assessment));
+  const assessed = assessedOpportunity(op, assessment);
+  return options.persist === false
+    ? assessed
+    : store.save("opportunities", assessed);
 }
 
 async function draftCountToday(store: WorkspaceStore) {
@@ -411,7 +416,12 @@ async function prepare(
   alreadyAssessed = false,
   runId?: string,
 ) {
-  const assessed = alreadyAssessed ? op : await analyze(store, op, workspace);
+  const current = await store.get("opportunities", op.id);
+  assertCanPrepare(current);
+  const assessed =
+    alreadyAssessed && current.updatedAt === op.updatedAt
+      ? current
+      : await analyze(store, current, workspace, true, { persist: false });
   if (assessed.assessment!.recommendation === "excluded")
     throw new Error(
       `Resolve the exclusion before drafting: ${assessed.assessment!.blockers.join(" ")}`,
@@ -420,11 +430,17 @@ async function prepare(
     throw new Error(
       "Daily draft limit reached. Adjust the limit in Settings or wait until tomorrow.",
     );
+  assertCanPrepare(await store.get("opportunities", op.id));
   const draft = await generateDraft(assessed, workspace, assessed.assessment!);
-  assertFresh(draft, assessed, await store.getWorkspace());
+  // Preparation can span AI calls. Re-read before saving so archiving or
+  // editing the job during preparation cannot restore it or erase progress.
+  const latest = await store.get("opportunities", op.id);
+  assertCanPrepare(latest);
+  assertFresh(draft, latest, await store.getWorkspace());
   await store.save("drafts", draft);
-  await store.save("opportunities", {
-    ...assessed,
+  await store.saveDerivedOpportunity(latest, {
+    ...latest,
+    assessment: assessed.assessment,
     stage: "drafted",
     updatedAt: new Date().toISOString(),
   });
@@ -878,8 +894,8 @@ export async function processRun(
     for (const op of orderOpportunities(shortlist, workspace.preferences)) {
       if (remainingDrafts <= 0) break;
       if (
+        op.kind === "startup" &&
         op.assessment?.recommendation === "ready" &&
-        (op.kind !== "job" || op.assessment.geography?.status === "eligible") &&
         !drafted.has(op.id) &&
         (!op.application || op.application.status === "saved")
       ) {

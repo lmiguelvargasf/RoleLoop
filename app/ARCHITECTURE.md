@@ -87,12 +87,14 @@ Company sources carry optional country and official evidence URL; imported listi
 Application progress is separate from matching stage inside each opportunity payload. Submission/interview/offer timestamps, next action, follow-up date and notes survive source refreshes. Progress-only API edits avoid re-evaluation and draft invalidation. Source outcome counts retain interview/offer milestones after rejection. Bootstrap reads all saved opportunities using stable, workspace-scoped pagination and ranks the complete collection before UI pagination. Application submission remains manual through the listing URL.
 
 
-The board uses `application-board.ts`: an existing `Opportunity.application` object is explicit membership, and its legacy `saved` status renders as To apply. Imported jobs without progress are not automatically tracked. Board columns are To apply, Applied, Interview, Offer, and Closed; Closed retains rejected/withdrawn outcomes. `ApplicationsBoard.tsx` supports drag-and-drop; opening a card exposes the keyboard-accessible status control in `ApplicationProgress.tsx`. Closing a card by drag requires choosing the outcome before persistence. All moves preserve application notes and dates and use progress-only PATCH operations. Archived jobs retain history but leave the active board. Job details and board cards share the same evaluation/draft tools in a native modal.
+The board uses `application-board.ts`: an existing `Opportunity.application` object is explicit membership, and its legacy `saved` status renders as To apply. Imported jobs without progress are not automatically tracked. Board columns are To apply, Applied, Interview, Offer, and Closed; Closed retains rejected/withdrawn outcomes. `ApplicationsBoard.tsx` supports drag-and-drop; opening a card exposes the keyboard-accessible status control in `ApplicationProgress.tsx`. Closing a card by drag requires choosing the outcome before persistence. All moves preserve application notes and dates and use progress-only PATCH operations. Archived jobs retain history but leave the active board. Job details keeps evaluation in a native modal. Application preparation lives on To apply cards in `ApplicationPreparation.tsx`: queue explicitly, show pending or failed work, and link to the job’s documents when ready. Preparing again preserves older drafts. Adding a card or moving it to Applied does not generate documents. Archived opportunities reject draft requests at enqueue and execution; preparation rechecks the current opportunity and uses a compare-and-swap update so concurrent archive or progress changes survive.
 
 ```mermaid
 flowchart LR
     J[Browse job opportunities] -->|Select one or several jobs| T[To apply]
-    T -->|Apply on employer site; update status| A[Applied]
+    T -->|Prepare application when ready| D[Review documents]
+    D -->|Submit on employer site; update status| A[Applied]
+    T -->|Already submitted; update status| A
     A --> I[Interview]
     I --> O[Offer]
     T --> C[Closed]
@@ -101,7 +103,7 @@ flowchart LR
     C --> R[Rejected or withdrawn]
 ```
 
-Requirements retain source statements beyond the recognized software tags. HTML headings and lists are normalized before section-aware extraction; headings, benefits and legal boilerplate are not qualifications. `requirementsVersion` tracks parser refreshes. `fitEvaluation` records assessment coverage: incomplete requirements or skill-tag coverage render as an assessment label, not 0%. Tenure/credential conditions cannot be proven by skill mentions: capability support can be partial while the condition remains a review item. Company headquarters is checked when a country preference is set; ambiguous location text stays unknown. Successful semantic assessments are reused for up to one day with opportunity, profile, preference and requester fingerprints. Hard exclusions and unrelated roles use deterministic assessment; globally ordered ready candidates receive the daily draft budget. Public job-page capture uses the existing DNS-pinned, size/time-bounded research transport and never executes page scripts.
+Requirements retain source statements beyond the recognized software tags. HTML headings and lists are normalized before section-aware extraction; headings, benefits and legal boilerplate are not qualifications. `requirementsVersion` tracks parser refreshes. `fitEvaluation` records assessment coverage: incomplete requirements or skill-tag coverage render as an assessment label, not 0%. Tenure/credential conditions cannot be proven by skill mentions: capability support can be partial while the condition remains a review item. Company headquarters is checked when a country preference is set; ambiguous location text stays unknown. Successful semantic assessments are reused for up to one day with opportunity, profile, preference and requester fingerprints. Hard exclusions and unrelated roles use deterministic assessment; job preparation is explicit from the board; globally ordered qualifying startup prospects receive the automatic outreach draft budget. Public job-page capture uses the existing DNS-pinned, size/time-bounded research transport and never executes page scripts.
 
 Source health is written independently to the workspace-scoped `source-health` runtime record after each source completes or fails. Bootstrap returns the latest per-source check, while Activity shows search history and failures. These checks may come from different runs and do not assert that a job remains open. Manual board links are explicitly separate from automated connectors. Oversized connector descriptions and captured pages carry `descriptionTruncated`; matching treats this as uncertainty and fingerprints it only when true, preserving existing hashes for complete descriptions.
 
@@ -157,9 +159,9 @@ flowchart TD
     S --> T[Compute fit and retain unresolved facts<br/>AI cannot override policy or geography]
     Q --> T
     T --> U[Recommended: rank all saved jobs<br/>Practical fit first; uncertainty lowers priority<br/>Show 10 with fit reason and main question]
-    U --> V{Location eligible and ready,<br/>no existing draft or application,<br/>and daily draft budget available?}
-    V -->|Yes| W[Prepare evidence-based draft for review]
-    V -->|No| X[Keep saved for review or follow-up]
+    U --> X[Keep saved for review]
+    X -->|Add to applications| V[To apply]
+    V -->|Prepare application| W[Recheck fit and prepare documents<br/>Review before submitting manually]
     M --> Y[Activity: counts, reasons and failures]
     N --> Y
     W --> Y
@@ -173,7 +175,7 @@ Job and startup prompts are separate named constants in `server/fit.ts`. Job ins
 
 The browsing views are Recommended, All saved and Archived. `opportunity-views.ts` applies the selected view; `OpportunityFilters.tsx` renders one dropdown beside the job count. Recommended initially shows ten results with Show more. All saved and Archived show fifty at a time. Job browsing has no text search or secondary filters. Changing views clears checkbox selections. All saved preserves access to excluded and incompletely assessed jobs. Source outcome statistics appear under Activity. These categories describe advertised scope, not independent verification that an employer can employ a particular candidate. A strong skills score cannot override explicit restrictions.
 
-Employer expansion requires at least one location-compatible opening. Search and manual evaluation can assess career fit for relevant roles with unresolved hiring coverage, while avoiding paid AI calls for definite policy blockers. Automatic drafting still requires geographic eligibility and overall readiness. `ASSESSMENT_RULES_VERSION`, `requirementsVersion`, profile and matching-preference fingerprints trigger local refreshes without paid AI calls. Semantic matches are reused only when their evidence and requirements remain compatible; deterministic matches are never promoted to semantic evidence. Explicit requirement corrections, application history and concurrent user changes are preserved. `FIT_PROMPT_VERSION` participates in the AI cache fingerprint, preventing reuse of an older prompt's cached response.
+Employer expansion requires at least one location-compatible opening. Search and manual evaluation can assess career fit for relevant roles with unresolved hiring coverage, while avoiding paid AI calls for definite policy blockers. Job discovery never auto-drafts. Application documents require an explicit preparation request; startup research retains automatic outreach drafting for qualifying prospects. `ASSESSMENT_RULES_VERSION`, `requirementsVersion`, profile and matching-preference fingerprints trigger local refreshes without paid AI calls. Semantic matches are reused only when their evidence and requirements remain compatible; deterministic matches are never promoted to semantic evidence. Explicit requirement corrections, application history and concurrent user changes are preserved. `FIT_PROMPT_VERSION` participates in the AI cache fingerprint, preventing reuse of an older prompt's cached response.
 
 Incomplete stored geography is treated as missing derived data and rechecked even when the assessment already has the current rules version. Bootstrap limits reassessment to four concurrent jobs while retaining per-job preference freshness checks. Opportunity and draft writes are validated before mutation, with strict validation for supplied geography, so an incomplete runtime snapshot cannot corrupt a previously valid record.
 

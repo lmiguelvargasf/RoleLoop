@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { CalendarClock, GripVertical, Search } from "lucide-react";
-import type { Opportunity } from "../shared/types";
+import type { Draft, Opportunity, Run } from "../shared/types";
 import {
   applicationColumn,
   applicationColumns,
@@ -11,6 +11,7 @@ import {
 } from "../shared/application-board";
 import { followUpDue } from "../shared/discovery";
 import { write } from "./api";
+import { ApplicationPreparation } from "./ApplicationPreparation";
 import "./ApplicationsBoard.css";
 
 const dragType = "application/x-roleloop-opportunity";
@@ -24,11 +25,15 @@ const emptyColumns: Record<ApplicationColumnId, string> = {
 
 export function ApplicationsBoard({
   opportunities,
+  drafts = [],
+  runs = [],
   busy,
   perform,
   onSelect,
 }: {
   opportunities: Opportunity[];
+  drafts?: Draft[];
+  runs?: Run[];
   busy: boolean;
   perform: (task: () => Promise<unknown>, success?: string) => Promise<boolean>;
   onSelect: (opportunity: Opportunity) => void;
@@ -229,6 +234,7 @@ export function ApplicationsBoard({
                     return (
                       <article
                         key={op.id}
+                        aria-label={`${op.company} · ${op.title}`}
                         className={`application-card${dragging === op.id ? " dragging" : ""}`}
                       >
                         <div className="application-card-company">
@@ -292,6 +298,14 @@ export function ApplicationsBoard({
                               })}
                             </span>
                           )}
+                        <ApplicationPreparation
+                          opportunity={op}
+                          drafts={drafts}
+                          runs={runs}
+                          busy={busy}
+                          perform={perform}
+                          onReviewFit={() => onSelect(op)}
+                        />
                       </article>
                     );
                   })}
@@ -308,8 +322,8 @@ export function ApplicationsBoard({
       </div>
       {tracked.length > 0 && (
         <p className="application-board-help">
-          Drag the handle to move a card. Open a job to change its status,
-          prepare drafts or add follow-up notes.
+          Prepare documents in To apply. Move to Applied after submitting. Open
+          a job to change its status or add follow-up notes.
         </p>
       )}
     </section>

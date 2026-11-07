@@ -1,6 +1,10 @@
 import { randomUUID } from "node:crypto";
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { processRun, recordOpportunityChanges } from "../src/server/service.js";
+import {
+  enqueue,
+  processRun,
+  recordOpportunityChanges,
+} from "../src/server/service.js";
 import { discover } from "../src/domain/connectors.js";
 import { discoverEmployerBoards } from "../src/domain/employer-discovery.js";
 import { generateDraft } from "../src/server/model.js";
@@ -72,6 +76,16 @@ function setup(existing: Opportunity[] = []) {
         structuredClone(value),
       );
       return value;
+    },
+    saveDerivedOpportunity: async (
+      original: Opportunity,
+      next: Opportunity,
+    ) => {
+      const current = opportunities.get(original.id);
+      if (!current || current.updatedAt !== original.updatedAt)
+        return current ?? null;
+      opportunities.set(next.id, structuredClone(next));
+      return next;
     },
     importOpportunityWithStatus: async (candidate: Opportunity) => {
       const old = [...opportunities.values()].find(
@@ -170,7 +184,7 @@ describe("useful discovery history", () => {
     expect(assessWithAI).toHaveBeenCalledTimes(1);
   });
 
-  it("evaluates unresolved geography but drafts only country-compatible jobs", async () => {
+  it("evaluates jobs without automatically preparing applications, even when eligible", async () => {
     const [base] = demoOpportunities();
     const jobs = [
       { ...base, id: "eligible", sourceKey: "ashby:eligible" },
@@ -198,10 +212,8 @@ describe("useful discovery history", () => {
       "eligible",
       "unclear",
     ]);
-    expect(generateDraft).toHaveBeenCalledTimes(1);
-    expect([...t.drafts.values()].map((draft) => draft.opportunityId)).toEqual([
-      "eligible",
-    ]);
+    expect(generateDraft).not.toHaveBeenCalled();
+    expect(t.drafts.size).toBe(0);
     expect(t.opportunities.get("foreign")?.assessment?.recommendation).toBe(
       "excluded",
     );
@@ -211,7 +223,7 @@ describe("useful discovery history", () => {
     expect(t.opportunities.size).toBe(3);
   });
 
-  it("counts new and existing records separately, skips archives and duplicate results, and links generated drafts", async () => {
+  it("counts new and existing records separately and skips archives and duplicate results", async () => {
     const [old] = demoOpportunities();
     const archived = {
       ...old,
@@ -242,17 +254,17 @@ describe("useful discovery history", () => {
         evaluated: 2,
         newOpportunities: 1,
         existingOpportunities: 1,
-        draftsCreated: 2,
+        draftsCreated: 0,
         sourcesChecked: 1,
         sourcesFailed: 0,
         companiesConnected: 0,
         draftFailures: 0,
       },
     });
-    expect(t.events).toHaveLength(3);
+    expect(t.events).toHaveLength(1);
     expect(t.events.every((event) => event.runId === t.run.id)).toBe(true);
     expect(t.events.filter((event) => event.category === "draft")).toHaveLength(
-      2,
+      0,
     );
     expect(t.events.at(-1)).toMatchObject({
       category: "search",
@@ -274,7 +286,7 @@ describe("useful discovery history", () => {
     await processRun(t.store, t.run, async () => {});
     expect(t.run).toMatchObject({
       outcome: "partial",
-      summary: { sourcesChecked: 2, sourcesFailed: 1, draftsCreated: 1 },
+      summary: { sourcesChecked: 2, sourcesFailed: 1, draftsCreated: 0 },
     });
     expect(t.events.find((event) => event.kind === "error")).toMatchObject({
       runId: t.run.id,
@@ -284,13 +296,13 @@ describe("useful discovery history", () => {
     expect(t.events.at(-1)?.kind).toBe("warning");
   });
 
-  it("keeps draft failures and employer-discovery limitations visible on completed searches", async () => {
+  it("keeps startup draft failures visible on completed research", async () => {
     const t = setup();
-    t.workspace.preferences.discoverEmployers = true;
-    vi.mocked(discoverEmployerBoards).mockRejectedValue(
-      new Error("Provider unavailable"),
-    );
-    vi.mocked(discover).mockResolvedValue([demoOpportunities()[0]]);
+    t.workspace.sources = demoWorkspace().sources;
+    t.run.discoveryScope = "startups";
+    vi.mocked(discover).mockResolvedValue([
+      { ...demoOpportunities()[3], title: "Software Engineer" },
+    ]);
     vi.mocked(generateDraft).mockRejectedValue(
       new Error("Draft service unavailable"),
     );
@@ -311,6 +323,20 @@ describe("useful discovery history", () => {
     expect(t.events.at(-1)?.kind).toBe("warning");
   });
 
+  it("continues preparing startup outreach during research", async () => {
+    const t = setup();
+    t.workspace.sources = demoWorkspace().sources;
+    t.run.discoveryScope = "startups";
+    const startup = { ...demoOpportunities()[3], title: "Software Engineer" };
+    vi.mocked(discover).mockResolvedValue([startup]);
+    await processRun(t.store, t.run, async () => {});
+    expect(generateDraft).toHaveBeenCalledTimes(1);
+    expect([...t.drafts.values()]).toEqual([
+      expect.objectContaining({ kind: "outreach", opportunityId: startup.id }),
+    ]);
+    expect(t.run.summary?.draftsCreated).toBe(1);
+  });
+
   it("preserves counts for a failed search and does not claim saved records were evaluated", async () => {
     const t = setup();
     vi.mocked(discover).mockResolvedValue([demoOpportunities()[0]]);
@@ -328,6 +354,141 @@ describe("useful discovery history", () => {
     });
     expect(t.events).toHaveLength(1);
     expect(t.events[0].runId).toBe(t.run.id);
+  });
+});
+
+describe("explicit draft preparation", () => {
+  it.each([0, 3])(
+    "rejects archived jobs and startups before queueing or execution (%s)",
+    async (index) => {
+      const op = { ...demoOpportunities()[index], stage: "archived" as const };
+      const t = setup([op]);
+      const rpc = vi.fn();
+      const store = { ...t.store, db: { rpc } } as unknown as WorkspaceStore;
+      await expect(
+        enqueue(store, { action: "draft", opportunityId: op.id }),
+      ).rejects.toMatchObject({
+        statusCode: 409,
+        message: expect.stringContaining("Restore this opportunity"),
+      });
+      expect(rpc).not.toHaveBeenCalled();
+      t.run.action = "draft";
+      t.run.opportunityId = op.id;
+      await expect(processRun(t.store, t.run, async () => {})).rejects.toThrow(
+        "Restore this opportunity",
+      );
+      expect(assessWithAI).not.toHaveBeenCalled();
+      expect(generateDraft).not.toHaveBeenCalled();
+      expect(t.drafts.size).toBe(0);
+      expect(t.opportunities.get(op.id)?.stage).toBe("archived");
+    },
+  );
+
+  it.each(["assessment", "generation"] as const)(
+    "preserves archiving and application progress during %s",
+    async (phase) => {
+      const op = demoOpportunities()[0];
+      const t = setup([op]);
+      t.run.action = "draft";
+      t.run.opportunityId = op.id;
+      const archived: Opportunity = {
+        ...op,
+        stage: "archived",
+        updatedAt: "2026-11-07T23:00:00Z",
+        application: {
+          status: "withdrawn",
+          appliedAt: "2026-11-06T12:00:00Z",
+          notes: "Keep the submission history.",
+          nextAction: "",
+          followUpOn: null,
+        },
+      };
+      if (phase === "assessment") {
+        vi.mocked(assessWithAI).mockImplementation(async () => {
+          t.opportunities.set(op.id, archived);
+          return assessOpportunity(
+            op,
+            t.workspace.profile,
+            t.workspace.preferences,
+          );
+        });
+      } else {
+        vi.mocked(generateDraft).mockImplementation(
+          async (job, workspace, assessment) => {
+            t.opportunities.set(op.id, archived);
+            return createDraft(
+              job,
+              workspace.profile,
+              workspace.preferences,
+              assessment,
+            );
+          },
+        );
+      }
+      await expect(processRun(t.store, t.run, async () => {})).rejects.toThrow(
+        "Restore this opportunity",
+      );
+      expect(t.opportunities.get(op.id)).toEqual(archived);
+      expect(t.drafts.size).toBe(0);
+      if (phase === "assessment") expect(generateDraft).not.toHaveBeenCalled();
+    },
+  );
+
+  it("prepares an explicitly requested application and retains progress edited during generation", async () => {
+    const op = demoOpportunities()[0];
+    const t = setup([op]);
+    t.run.action = "draft";
+    t.run.opportunityId = op.id;
+    const application: Opportunity["application"] = {
+      status: "saved",
+      appliedAt: null,
+      notes: "Discussed the role with a recruiter.",
+      nextAction: "Send the application",
+      followUpOn: "2026-11-10",
+    };
+    vi.mocked(generateDraft).mockImplementation(
+      async (job, workspace, assessment) => {
+        t.opportunities.set(op.id, {
+          ...op,
+          application,
+          updatedAt: "2026-11-07T23:00:00Z",
+        });
+        return createDraft(
+          job,
+          workspace.profile,
+          workspace.preferences,
+          assessment,
+        );
+      },
+    );
+    await expect(processRun(t.store, t.run, async () => {})).resolves.toBe(
+      "Draft prepared for review",
+    );
+    expect(t.drafts.size).toBe(1);
+    expect(t.opportunities.get(op.id)).toMatchObject({
+      stage: "drafted",
+      application,
+    });
+  });
+
+  it("never restores a job archived between draft storage and the final stage update", async () => {
+    const op = demoOpportunities()[0];
+    const t = setup([op]);
+    t.run.action = "draft";
+    t.run.opportunityId = op.id;
+    const saveDerived = t.store.saveDerivedOpportunity;
+    vi.spyOn(t.store, "saveDerivedOpportunity").mockImplementation(
+      async (original, next) => {
+        t.opportunities.set(op.id, {
+          ...op,
+          stage: "archived",
+          updatedAt: "2026-11-07T23:00:00Z",
+        });
+        return saveDerived(original, next);
+      },
+    );
+    await processRun(t.store, t.run, async () => {});
+    expect(t.opportunities.get(op.id)?.stage).toBe("archived");
   });
 });
 

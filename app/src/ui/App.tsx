@@ -835,19 +835,21 @@ function Opportunities({
           )}
           {kind === "job" ? "Re-evaluate fit" : "Research & evaluate"}
         </button>
-        <button
-          className={`button ${kind === "startup" || board ? "primary" : ""}`}
-          disabled={busy || chosen.assessment?.recommendation === "excluded"}
-          title={
-            chosen.assessment?.recommendation === "excluded"
-              ? "Resolve the exclusion before preparing a draft."
-              : undefined
-          }
-          onClick={() => void run("draft", chosen.id)}
-        >
-          <FileText size={15} />
-          Prepare draft
-        </button>
+        {kind === "startup" && chosen.stage !== "archived" && (
+          <button
+            className="button primary"
+            disabled={busy || chosen.assessment?.recommendation === "excluded"}
+            title={
+              chosen.assessment?.recommendation === "excluded"
+                ? "Resolve the exclusion before preparing a draft."
+                : undefined
+            }
+            onClick={() => void run("draft", chosen.id)}
+          >
+            <FileText size={15} />
+            Prepare draft
+          </button>
+        )}
       </div>
       {kind === "job" && (
         <JobFitDetails
@@ -1018,6 +1020,8 @@ function Opportunities({
         </header>
         <ApplicationsBoard
           opportunities={all}
+          drafts={data.drafts}
+          runs={data.runs}
           busy={busy}
           perform={perform}
           onSelect={(op) => setSelected(op.id)}
@@ -2000,7 +2004,7 @@ function Drafts({
           {!list.length && (
             <Empty
               title="Your drafts will appear here"
-              detail="Choose an opportunity, evaluate the evidence, then prepare an application or founder email."
+              detail="Prepare an application from a To apply card on the Applications board, or a founder email from Startup prospects."
             />
           )}
         </div>
