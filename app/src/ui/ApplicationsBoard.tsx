@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { ArrowRight, CalendarClock, GripVertical, Search } from "lucide-react";
+import { CalendarClock, GripVertical, Search } from "lucide-react";
 import type { Opportunity } from "../shared/types";
 import {
   applicationColumn,
@@ -27,13 +27,11 @@ export function ApplicationsBoard({
   busy,
   perform,
   onSelect,
-  onBrowse,
 }: {
   opportunities: Opportunity[];
   busy: boolean;
   perform: (task: () => Promise<unknown>, success?: string) => Promise<boolean>;
   onSelect: (opportunity: Opportunity) => void;
-  onBrowse: () => void;
 }) {
   const [query, setQuery] = useState("");
   const [dueOnly, setDueOnly] = useState(false);
@@ -55,6 +53,10 @@ export function ApplicationsBoard({
   useEffect(() => {
     if (closing) closeChoice.current?.focus();
   }, [closing]);
+  useEffect(() => {
+    if (dueCount === 0) setDueOnly(false);
+    if (tracked.length === 0) setQuery("");
+  }, [dueCount, tracked.length]);
 
   const move = async (op: Opportunity, status: ApplicationStatus) => {
     if (busy || op.application?.status === status) return;
@@ -82,41 +84,42 @@ export function ApplicationsBoard({
 
   return (
     <section className="applications-board" aria-label="Applications board">
-      <div className="application-board-toolbar">
-        <div className="search-field">
-          <Search size={16} aria-hidden="true" />
-          <input
-            aria-label="Search applications"
-            placeholder="Search company or role…"
-            value={query}
-            onChange={(event) => setQuery(event.target.value)}
-          />
+      {tracked.length > 0 && (
+        <div className="application-board-toolbar">
+          <div className="search-field">
+            <Search size={16} aria-hidden="true" />
+            <input
+              aria-label="Search applications"
+              placeholder="Search company or role…"
+              value={query}
+              onChange={(event) => setQuery(event.target.value)}
+            />
+          </div>
+          {dueCount > 0 && (
+            <button
+              type="button"
+              className={`application-due-filter ${dueOnly ? "active" : ""}`}
+              aria-pressed={dueOnly}
+              onClick={() => setDueOnly(!dueOnly)}
+            >
+              <CalendarClock size={15} aria-hidden="true" />
+              Follow-ups due <span>{dueCount}</span>
+            </button>
+          )}
+          <span className="application-board-count" role="status">
+            {query || dueOnly
+              ? `${visible.length} of ${tracked.length}`
+              : tracked.length}{" "}
+            {tracked.length === 1 ? "job" : "jobs"}
+          </span>
         </div>
-        <button
-          type="button"
-          className={`application-due-filter ${dueOnly ? "active" : ""}`}
-          aria-pressed={dueOnly}
-          onClick={() => setDueOnly(!dueOnly)}
-        >
-          <CalendarClock size={15} aria-hidden="true" />
-          Follow-ups due <span>{dueCount}</span>
-        </button>
-        <span className="application-board-count" role="status">
-          {query || dueOnly
-            ? `${visible.length} of ${tracked.length}`
-            : tracked.length}{" "}
-          {tracked.length === 1 ? "job" : "jobs"}
-        </span>
-      </div>
+      )}
       {tracked.length === 0 ? (
         <div className="application-board-empty">
           <div>
             <h2>Choose the jobs you want to pursue.</h2>
             <p>Add a job from Job opportunities to start in To apply.</p>
           </div>
-          <button type="button" className="button" onClick={onBrowse}>
-            Browse jobs <ArrowRight size={15} aria-hidden="true" />
-          </button>
         </div>
       ) : visible.length === 0 ? (
         <div className="application-board-empty">

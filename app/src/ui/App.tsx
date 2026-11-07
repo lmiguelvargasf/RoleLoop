@@ -1022,7 +1022,6 @@ function Opportunities({
           busy={busy}
           perform={perform}
           onSelect={(op) => setSelected(op.id)}
-          onBrowse={() => navigate("jobs")}
         />
         {chosen && (
           <Modal title="Application details" close={() => setSelected(null)}>

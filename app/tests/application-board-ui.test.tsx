@@ -8,11 +8,10 @@ const props = {
   busy: false,
   perform: async () => true,
   onSelect: () => {},
-  onBrowse: () => {},
 };
 
 describe("application board interface", () => {
-  it("keeps imported jobs out of the board and gives an empty board a browse action", () => {
+  it("keeps imported jobs out of the board and gives an empty board guidance", () => {
     const jobs = demoOpportunities().map((op) => ({
       ...op,
       application: undefined,
@@ -20,7 +19,10 @@ describe("application board interface", () => {
     const html = renderToStaticMarkup(
       <ApplicationsBoard {...props} opportunities={jobs} />,
     );
-    expect(html).toContain("Browse jobs");
+    expect(html).not.toContain("Browse jobs");
+    expect(html).not.toContain("Search applications");
+    expect(html).not.toContain("Follow-ups due");
+    expect(html).not.toContain('class="application-board-count"');
     expect(html).toContain("Choose the jobs you want to pursue.");
     expect(html).not.toContain('class="application-card"');
     expect(html.match(/class="application-column-heading"/g)).toHaveLength(5);
