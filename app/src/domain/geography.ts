@@ -286,35 +286,73 @@ function mentions(
   return found.sort((a, b) => a.start - b.start);
 }
 
+const expandedRegions = new Map<Region, Set<string>>();
+function countriesInRegion(region: Region): Set<string> {
+  let countries = expandedRegions.get(region);
+  if (!countries) {
+    countries = new Set(
+      [...labels.keys()].filter((country) => regionContains(region, country)),
+    );
+    expandedRegions.set(region, countries);
+  }
+  return countries;
+}
+
 function listAfter(text: string, start: number): CountryList | null {
   const rest = text.slice(start);
-  const found = mentions(
+  const countryMentions = mentions(
     rest,
     /\b(?:countries|country codes)\s*:\s*$/i.test(text.slice(0, start)),
     true,
   );
+  const found = countryMentions.map((mention) => ({
+    start: mention.start,
+    end: mention.end,
+    countries: new Set([mention.country]),
+  }));
+  // A fully understood list is a union: "US and Europe" never means US
+  // intersected with Europe. Only extend country lists here; standalone region
+  // handling and APAC's deliberately uncertain boundaries remain unchanged.
+  if (countryMentions.length) {
+    for (const match of rest.matchAll(
+      new RegExp(`\\b(?:${regionPattern})\\b`, "gi"),
+    )) {
+      const region = regionKey(match[0]);
+      if (region === "apac") continue;
+      found.push({
+        start: match.index!,
+        end: match.index! + match[0].length,
+        countries: countriesInRegion(region),
+      });
+    }
+    found.sort((a, b) => a.start - b.start);
+  }
   if (
     !found.length ||
     !/^(?:\s|[:(])*(?:(?:the|either)\s+)?$/i.test(rest.slice(0, found[0].start))
   )
     return null;
-  const countries = new Set([found[0].country]);
+  const countries = new Set(found[0].countries);
   let end = found[0].end;
   let ambiguous = false;
   for (const item of found.slice(1)) {
     const separator = rest.slice(end, item.start);
     if (!/^\s*(?:(?:,|\/|&|\band\b|\bor\b)\s*)+(?:the\s+)?$/i.test(separator)) {
-      // Never turn the understood prefix of a mixed list into an exhaustive
-      // restriction, e.g. "Brazil, CA or Ecuador".
+      // Never treat a recognized prefix as exhaustive when another location
+      // token could not be resolved, e.g. "Brazil, CA or Ecuador".
       if (/^\s*(?:,|\/|&|\band\b|\bor\b)/i.test(separator)) ambiguous = true;
       break;
     }
-    countries.add(item.country);
+    for (const country of item.countries) countries.add(country);
     end = item.end;
   }
+  const tail = rest.slice(end);
   if (
     /^\s*(?:(?:,|\/|&|\band\b|\bor\b)\s*)+(?:the\s+)?(?:LATAM|Latin America|Americas|AMER|EMEA|Europe|European Union|APAC|Asia Pacific|worldwide|global|anywhere)\b/i.test(
-      rest.slice(end),
+      tail,
+    ) ||
+    /^\s*(?:(?:,|\/|&|\band\b|\bor\b)\s*)+(?:the\s+)?(?:[A-Z]{2,3}|Georgia)\b/.test(
+      tail,
     )
   )
     ambiguous = true;
@@ -573,9 +611,9 @@ function worldwideRemote(clause: string): boolean {
   );
   return Boolean(
     coverage &&
-      !/\b(?:not|never|no|no longer|cannot|can't|unable to)\s+(?:\w+\s+){0,2}$/i.test(
-        clause.slice(0, coverage.index),
-      ),
+    !/\b(?:not|never|no|no longer|cannot|can't|unable to)\s+(?:\w+\s+){0,2}$/i.test(
+      clause.slice(0, coverage.index),
+    ),
   );
 }
 
@@ -677,7 +715,11 @@ export function assessGeography(
         value === "united states" ? "the United States" : labels.get(value),
       )
       .join(", ");
-    blockers.push(`This role is restricted to people working in ${countries}.`);
+    blockers.push(
+      allowed.size > 8
+        ? `This role's stated hiring countries and regions do not include ${labels.get(country)}.`
+        : `This role is restricted to people working in ${countries}.`,
+    );
   }
   if (evidence.unclear)
     unknowns.push(

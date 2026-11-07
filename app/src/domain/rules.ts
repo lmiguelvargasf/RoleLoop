@@ -2,6 +2,11 @@ import { createHash } from "node:crypto";
 import { salaryReviewMinimum } from "../shared/salary.js";
 import { careerFacts } from "../shared/types.js";
 import { matchesTargetRole } from "../shared/discovery.js";
+import {
+  credentialCondition,
+  JOB_RECOMMENDATION_RULES_VERSION,
+  recommendationForJob,
+} from "../shared/job-recommendations.js";
 import { assessGeography, normalizeCountry } from "./geography.js";
 import {
   industryPriorityBoost,
@@ -31,7 +36,7 @@ const hash = (value: unknown) =>
     .digest("hex");
 export const profileFingerprint = (profile: Profile) => hash(profile);
 // Bump when eligibility rules change so saved assessments are rechecked.
-export const ASSESSMENT_RULES_VERSION = 3;
+export const ASSESSMENT_RULES_VERSION = JOB_RECOMMENDATION_RULES_VERSION;
 export const preferencesFingerprint = (prefs: Preferences) => {
   // Search expansion does not change a candidate's fit or invalidate drafts.
   const { discoverEmployers: _discovery, ...matchingPreferences } = prefs;
@@ -162,27 +167,40 @@ export function orderOpportunities(
   const rank = (op: Opportunity) =>
     op.assessment?.recommendation === "excluded"
       ? 3
-      : op.kind === "job" && op.assessment?.geography?.status !== "eligible"
-        ? 2
-        : op.assessment?.recommendation === "ready"
-          ? 0
-          : 1;
+      : op.assessment?.recommendation === "ready"
+        ? 0
+        : 1;
   return opportunities
-    .map((op) => ({
-      op,
-      rank: rank(op),
-      priorityScore:
-        (op.assessment?.score || 0) + industryPriorityBoost(op, prefs),
-      freshness: freshness(op),
-    }))
-    .sort(
-      (a, b) =>
+    .map((op) => {
+      const industry = industryPriorityBoost(op, prefs);
+      return {
+        op,
+        rank: rank(op),
+        industry,
+        priorityScore: (op.assessment?.score || 0) + industry,
+        freshness: freshness(op),
+        job: op.kind === "job" ? recommendationForJob(op, prefs) : null,
+      };
+    })
+    .sort((a, b) => {
+      if (a.op.kind !== b.op.kind) return a.op.kind.localeCompare(b.op.kind);
+      if (a.job && b.job)
+        return (
+          Number(b.job.recommendable) - Number(a.job.recommendable) ||
+          b.job.rankScore - a.job.rankScore ||
+          b.freshness - a.freshness ||
+          b.industry - a.industry ||
+          (b.op.publishedAt || "").localeCompare(a.op.publishedAt || "") ||
+          a.op.id.localeCompare(b.op.id)
+        );
+      return (
         a.rank - b.rank ||
         b.freshness - a.freshness ||
         b.priorityScore - a.priorityScore ||
         (b.op.assessment?.score || 0) - (a.op.assessment?.score || 0) ||
-        (b.op.publishedAt || "").localeCompare(a.op.publishedAt || ""),
-    )
+        (b.op.publishedAt || "").localeCompare(a.op.publishedAt || "")
+      );
+    })
     .map(({ op }) => op);
 }
 
@@ -331,18 +349,49 @@ export function assessOpportunity(
     if (semantic) {
       status = semantic.status;
       ids.clear();
-      semantic.evidenceIds.forEach((id) => ids.add(id));
+      semantic.evidenceIds
+        .filter((id) => evidence.some((entry) => entry.id === id))
+        .forEach((id) => ids.add(id));
+      if (!ids.size && status !== "missing") status = "missing";
     }
     const listedExplanation = listedClaimExplanation(
       evidence.filter((entry) => ids.has(entry.id)),
       req.skills,
     );
     if (listedExplanation && status === "matched") status = "partial";
+    const credential = credentialCondition(req.text);
     const quantified =
-      /\d+\+?\s*(?:years?|yrs?)|clearance|citizen|authorization|authorisation|license|licence|certif|degree/i.test(
-        req.text,
+      !!credential || /\d+\+?\s*(?:years?|yrs?)/i.test(req.text);
+    const credentialEvidence = {
+      degree:
+        /\b(bachelor|master|doctor|phd|ph\.d|bsc|msc|degree|b\.?s\.?|m\.?s\.?)\b/i,
+      license: /\b(licen[sc]ed|licen[sc]e|professional engineer)\b/i,
+      clearance: /\b(clearance|secret|classified)\b/i,
+      citizenship: /\b(citizen|citizenship|nationality)\b/i,
+      authorization:
+        /\b(work authori[sz]ation|authori[sz]ed to work|work permit|permanent resident)\b/i,
+      certification: /\b(certified|certification|certificate)\b/i,
+    };
+    // A semantic evaluator can establish a stated credential only when its
+    // cited verified CV evidence contains that credential (or an expressly
+    // allowed experience alternative). Common skill tags cannot do this.
+    const confirmedCredential =
+      credential &&
+      semantic?.status === "matched" &&
+      evidence.some(
+        (entry) =>
+          ids.has(entry.id) &&
+          !isListedClaim(entry) &&
+          (credentialEvidence[credential.kind].test(entry.text) ||
+            (credential.acceptsExperience &&
+              (!entry.category ||
+                entry.category === "experience" ||
+                entry.category === "project"))),
       );
-    if (quantified) {
+    const conditionUnconfirmed =
+      quantified &&
+      (!confirmedCredential || /\d+\+?\s*(?:years?|yrs?)/i.test(req.text));
+    if (conditionUnconfirmed) {
       if (status === "matched") status = "partial";
       if (req.essential || req.hard)
         unknowns.push(
@@ -357,7 +406,7 @@ export function assessOpportunity(
       essential: req.essential,
       evidenceIds: [...ids],
       status,
-      explanation: quantified
+      explanation: conditionUnconfirmed
         ? "Capability evidence is shown separately; tenure, credentials, or legal eligibility remain unconfirmed."
         : listedExplanation && status !== "missing"
           ? listedExplanation
@@ -388,6 +437,111 @@ export function assessOpportunity(
   const essentials = matches.filter((m) => m.essential),
     preferred = matches.filter((m) => !m.essential);
   const essentialScore = coverage(essentials);
+  const required = op.requirements.filter((req) => req.essential);
+  const hasSemantic =
+    !!semanticMatches?.length &&
+    op.requirements.every((req) =>
+      semanticMatches.some((match) => match.requirementId === req.id),
+    );
+  const assessedRequired = evidence.length
+    ? required.filter(
+        (req) =>
+          semanticMatches?.some((match) => match.requirementId === req.id) ||
+          req.skills.length > 0,
+      ).length
+    : 0;
+  const fitConcerns: string[] = [];
+  if (op.kind === "job") {
+    const appliedExperience = evidence
+      .filter((entry) => !isListedClaim(entry))
+      .map((entry) => `${entry.role} ${entry.text}`)
+      .join("\n");
+    const semanticSupports = (scope: RegExp) =>
+      op.requirements.some(
+        (requirement) =>
+          scope.test(requirement.text) &&
+          semanticMatches?.some(
+            (match) =>
+              match.requirementId === requirement.id &&
+              match.status === "matched" &&
+              match.evidenceIds.some((id) =>
+                evidence.some(
+                  (entry) => entry.id === id && !isListedClaim(entry),
+                ),
+              ),
+          ),
+      );
+    // A broad engineering title and common tags cannot establish a specialist
+    // career fit. These checks require actual CV experience, not a skills list.
+    const specialties = [
+      [
+        /\b(embedded|firmware|kernel)\b/i,
+        /\b(embedded|firmware|kernel|device drivers?|rtos|bare[ -]metal)\b/i,
+        "embedded systems or kernel engineering",
+      ],
+      [
+        /\b(machine learning|data scientist)\b/i,
+        /\b(machine learning|model training|neural networks?|pytorch|tensorflow|data scientist)\b/i,
+        "machine learning or data science",
+      ],
+      [
+        /\b(android|ios)\b/i,
+        /\b(android|ios|swift|kotlin|mobile applications?)\b/i,
+        "native mobile development",
+      ],
+      [
+        /\b(security engineer|security architect)\b/i,
+        /\b(security engineer|security architect|application security|threat model|penetration test|cybersecurity)\b/i,
+        "security engineering",
+      ],
+    ] as const;
+    for (const [title, experience, label] of specialties)
+      if (
+        (title.test(op.title) ||
+          required.some((requirement) => experience.test(requirement.text))) &&
+        !experience.test(appliedExperience) &&
+        !semanticSupports(experience)
+      )
+        fitConcerns.push(
+          `Relevant experience in ${label} is not established in your CV.`,
+        );
+    const leadership =
+      /\b(staff|principal|lead|led|architect|managed|mentored|drove|oversaw|coached|technical direction|engineering manager|director|cto)\b/i;
+    if (
+      /\b(staff|principal|engineering manager|director of engineering|vp of engineering|cto)\b/i.test(
+        op.title,
+      ) &&
+      !leadership.test(appliedExperience) &&
+      !semanticSupports(leadership)
+    )
+      fitConcerns.push(
+        "The role's leadership scope is not established in your CV.",
+      );
+    if (
+      /\b(junior|intern|internship|entry[ -]level|graduate)\b/i.test(
+        op.title,
+      ) &&
+      prefs.roles.length > 0 &&
+      prefs.roles.every((role) =>
+        /\b(senior|lead|staff|principal|manager|director)\b/i.test(role),
+      )
+    )
+      fitConcerns.push("The role is below your selected seniority level.");
+    unknowns.push(...fitConcerns);
+  }
+  const fitEvaluation: NonNullable<Assessment["fitEvaluation"]> = {
+    method: assessedRequired ? (hasSemantic ? "semantic" : "skills") : "none",
+    status: !assessedRequired
+      ? "not_evaluated"
+      : assessedRequired === required.length &&
+          !op.descriptionTruncated &&
+          !fitConcerns.length
+        ? "complete"
+        : "partial",
+    assessedRequired,
+    totalRequired: required.length,
+    concerns: fitConcerns,
+  };
   let score =
     essentials.length && preferred.length
       ? Math.round(essentialScore * 0.8 + coverage(preferred) * 0.2)
@@ -395,11 +549,18 @@ export function assessOpportunity(
   if (op.kind === "job") {
     if (!matches.length)
       unknowns.push(
-        "No structured requirements were found. A match score of 0 means not evaluated, not a proven mismatch.",
+        "No structured requirements were found. Career fit has not been evaluated.",
       );
     if (!essentials.length)
       unknowns.push("Essential requirements have not been identified.");
-    if (essentials.length && essentialScore < prefs.essentialMatch)
+    if (fitEvaluation.status === "partial")
+      unknowns.push(
+        "The required experience has only been partially evaluated.",
+      );
+    if (
+      fitEvaluation.status === "complete" &&
+      essentialScore < prefs.essentialMatch
+    )
       unknowns.push(
         `Verified experience covers ${essentialScore}% of required qualifications; your minimum is ${prefs.essentialMatch}%.`,
       );
@@ -435,6 +596,7 @@ export function assessOpportunity(
             workingCountry: prefs.country,
             reasons: [...geography.blockers, ...geography.unknowns],
           },
+          fitEvaluation,
         }
       : {}),
     rulesVersion: ASSESSMENT_RULES_VERSION,
@@ -451,6 +613,7 @@ export function assessOpportunity(
     matches,
     evaluatedAt: now.toISOString(),
     profileFingerprint: profileFingerprint(profile),
+    preferencesFingerprint: preferencesFingerprint(prefs),
     startupSignals: op.signals,
   };
 }

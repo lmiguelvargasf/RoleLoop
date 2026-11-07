@@ -214,6 +214,6 @@ describe("Activity reading and recovery", () => {
       '<th scope="row">Career board</th><td>2</td><td>2</td><td>1</td><td>1</td>',
     );
     expect(html).not.toContain("Startup feed");
-    expect(html).toContain("latest 300 discoveries plus tracked applications");
+    expect(html).toContain("all jobs currently saved in your workspace");
   });
 });

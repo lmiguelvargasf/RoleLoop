@@ -42,7 +42,7 @@ describe("practical job-fit instructions and context", () => {
 
     const result = await assessWithAI(job, workspace, "test-user");
 
-    expect(FIT_PROMPT_VERSION).toBeGreaterThan(1);
+    expect(FIT_PROMPT_VERSION).toBe(3);
     expect(structuredAI).toHaveBeenCalledOnce();
     const call = vi.mocked(structuredAI).mock.calls[0];
     expect(call[2]).toBe(JOB_FIT_INSTRUCTIONS);
@@ -85,20 +85,62 @@ describe("practical job-fit instructions and context", () => {
     },
   );
 
-  it("keeps unspecified remote hiring geography for review before AI matching", async () => {
+  it("evaluates career fit with unknown hiring geography while preserving review", async () => {
+    const job: Opportunity = {
+      ...demoOpportunities()[0],
+      location: "Remote",
+      description: "Build a TypeScript product for our global customers.",
+      remoteScope: "unknown",
+    };
+    vi.mocked(structuredAI).mockResolvedValue(fitFor(job));
+    const result = await assessWithAI(job, demoWorkspace(), "test-user");
+    expect(result.recommendation).toBe("review");
+    expect(result.geography?.status).toBe("review");
+    expect(result.fitEvaluation).toMatchObject({
+      method: "semantic",
+      status: "complete",
+    });
+    expect(result.unknowns.length).toBeGreaterThan(0);
+    expect(result.essentialScore).toBe(100);
+    expect(result.fitSummary).toBe(fitFor(job).summary);
+    expect(structuredAI).toHaveBeenCalledOnce();
+    expect(vi.mocked(structuredAI).mock.calls[0][3]).toMatchObject({
+      deterministicAssessment: { geography: { status: "review" } },
+    });
+    expect(JOB_FIT_INSTRUCTIONS).toContain("independently of that uncertainty");
+  });
+
+  it("does not pay for obviously unrelated roles", async () => {
+    const job = { ...demoOpportunities()[0], title: "Senior Accountant" };
+    await assessWithAI(job, demoWorkspace(), "test-user");
+    expect(structuredAI).not.toHaveBeenCalled();
+  });
+
+  it("does not fabricate a completed comparison when requirements were not parsed", async () => {
+    const job = { ...demoOpportunities()[0], requirements: [] };
+    const result = await assessWithAI(job, demoWorkspace(), "test-user");
+    expect(structuredAI).not.toHaveBeenCalled();
+    expect(result.recommendation).toBe("review");
+    expect(result.fitSummary).toBeUndefined();
+    expect(result.unknowns.join(" ")).toMatch(/No structured requirements/);
+    expect(result.fitEvaluation).toMatchObject({
+      method: "none",
+      status: "not_evaluated",
+    });
+  });
+
+  it("requires verified career evidence for comparison", async () => {
+    const workspace = demoWorkspace();
+    workspace.profile.cache!.facts!.evidence.forEach(
+      (entry) => (entry.verified = false),
+    );
     const result = await assessWithAI(
-      {
-        ...demoOpportunities()[0],
-        location: "Remote",
-        description: "Build a TypeScript product for our global customers.",
-        remoteScope: "unknown",
-      },
-      demoWorkspace(),
+      demoOpportunities()[0],
+      workspace,
       "test-user",
     );
-    expect(result.recommendation).toBe("review");
-    expect(result.unknowns.length).toBeGreaterThan(0);
     expect(structuredAI).not.toHaveBeenCalled();
+    expect(result.fitSummary).toBeUndefined();
   });
 
   it("cannot clear a salary unknown even when the model reports perfect capability matches", async () => {

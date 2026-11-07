@@ -44,7 +44,8 @@ export function MatchingPreferences({
           <span aria-hidden="true">%</span>
         </div>
         <p className="preference-hint" id={`${id}-hint`}>
-          Jobs below this minimum need review.
+          Recommended prioritizes jobs meeting this minimum. Other jobs stay in
+          All saved for review.
         </p>
       </div>
     </section>

@@ -8,6 +8,7 @@ import {
   preferencesFingerprint,
   profileFingerprint,
 } from "../src/domain/rules.js";
+import { REQUIREMENT_EXTRACTION_VERSION } from "../src/domain/connectors.js";
 import { createDraft } from "../src/domain/templates.js";
 import type { Opportunity, Run, Source } from "../src/shared/types.js";
 
@@ -53,6 +54,7 @@ function restrictedOpportunity(): Opportunity {
     ...demoOpportunities()[0],
     id,
     isDemo: false,
+    requirementsVersion: REQUIREMENT_EXTRACTION_VERSION,
     sourceKey: `geography:${id}`,
     remoteScope: "worldwide",
     location: "Remote LATAM",
@@ -134,7 +136,7 @@ integration("geography rules rollout", () => {
       const state = await bootstrap(t.store);
       expect(state.opportunities).toHaveLength(jobs.length);
       expect(peak).toBeLessThanOrEqual(4);
-      expect(reads).toHaveBeenCalledTimes(jobs.length + 1);
+      expect(reads).toHaveBeenCalledTimes(2);
       expect(ai).not.toHaveBeenCalled();
       for (const original of jobs) {
         const repaired = state.opportunities.find(
@@ -327,6 +329,59 @@ integration("geography rules rollout", () => {
       expect(updated.assessment?.recommendation).toBe("excluded");
       expect(updated.assessment?.blockers.join(" ")).toMatch(/Brazil/i);
       expect(ai).not.toHaveBeenCalled();
+    } finally {
+      await t.cleanup();
+    }
+  });
+  it("evaluates career fit for uncertain geography without automatically drafting an application", async () => {
+    const source: Source = {
+      id: "uncertain-geo",
+      label: "Uncertain employer",
+      provider: "ashby",
+      board: "uncertain-employer",
+      enabled: true,
+    };
+    const t = await setup([source]);
+    const connectors = await import("../src/domain/connectors.js");
+    const fit = await import("../src/server/fit.js");
+    const { processRun } = await import("../src/server/service.js");
+    const op = {
+      ...restrictedOpportunity(),
+      source: "ashby",
+      sourceId: source.id,
+      sourceKey: "ashby:uncertain-employer:one",
+      url: "https://jobs.ashbyhq.com/uncertain-employer/one",
+      location: "Remote",
+      remoteScope: "unknown" as const,
+      description:
+        "Build developer software remotely. Hiring countries have not been specified.",
+    };
+    const ai = vi
+      .spyOn(fit, "assessWithAI")
+      .mockImplementation(async (op, workspace) => ({
+        ...assessOpportunity(op, workspace.profile, workspace.preferences),
+        fitSummary: "Relevant software experience; confirm the hiring country.",
+      }));
+    const now = new Date().toISOString();
+    const run: Run = {
+      id: randomUUID(),
+      workspaceId: t.workspaceId,
+      action: "discover",
+      discoveryScope: "jobs",
+      status: "running",
+      progress: 0,
+      message: "Isolated unknown geography test",
+      createdAt: now,
+      updatedAt: now,
+    };
+    try {
+      vi.spyOn(connectors, "discover").mockResolvedValue([op]);
+      await processRun(t.store, run, async () => {});
+      expect(ai).toHaveBeenCalledTimes(1);
+      const assessed = await t.store.get("opportunities", op.id);
+      expect(assessed.assessment?.geography?.status).toBe("review");
+      expect(assessed.assessment?.fitSummary).toMatch(/Relevant software/);
+      expect(await t.store.list("drafts")).toEqual([]);
     } finally {
       await t.cleanup();
     }

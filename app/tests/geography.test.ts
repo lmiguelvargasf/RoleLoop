@@ -206,18 +206,54 @@ describe("geographic hiring eligibility", () => {
   it.each([
     "Remote worldwide. This role is open to candidates in the United States or LATAM.",
     "Remote worldwide. We hire in the United States and Latin America.",
-    "Remote worldwide. Only candidates based in Brazil, CA or Ecuador.",
     "Remote worldwide. United States or LATAM only.",
+    "Remote worldwide. Only candidates based in LATAM or the United States.",
   ])(
-    "reviews a mixed list instead of treating a partial parse as exhaustive: %s",
+    "accepts a complete country-region union including Ecuador: %s",
     (text) => {
       const result = assess(text);
+      expect(result.status).toBe("eligible");
+      expect(result.blockers).toEqual([]);
+    },
+  );
+
+  it.each([
+    "Remote worldwide. Only candidates based in Brazil, CA or Ecuador.",
+    "Remote worldwide. This role is open to candidates in the US and CA.",
+    "Remote worldwide. Only candidates based in the US and APAC.",
+  ])(
+    "keeps unresolved codes and variable region lists for review: %s",
+    (text) => {
+      const result = assess(text);
+      expect(result.status).toBe("review");
       expect(result.blockers).toEqual([]);
       expect(result.unknowns.join(" ")).toContain(
         "complete hiring-location list",
       );
     },
   );
+
+  it.each(["North America", "Europe"])(
+    "excludes Ecuador from an explicit US-and-Europe hiring list despite a %s source location",
+    (location) => {
+      const text =
+        "We are a remote-first company. This role is open to candidates based in the US and Europe. You can work from anywhere within these regions.";
+      expect(assess(text, "Ecuador", location).status).toBe("excluded");
+      expect(assess(text, "Ecuador", location).blockers).toContain(
+        "This role's stated hiring countries and regions do not include Ecuador.",
+      );
+      expect(assess(text, "United States", location).blockers).toEqual([]);
+      expect(assess(text, "Germany", location).blockers).toEqual([]);
+    },
+  );
+
+  it("understands a region before a country in the same explicit hiring list", () => {
+    const text =
+      "Remote worldwide. This role is open to candidates based in Europe or the United States.";
+    expect(assess(text).status).toBe("excluded");
+    expect(assess(text, "Germany").blockers).toEqual([]);
+    expect(assess(text, "United States").blockers).toEqual([]);
+  });
 
   it("does not let an incidental team mention hide an explicit residence requirement", () => {
     expect(

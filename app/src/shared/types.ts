@@ -141,6 +141,16 @@ export const AssessmentSchema = z.object({
   // Geography is derived data. Incomplete older snapshots must be rechecked,
   // not prevent the entire workspace from loading or imply eligibility.
   geography: JobGeographySchema.optional().catch(undefined),
+  fitEvaluation: z
+    .object({
+      method: z.enum(["semantic", "skills", "none"]),
+      status: z.enum(["complete", "partial", "not_evaluated"]),
+      assessedRequired: z.number().int().nonnegative(),
+      totalRequired: z.number().int().nonnegative(),
+      concerns: z.array(z.string()).optional(),
+    })
+    .optional()
+    .catch(undefined),
   fitSummary: z.string().optional(),
   learningGaps: z.array(z.string()).optional(),
   relevantEvidenceIds: z.array(z.string()).optional(),
@@ -163,6 +173,7 @@ export const AssessmentSchema = z.object({
   evaluatedAt: z.string(),
   rulesVersion: z.number().int().nonnegative().default(0),
   profileFingerprint: z.string(),
+  preferencesFingerprint: z.string().optional(),
   startupSignals: z.array(z.string()).default([]),
 });
 export const OpportunitySchema = z.object({
@@ -173,6 +184,7 @@ export const OpportunitySchema = z.object({
   title: z.string(),
   description: z.string().max(50000),
   descriptionTruncated: z.boolean().default(false),
+  requirementsVersion: z.number().int().nonnegative().optional(),
   url: z.string().max(2000),
   companyUrl: z.string().default(""),
   source: z.string(),

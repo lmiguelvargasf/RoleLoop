@@ -106,7 +106,7 @@ describe("country-specific job shortlist", () => {
     ).toBe(false);
   });
 
-  it("ranks a location-compatible review ahead of an unresolved high score", () => {
+  it("ranks materially stronger experience ahead of country certainty", () => {
     const compatible = assessed({
       id: "compatible",
       salaryMin: null,
@@ -119,12 +119,13 @@ describe("country-specific job shortlist", () => {
       remoteScope: "unknown",
     });
     compatible.job.assessment!.score = 40;
+    compatible.job.assessment!.essentialScore = 40;
     unresolved.job.assessment!.score = 100;
     expect(
       orderOpportunities(
         [unresolved.job, compatible.job],
         compatible.preferences,
       )[0].id,
-    ).toBe("compatible");
+    ).toBe("unresolved");
   });
 });

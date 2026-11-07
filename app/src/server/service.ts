@@ -20,7 +20,13 @@ import {
   preferencesFingerprint,
   opportunityFingerprint,
 } from "../domain/rules.js";
-import { discover, research, freshFeedRecords } from "../domain/connectors.js";
+import {
+  discover,
+  research,
+  freshFeedRecords,
+  extractRequirements,
+  REQUIREMENT_EXTRACTION_VERSION,
+} from "../domain/connectors.js";
 import {
   getGlobalRuntime,
   setGlobalRuntime,
@@ -46,11 +52,182 @@ export const RunInput = z.object({
   discoveryScope: z.enum(["jobs", "startups"]).optional(),
   draftId: z.string().optional(),
 });
+const collectionRefreshes = new Map<string, Promise<unknown>>();
+
+function localAssessment(
+  op: Opportunity,
+  workspace: Workspace,
+  reuseFit: boolean,
+) {
+  const previous =
+    reuseFit &&
+    op.assessment?.profileFingerprint ===
+      profileFingerprint(workspace.profile) &&
+    (op.assessment.fitSummary ||
+      op.assessment.fitEvaluation?.method === "semantic") &&
+    op.assessment.matches.every((match) =>
+      op.requirements.some(
+        (requirement) =>
+          requirement.id === match.requirementId &&
+          requirement.text === match.requirement &&
+          requirement.essential === match.essential,
+      ),
+    )
+      ? op.assessment
+      : null;
+  const assessment = assessOpportunity(
+    op,
+    workspace.profile,
+    workspace.preferences,
+    new Date(),
+    previous?.matches,
+  );
+  // Semantic evidence remains useful when preferences change. Policy questions
+  // must be rebuilt, rather than carrying an old country's cautions forward.
+  return previous
+    ? {
+        ...assessment,
+        // The prose may mention the old country, salary or policy context.
+        // Requirement-level evidence is reusable; context-specific prose is not.
+        fitSummary:
+          previous.preferencesFingerprint ===
+          preferencesFingerprint(workspace.preferences)
+            ? previous.fitSummary
+            : undefined,
+        learningGaps: previous.learningGaps,
+        relevantEvidenceIds: previous.relevantEvidenceIds,
+      }
+    : assessment;
+}
+
+function assessedOpportunity(
+  op: Opportunity,
+  assessment: NonNullable<Opportunity["assessment"]>,
+): Opportunity {
+  return {
+    ...op,
+    assessment,
+    stage: ["drafted", "approved", "tested", "archived"].includes(op.stage)
+      ? op.stage
+      : assessment.recommendation === "ready"
+        ? "ready"
+        : "review",
+    updatedAt: new Date().toISOString(),
+  };
+}
+
+async function refreshCollection(
+  store: WorkspaceStore,
+  workspace: Workspace,
+  opportunities: Opportunity[],
+): Promise<{ workspace: Workspace; opportunities: Opportunity[] }> {
+  const active = collectionRefreshes.get(store.workspaceId);
+  if (active) {
+    await active;
+    return refreshCollection(
+      store,
+      await store.getWorkspace(),
+      await store.listAllOpportunities(),
+    );
+  }
+  const refresh = async (
+    snapshot = workspace,
+  ): Promise<{ workspace: Workspace; opportunities: Opportunity[] }> => {
+    const profile = profileFingerprint(snapshot.profile);
+    const preferences = preferencesFingerprint(snapshot.preferences);
+    const staleRequirements = opportunities.filter(
+      (op) =>
+        op.kind === "job" &&
+        op.requirementsVersion !== REQUIREMENT_EXTRACTION_VERSION,
+    );
+    const corrections = await store.runtimeMany<Partial<Opportunity>>(
+      staleRequirements.map((op) => `corrections:${op.id}`),
+    );
+    const updates = opportunities.flatMap((original) => {
+      let op = original;
+      if (
+        op.kind === "job" &&
+        op.requirementsVersion !== REQUIREMENT_EXTRACTION_VERSION
+      ) {
+        const correction = corrections.get(`corrections:${op.id}`);
+        const manual =
+          op.isDemo ||
+          op.sourceKey.startsWith("manual:") ||
+          op.source === "Manual entry";
+        const requirements =
+          correction && Object.hasOwn(correction, "requirements")
+            ? correction.requirements!
+            : manual && op.requirements.length
+              ? op.requirements
+              : extractRequirements(op.description);
+        const changed =
+          JSON.stringify(requirements) !== JSON.stringify(op.requirements);
+        op = {
+          ...op,
+          requirements,
+          requirementsVersion: REQUIREMENT_EXTRACTION_VERSION,
+          assessment: changed ? null : op.assessment,
+        };
+      }
+      const stale =
+        !op.assessment ||
+        op.assessment.profileFingerprint !== profile ||
+        op.assessment.preferencesFingerprint !== preferences ||
+        op.assessment.rulesVersion !== ASSESSMENT_RULES_VERSION ||
+        (op.kind === "job" &&
+          (!op.assessment.geography || !op.assessment.fitEvaluation)) ||
+        (snapshot.preferences.missingSalary === "review" &&
+          op.kind === "job" &&
+          op.salaryMin === null &&
+          op.salaryMax === null &&
+          op.assessment.recommendation === "ready");
+      if (stale)
+        op = assessedOpportunity(op, localAssessment(op, snapshot, true));
+      return op === original ? [] : [{ original, next: op }];
+    });
+    if (!updates.length) return { workspace: snapshot, opportunities };
+    // Read once per rollout, not once per job; profile/contact reads are costly.
+    // Fingerprints allow a later preference edit to invalidate this snapshot.
+    const currentWorkspace = await store.getWorkspace();
+    const workspaceChanged =
+      profileFingerprint(currentWorkspace.profile) !== profile ||
+      preferencesFingerprint(currentWorkspace.preferences) !== preferences;
+    // A preference edit invalidates every assessment, including rows that were
+    // current when the initial read started. Recompute the whole change set.
+    if (workspaceChanged) return refresh(currentWorkspace);
+    const updated = new Map<string, Opportunity | null>();
+    for (let offset = 0; offset < updates.length; offset += 4) {
+      await Promise.all(
+        updates.slice(offset, offset + 4).map(async ({ original, next }) => {
+          updated.set(
+            original.id,
+            await store.saveDerivedOpportunity(original, next),
+          );
+        }),
+      );
+    }
+    return {
+      workspace: currentWorkspace,
+      opportunities: opportunities.flatMap((op) => {
+        const next = updated.has(op.id) ? updated.get(op.id) : op;
+        return next ? [next] : [];
+      }),
+    };
+  };
+  const pending = refresh();
+  collectionRefreshes.set(store.workspaceId, pending);
+  try {
+    return await pending;
+  } finally {
+    if (collectionRefreshes.get(store.workspaceId) === pending)
+      collectionRefreshes.delete(store.workspaceId);
+  }
+}
+
 export async function bootstrap(store: WorkspaceStore): Promise<Bootstrap> {
   const [
-    workspace,
-    recentOpportunities,
-    trackedApplications,
+    initialWorkspace,
+    opportunities,
     drafts,
     runs,
     events,
@@ -59,8 +236,7 @@ export async function bootstrap(store: WorkspaceStore): Promise<Bootstrap> {
     employerDiscovery,
   ] = await Promise.all([
     store.getWorkspace(),
-    store.list("opportunities"),
-    store.listTrackedApplications(),
+    store.listAllOpportunities(),
     store.list("drafts"),
     store.list("runs", 100),
     store.list("events", 60),
@@ -68,42 +244,10 @@ export async function bootstrap(store: WorkspaceStore): Promise<Bootstrap> {
     store.runtime<Record<string, SourceHealth>>("source-health"),
     store.runtime<EmployerDiscoveryReport>("employer-discovery"),
   ]);
-  // The discovery window must never evict a job the user is pursuing.
-  // Query tracking explicitly instead of loading the full discovery history.
-  const opportunities = [
-    ...new Map(
-      [...recentOpportunities, ...trackedApplications].map((op) => [op.id, op]),
-    ).values(),
-  ];
-  // Recheck derived eligibility locally without repeating paid AI matching.
-  // A rule rollout can affect every loaded job; limit the database/Auth
-  // fanout while preserving analyze()'s fresh-workspace check before saving.
-  const currentOpportunities: Opportunity[] = [];
-  for (let offset = 0; offset < opportunities.length; offset += 4) {
-    const batch = await Promise.all(
-      opportunities.slice(offset, offset + 4).map((op) => {
-        if (
-          (op.assessment &&
-            op.assessment.profileFingerprint !==
-              profileFingerprint(workspace.profile)) ||
-          (workspace.preferences.missingSalary === "review" &&
-            op.kind === "job" &&
-            op.salaryMin === null &&
-            op.salaryMax === null &&
-            op.assessment?.recommendation === "ready")
-        )
-          return analyze(store, op, workspace, false);
-        if (
-          op.assessment &&
-          (op.assessment.rulesVersion !== ASSESSMENT_RULES_VERSION ||
-            (op.kind === "job" && !op.assessment.geography))
-        )
-          return analyze(store, op, workspace, false, { reuseFit: true });
-        return op;
-      }),
-    );
-    currentOpportunities.push(...batch);
-  }
+  // Repair derived data locally once per version, then rank all saved jobs
+  // before the UI takes its first page. Bootstrap never requests paid AI.
+  const { workspace, opportunities: currentOpportunities } =
+    await refreshCollection(store, initialWorkspace, opportunities);
   const connection = store.actorUserId
     ? await chatgptStatus(store.actorUserId)
     : null;
@@ -198,49 +342,9 @@ export async function analyze(
   useAI = true,
   options: { reuseFit?: boolean } = {},
 ) {
-  const previous =
-    options.reuseFit &&
-    !useAI &&
-    op.assessment?.profileFingerprint === profileFingerprint(workspace.profile)
-      ? op.assessment
-      : null;
   let assessment = useAI
     ? await assessWithAI(op, workspace, store.actorUserId)
-    : assessOpportunity(
-        op,
-        workspace.profile,
-        workspace.preferences,
-        new Date(),
-        previous?.matches,
-      );
-  if (previous) {
-    // Keep existing AI/service cautions; replace only the legacy location
-    // cautions that the new rules have just checked again.
-    const legacyLocationCautions = new Set([
-      "Your working country is missing.",
-      "Remote location and hiring arrangement need confirmation.",
-      "Confirm any state restrictions and work authorization directly in the application.",
-    ]);
-    assessment = {
-      ...assessment,
-      fitSummary: previous.fitSummary,
-      learningGaps: previous.learningGaps,
-      relevantEvidenceIds: previous.relevantEvidenceIds,
-      unknowns: [
-        ...new Set([
-          ...assessment.unknowns,
-          ...previous.unknowns.filter(
-            (message) => !legacyLocationCautions.has(message),
-          ),
-        ]),
-      ],
-    };
-    assessment.recommendation = assessment.blockers.length
-      ? "excluded"
-      : assessment.unknowns.length
-        ? "review"
-        : "ready";
-  }
+    : localAssessment(op, workspace, !!options.reuseFit);
   const current = await store.getWorkspace();
   if (
     profileFingerprint(current.profile) !==
@@ -248,21 +352,10 @@ export async function analyze(
     preferencesFingerprint(current.preferences) !==
       preferencesFingerprint(workspace.preferences)
   )
-    assessment = assessOpportunity(op, current.profile, current.preferences);
-  const progressed = ["drafted", "approved", "tested", "archived"].includes(
-    op.stage,
-  );
-  return store.save("opportunities", {
-    ...op,
-    assessment,
-    stage: progressed
-      ? op.stage
-      : assessment.recommendation === "ready"
-        ? "ready"
-        : "review",
-    updatedAt: new Date().toISOString(),
-  });
+    assessment = localAssessment(op, current, false);
+  return store.save("opportunities", assessedOpportunity(op, assessment));
 }
+
 async function draftCountToday(store: WorkspaceStore) {
   const day = localDay(new Date());
   return (await store.list("drafts", 10000)).filter(
@@ -374,9 +467,11 @@ export async function invalidateDrafts(
       });
 }
 export async function refreshAssessments(store: WorkspaceStore) {
-  const workspace = await store.getWorkspace();
-  for (const op of await store.list("opportunities", 10000))
-    await analyze(store, op, workspace, false);
+  const [workspace, opportunities] = await Promise.all([
+    store.getWorkspace(),
+    store.listAllOpportunities(),
+  ]);
+  await refreshCollection(store, workspace, opportunities);
 }
 export async function recordOpportunityChanges(
   store: WorkspaceStore,
@@ -690,7 +785,7 @@ export async function processRun(
                   workspace,
                   !basic.blockers.length &&
                     (existing.kind !== "job" ||
-                      basic.geography?.status === "eligible") &&
+                      basic.geography?.status !== "excluded") &&
                     matchesTargetRole(
                       existing.title,
                       workspace.preferences.roles,

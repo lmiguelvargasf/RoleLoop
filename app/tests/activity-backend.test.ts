@@ -170,7 +170,7 @@ describe("useful discovery history", () => {
     expect(assessWithAI).toHaveBeenCalledTimes(1);
   });
 
-  it("only spends AI and drafting work on country-compatible jobs", async () => {
+  it("evaluates unresolved geography but drafts only country-compatible jobs", async () => {
     const [base] = demoOpportunities();
     const jobs = [
       { ...base, id: "eligible", sourceKey: "ashby:eligible" },
@@ -194,8 +194,10 @@ describe("useful discovery history", () => {
     const t = setup();
     vi.mocked(discover).mockResolvedValue(jobs);
     await processRun(t.store, t.run, async () => {});
-    expect(assessWithAI).toHaveBeenCalledTimes(1);
-    expect(vi.mocked(assessWithAI).mock.calls[0][0].id).toBe("eligible");
+    expect(vi.mocked(assessWithAI).mock.calls.map(([op]) => op.id)).toEqual([
+      "eligible",
+      "unclear",
+    ]);
     expect(generateDraft).toHaveBeenCalledTimes(1);
     expect([...t.drafts.values()].map((draft) => draft.opportunityId)).toEqual([
       "eligible",

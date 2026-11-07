@@ -2,11 +2,9 @@ import type { OpportunityView } from "../shared/opportunity-views";
 import { SelectField } from "./SelectField";
 
 export function OpportunityFilters({
-  country,
   view,
   onViewChange,
 }: {
-  country: string;
   view: OpportunityView;
   onViewChange: (view: OpportunityView) => void;
 }) {
@@ -17,11 +15,7 @@ export function OpportunityFilters({
         value={view}
         onChange={onViewChange}
         options={[
-          {
-            value: "matches",
-            label: `Matches for ${country || "your country"}`,
-          },
-          { value: "review", label: "Needs review" },
+          { value: "recommended", label: "Recommended" },
           { value: "all", label: "All saved" },
           { value: "archived", label: "Archived" },
         ]}

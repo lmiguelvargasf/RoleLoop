@@ -2,6 +2,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   discover,
   extractRequirements,
+  plainText,
   remoteScope,
 } from "../src/domain/connectors.js";
 import type { Source } from "../src/shared/types.js";
@@ -73,6 +74,170 @@ describe("practical job requirement parsing", () => {
   });
 });
 
+describe("requirement extraction from real board formats", () => {
+  it("reads HTML qualifications under a conversational heading and excludes the legal footer", () => {
+    const description = `
+      <p><strong>Enough about us, let's talk about you. Working here might be a good fit if:</strong></p>
+      <ul>
+        <li>You have production experience with several programming languages.</li>
+        <li>You have experience operating services at scale.</li>
+      </ul>
+      <p>Join our team and help shape the future of our products!</p>
+      <p><strong>What to Expect:</strong></p>
+      <p>Applicants must complete our online application form.</p>
+      <p><em>All qualified applicants receive consideration without regard to race.
+      We participate in verification programs as required by law.</em></p>`;
+    const requirements = extractRequirements(description);
+    expect(extractRequirements(plainText(description))).toEqual(requirements);
+    expect(requirements.map((requirement) => requirement.text)).toEqual([
+      "You have production experience with several programming languages.",
+      "You have experience operating services at scale.",
+    ]);
+    expect(
+      requirements.every(
+        (requirement) => requirement.essential && !requirement.hard,
+      ),
+    ).toBe(true);
+  });
+
+  it("does not inflate essential fit with an informational technology stack", () => {
+    const requirements = extractRequirements(
+      [
+        "What we’re looking for",
+        "- Strong React and TypeScript fundamentals",
+        "- Experience shipping end-to-end customer features",
+        "Our tech",
+        "You are not expected to have experience with everything listed.",
+        "- Kubernetes, PostgreSQL, GraphQL and Redis",
+        "What we offer",
+        "- Paid vacation",
+      ].join("\n"),
+    );
+    expect(requirements).toHaveLength(2);
+    expect(requirements[0].skills).toEqual(["TypeScript", "React"]);
+    expect(
+      requirements.some((requirement) =>
+        /looking for|Our tech|Kubernetes|vacation/.test(requirement.text),
+      ),
+    ).toBe(false);
+  });
+
+  it("retains specialty qualifications and separates additional skills", () => {
+    const requirements = extractRequirements(
+      [
+        "What your day will look like",
+        "Integrate operating systems with new hardware platforms",
+        "What we are looking for in you",
+        "You have experience with Linux packaging",
+        "You have experience working with C, C++",
+        "Additional skills that you might also bring",
+        "Experience with graphics stacks",
+        "Some experience with Docker containers",
+        "What we offer you",
+        "Annual bonuses",
+      ].join("\n"),
+    );
+    expect(requirements.map((requirement) => requirement.essential)).toEqual([
+      true,
+      true,
+      false,
+      false,
+    ]);
+    expect(requirements.map((requirement) => requirement.text)).toContain(
+      "You have experience working with C, C++",
+    );
+  });
+
+  it("recognizes conversational fit headings and keeps inline bonus criteria optional", () => {
+    const requirements = extractRequirements(
+      [
+        "About Example Company",
+        "We build a developer platform.",
+        "What You’ll Be Responsible For",
+        "Build and maintain the Python SDK",
+        "You Might Be a Good Fit If You",
+        "Know modern Python typing deeply",
+        "Have maintained a public library with external users",
+        "Are fluent in asyncio",
+        "Bonus points if you: have led a public package migration",
+        "What We Offer",
+        "Flexible work and an education allowance",
+      ].join("\n"),
+    );
+    expect(
+      requirements.map(({ text, essential }) => ({ text, essential })),
+    ).toEqual([
+      { text: "Know modern Python typing deeply", essential: true },
+      {
+        text: "Have maintained a public library with external users",
+        essential: true,
+      },
+      { text: "Are fluent in asyncio", essential: true },
+      { text: "have led a public package migration", essential: false },
+    ]);
+  });
+
+  it("recognizes the responsible-for heading for duty-only postings", () => {
+    const requirements = extractRequirements(
+      [
+        "About Example Company",
+        "We build developer tools.",
+        "What You'll Be Responsible For",
+        "Build and maintain customer-facing integrations",
+        "What We Offer",
+        "Competitive benefits",
+      ].join("\n"),
+    );
+    expect(requirements.map((requirement) => requirement.text)).toEqual([
+      "Build and maintain customer-facing integrations",
+    ]);
+  });
+
+  it("decodes escaped markup before classifying sections and keeps stable IDs", () => {
+    const html =
+      "<h2>Required qualifications</h2><ul><li>Experience with TypeScript</li></ul><h2>Benefits</h2><p>All employees must use our benefits portal.</p>";
+    const escaped = html.replace(/</g, "&lt;").replace(/>/g, "&gt;");
+    expect(extractRequirements(escaped)).toEqual(extractRequirements(html));
+    expect(extractRequirements(html)).toHaveLength(1);
+    expect(extractRequirements(html)[0]).toEqual(
+      extractRequirements(
+        "Required qualifications\nExperience with TypeScript",
+      )[0],
+    );
+  });
+
+  it("uses responsibilities as fallback when qualifications are absent", () => {
+    const requirements = extractRequirements(
+      [
+        "What you'll do:",
+        "- Build customer-facing TypeScript products",
+        "- Lead technical design with product and design partners",
+        "Benefits:",
+        "Annual learning allowance",
+      ].join("\n"),
+    );
+    expect(requirements).toHaveLength(2);
+    expect(
+      requirements.every(
+        (requirement) => requirement.essential && !requirement.hard,
+      ),
+    ).toBe(true);
+  });
+
+  it("does not turn a legal requirement in a company paragraph into job qualifications", () => {
+    expect(
+      extractRequirements(
+        "<p>All qualified applicants receive consideration for employment. Our verification process is required by law.</p>",
+      ),
+    ).toEqual([]);
+    expect(
+      extractRequirements("Requirements\nSQL\nReact").map(
+        (requirement) => requirement.text,
+      ),
+    ).toEqual(["SQL", "React"]);
+  });
+});
+
 describe("remote work evidence", () => {
   it.each([
     "We are a global company with remote collaboration benefits.",
@@ -109,13 +274,18 @@ describe("remote work evidence", () => {
     "This is a fully remote worldwide position. On-site work is not required.",
     "This role is fully remote worldwide. Our other teams have hybrid work schedules.",
     "Candidates can work remotely worldwide or use a hybrid work schedule.",
-  ])("preserves remote choices without imposing another team's attendance: %s", (text) => {
-    expect(remoteScope(text)).not.toBe("onsite");
-  });
+  ])(
+    "preserves remote choices without imposing another team's attendance: %s",
+    (text) => {
+      expect(remoteScope(text)).not.toBe("onsite");
+    },
+  );
 
   it("retains required office attendance despite remote options on other days", () => {
     expect(
-      remoteScope("Candidates can work remotely or use a hybrid work schedule, but must attend our office three days per week."),
+      remoteScope(
+        "Candidates can work remotely or use a hybrid work schedule, but must attend our office three days per week.",
+      ),
     ).toBe("onsite");
   });
 
@@ -129,14 +299,12 @@ describe("remote work evidence", () => {
   const respond = (payload: unknown) =>
     vi.stubGlobal(
       "fetch",
-      vi
-        .fn()
-        .mockImplementation(
-          async () =>
-            new Response(JSON.stringify(payload), {
-              headers: { "Content-Type": "application/json" },
-            }),
-        ),
+      vi.fn().mockImplementation(
+        async () =>
+          new Response(JSON.stringify(payload), {
+            headers: { "Content-Type": "application/json" },
+          }),
+      ),
     );
 
   it("does not invent a remote Ashby role from a location when work mode is missing", async () => {

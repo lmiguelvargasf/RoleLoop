@@ -383,6 +383,30 @@ export function createWorkspaceStore({
     }
     return items;
   }
+  async function listAllOpportunities(): Promise<Opportunity[]> {
+    const items: Opportunity[] = [];
+    let cursor: string | undefined;
+    // Rank the whole collection, not only recently updated records. A stable
+    // keyset also avoids skipping rows when another request updates a job.
+    for (;;) {
+      let query = client
+        .from("opportunities")
+        .select(columns("opportunities"))
+        .eq("workspace_id", workspaceId)
+        .order("id")
+        .limit(500);
+      if (cursor) query = query.gt("id", cursor);
+      const rows = checked(await query);
+      items.push(
+        ...(rows || []).map((row) =>
+          decode("opportunities", row as unknown as StoredRow),
+        ),
+      );
+      if (!rows || rows.length < 500) break;
+      cursor = (rows[rows.length - 1] as unknown as StoredRow).id;
+    }
+    return items;
+  }
   async function get<T extends keyof Payloads>(
     table: T,
     id: string,
@@ -470,6 +494,59 @@ export function createWorkspaceStore({
         .maybeSingle(),
     );
     return (row?.payload as T) ?? null;
+  }
+  async function runtimeMany<T>(keys: string[]): Promise<Map<string, T>> {
+    const values = new Map<string, T>();
+    const unique = [...new Set(keys)];
+    for (let offset = 0; offset < unique.length; offset += 100) {
+      const rows = checked(
+        await client
+          .from("workspace_runtime")
+          .select("key,payload")
+          .eq("workspace_id", workspaceId)
+          .in("key", unique.slice(offset, offset + 100)),
+      );
+      for (const row of rows || []) values.set(row.key, row.payload as T);
+    }
+    return values;
+  }
+  async function saveDerivedOpportunity(
+    original: Opportunity,
+    next: Opportunity,
+  ): Promise<Opportunity | null> {
+    if (
+      original.id !== next.id ||
+      original.sourceKey !== next.sourceKey ||
+      original.kind !== next.kind
+    )
+      throw new Error("Derived updates cannot change opportunity identity.");
+    if (next.assessment?.geography !== undefined)
+      JobGeographySchema.parse(next.assessment.geography);
+    OpportunitySchema.parse(next);
+    // Background repairs must not overwrite a concurrent edit, recreate a
+    // deleted job, or update a record outside the current workspace.
+    const row = checked(
+      await client
+        .from("opportunities")
+        .update({ payload: next })
+        .eq("workspace_id", workspaceId)
+        .eq("id", original.id)
+        .eq("payload->>updatedAt", original.updatedAt)
+        .select(columns("opportunities"))
+        .maybeSingle(),
+    );
+    if (row) return decode("opportunities", row as unknown as StoredRow);
+    const current = checked(
+      await client
+        .from("opportunities")
+        .select(columns("opportunities"))
+        .eq("workspace_id", workspaceId)
+        .eq("id", original.id)
+        .maybeSingle(),
+    );
+    return current
+      ? decode("opportunities", current as unknown as StoredRow)
+      : null;
   }
   async function setRuntime(key: string, payload: unknown) {
     checked(
@@ -589,12 +666,15 @@ export function createWorkspaceStore({
     ignoredDiscoveryIdentities,
     list,
     listTrackedApplications,
+    listAllOpportunities,
     get,
     save,
+    saveDerivedOpportunity,
     importOpportunity,
     importOpportunityWithStatus,
     event,
     runtime,
+    runtimeMany,
     setRuntime,
   };
 }

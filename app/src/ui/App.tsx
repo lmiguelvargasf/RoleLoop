@@ -49,7 +49,8 @@ import type {
   RunAction,
 } from "../shared/types";
 import { api, date, downloadFile, safeUrl, uid, words, write } from "./api";
-import { isPotentialJobMatch, jobLocationStatus } from "../shared/job-matches";
+import { jobLocationStatus } from "../shared/job-matches";
+import { recommendationForJob } from "../shared/job-recommendations";
 import {
   opportunityMatchesView,
   type OpportunityView,
@@ -515,9 +516,12 @@ function Opportunities({
           ? "archived"
           : "all"
         : kind === "job"
-          ? "matches"
+          ? "recommended"
           : "all";
     }),
+    [visibleCount, setVisibleCount] = useState(() =>
+      routeOpportunity(location.hash) || kind === "startup" ? 50 : 10,
+    ),
     [checked, setChecked] = useState<Set<string>>(new Set()),
     [selected, setSelected] = useState<string | null>(() =>
       routeOpportunity(location.hash),
@@ -530,6 +534,7 @@ function Opportunities({
       if (!id) return;
       setSelected(id);
       setQuery("");
+      setVisibleCount(50);
       setStage(
         data.opportunities.find((op) => op.id === id)?.stage === "archived"
           ? "archived"
@@ -539,17 +544,12 @@ function Opportunities({
     window.addEventListener("hashchange", selectFromLink);
     return () => window.removeEventListener("hashchange", selectFromLink);
   }, [data.opportunities]);
-  const potentialMatch = (opportunity: Opportunity) =>
-    isPotentialJobMatch(opportunity, data.preferences);
   const changeView = (next: string) => {
     setStage(next);
+    setVisibleCount(next === "recommended" ? 10 : 50);
     setChecked(new Set());
   };
   const all = data.opportunities.filter((o) => o.kind === kind),
-    outsideMatches = all.filter(
-      (opportunity) =>
-        opportunity.stage !== "archived" && !potentialMatch(opportunity),
-    ).length,
     list = all.filter((o) =>
       kind === "job"
         ? opportunityMatchesView(o, data.preferences, stage as OpportunityView)
@@ -560,9 +560,19 @@ function Opportunities({
     );
   const hasQuery = kind === "startup" && Boolean(query);
   const hasActive = all.some((opportunity) => opportunity.stage !== "archived");
+  const visibleList = kind === "job" ? list.slice(0, visibleCount) : list;
+  const recommendations = new Map(
+    kind === "job"
+      ? all.map((opportunity) => [
+          opportunity.id,
+          recommendationForJob(opportunity, data.preferences),
+        ])
+      : [],
+  );
   const chosen = (board ? all.filter((o) => applicationColumn(o)) : list).find(
     (o) => o.id === selected,
   );
+  const chosenFit = chosen ? recommendations.get(chosen.id) : undefined;
   const selectedJobs = list.filter(
     (o) =>
       checked.has(o.id) && !isTrackedApplication(o) && o.stage !== "archived",
@@ -844,30 +854,38 @@ function Opportunities({
           )}
           <div className="section-title">
             <h3>{kind === "job" ? "Required match" : "Startup assessment"}</h3>
-            <span className="match-number">
-              {Math.round(
-                kind === "job"
-                  ? chosen.assessment.essentialScore
-                  : chosen.assessment.score,
-              )}
-              <small>%</small>
-            </span>
+            {kind === "job" && chosenFit?.score == null ? (
+              <span className="fit-evaluation-label">
+                {chosenFit?.fitLabel}
+              </span>
+            ) : (
+              <span className="match-number">
+                {Math.round(
+                  kind === "job" ? chosenFit!.score! : chosen.assessment.score,
+                )}
+                <small>%</small>
+              </span>
+            )}
           </div>
-          <div className="match-track">
-            <i
-              style={{
-                width: `${Math.min(
-                  100,
-                  kind === "job"
-                    ? chosen.assessment.essentialScore
-                    : chosen.assessment.score,
-                )}%`,
-              }}
-            />
-          </div>
+          {(kind !== "job" || chosenFit?.score != null) && (
+            <div className="match-track">
+              <i
+                style={{
+                  width: `${Math.min(
+                    100,
+                    kind === "job"
+                      ? chosenFit!.score!
+                      : chosen.assessment.score,
+                  )}%`,
+                }}
+              />
+            </div>
+          )}
           <div className="match-note">
             {kind === "job"
-              ? "Required qualifications supported by verified experience. Preferred skills help rank your matches."
+              ? chosenFit?.score == null
+                ? "The requirements have not been fully assessed against your experience. Evaluate fit to complete the assessment."
+                : "Required qualifications supported by verified experience. This is not a prediction of an interview."
               : "Relevance to your experience; not a prediction of company success."}
           </div>
           {chosen.assessment.recommendation !== "excluded" &&
@@ -1035,7 +1053,7 @@ function Opportunities({
           </h1>
           <p>
             {kind === "job"
-              ? "Find eligible roles and add the ones you want to pursue to Applications."
+              ? "Find promising roles and add the ones you want to pursue to Applications."
               : "Find companies worth a conversation, even before a role opens."}
           </p>
         </div>
@@ -1089,7 +1107,6 @@ function Opportunities({
         )}
         {kind === "job" ? (
           <OpportunityFilters
-            country={data.preferences.country}
             view={stage as OpportunityView}
             onViewChange={changeView}
           />
@@ -1113,7 +1130,9 @@ function Opportunities({
           className={kind === "job" ? "job-list-count" : "result-count"}
           role="status"
         >
-          {list.length}{" "}
+          {kind === "job" && visibleList.length < list.length
+            ? `${visibleList.length} of ${list.length}`
+            : list.length}{" "}
           {kind === "job"
             ? list.length === 1
               ? "job"
@@ -1144,7 +1163,7 @@ function Opportunities({
       >
         <div className="opportunity-list">
           {list.length ? (
-            list.map((o) => (
+            visibleList.map((o) => (
               <div
                 key={o.id}
                 className={kind === "job" ? "job-browse-row" : undefined}
@@ -1185,44 +1204,61 @@ function Opportunities({
                       {o.isDemo && <span className="demo-tag">SAMPLE</span>}
                     </span>
                     <strong>{o.title}</strong>
-                    {preferredIndustryMatches(o, data.preferences).length >
-                      0 && (
-                      <span className="industry-priority-badge">
-                        {industryPriorityBoost(o, data.preferences) === 10
-                          ? "Top industry interest"
-                          : "Industry interest"}
-                      </span>
-                    )}
+                    {(kind !== "job" || stage !== "recommended") &&
+                      preferredIndustryMatches(o, data.preferences).length >
+                        0 && (
+                        <span className="industry-priority-badge">
+                          {industryPriorityBoost(o, data.preferences) === 10
+                            ? "Top industry interest"
+                            : "Industry interest"}
+                        </span>
+                      )}
                     <span className="row-meta">
                       {o.location}
                       <span>·</span>
                       {kind === "job" ? salary(o) : o.source}
                     </span>
+                    {kind === "job" && stage === "recommended" && (
+                      <span className="job-fit-explanation">
+                        <span>{recommendations.get(o.id)?.reason}</span>
+                        {recommendations.get(o.id)?.question && (
+                          <span className="job-fit-question">
+                            {recommendations.get(o.id)?.question}
+                          </span>
+                        )}
+                      </span>
+                    )}
                   </span>
                   <span className="opportunity-trailing">
-                    <Badge value={opportunityBadge(o)} />
+                    {(kind !== "job" || stage !== "recommended") && (
+                      <Badge value={opportunityBadge(o)} />
+                    )}
                     {applicationColumn(o) && (
                       <span className="on-board-label">
                         On application board
                       </span>
                     )}
-                    <span
-                      className={`score ${o.assessment?.recommendation === "ready" ? "good" : ""}`}
-                    >
-                      {kind === "job" &&
-                      !o.requirements.some((r) => r.essential)
-                        ? "—"
-                        : o.assessment
+                    {kind === "job" &&
+                    recommendations.get(o.id)?.score == null ? (
+                      <span className="fit-evaluation-label">
+                        {recommendations.get(o.id)?.fitLabel}
+                      </span>
+                    ) : (
+                      <span
+                        className={`score ${o.assessment?.recommendation === "ready" ? "good" : ""}`}
+                      >
+                        {o.assessment
                           ? `${Math.round(
                               kind === "job"
-                                ? o.assessment.essentialScore
+                                ? recommendations.get(o.id)!.score!
                                 : o.assessment.score,
                             )}%`
                           : "—"}
-                      <small>
-                        {kind === "job" ? "required match" : "relevance"}
-                      </small>
-                    </span>
+                        <small>
+                          {kind === "job" ? "required match" : "relevance"}
+                        </small>
+                      </span>
+                    )}
                   </span>
                 </button>
               </div>
@@ -1232,8 +1268,8 @@ function Opportunities({
               title={
                 hasQuery
                   ? "No matches in this view"
-                  : kind === "job" && stage === "matches"
-                    ? "No location-compatible matches yet"
+                  : kind === "job" && stage === "recommended"
+                    ? "No strong recommendations yet"
                     : hasActive
                       ? "No opportunities in this view"
                       : kind === "job"
@@ -1243,8 +1279,8 @@ function Opportunities({
               detail={
                 hasQuery
                   ? "Try another search or change the view."
-                  : kind === "job" && stage === "matches" && outsideMatches > 0
-                    ? "Check Needs review for open questions, or All saved for roles outside your preferences."
+                  : kind === "job" && stage === "recommended" && hasActive
+                    ? `Recommendations need relevant experience at your ${data.preferences.essentialMatch}% minimum match and no confirmed preference conflict. All saved is ranked by fit, and jobs you are already pursuing stay in Applications.`
                     : kind === "job"
                       ? "Search for jobs using your preferences. RoleLoop finds openings and evaluates them against your resume."
                       : "Search for opportunities using your preferences, or add one manually."
@@ -1273,6 +1309,25 @@ function Opportunities({
                 <ArrowRight size={15} />
               </button>
             </Empty>
+          )}
+          {kind === "job" && visibleList.length < list.length && (
+            <div className="job-list-more">
+              <button
+                className="button secondary"
+                onClick={() =>
+                  setVisibleCount(
+                    (count) => count + (stage === "recommended" ? 10 : 50),
+                  )
+                }
+              >
+                Show{" "}
+                {Math.min(
+                  stage === "recommended" ? 10 : 50,
+                  list.length - visibleList.length,
+                )}{" "}
+                more
+              </button>
+            </div>
           )}
         </div>
         {kind === "job"

@@ -4069,6 +4069,31 @@ summary.source-editor-top::before {
   white-space: nowrap;
   font-variant-numeric: tabular-nums;
 }
+.job-list-more {
+  display: flex;
+  justify-content: center;
+  padding: 20px;
+  border-top: 1px solid var(--line);
+}
+.job-fit-explanation {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin-top: 4px;
+  color: #53687a;
+  font-size: 11px;
+  line-height: 1.6;
+}
+.job-fit-question {
+  color: #8b744b;
+}
+.fit-evaluation-label {
+  color: var(--muted);
+  font-size: 11px;
+  line-height: 1.5;
+  font-weight: 500;
+  text-align: right;
+}
 
 /* Browsing stays a list; chosen applications have their own board. */
 .opportunity-workspace.job-browser {

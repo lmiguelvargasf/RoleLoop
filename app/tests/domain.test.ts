@@ -179,7 +179,7 @@ describe("evidence and eligibility", () => {
     job.requirements = [];
     const result = assessOpportunity(job, profile, preferences, now);
     expect(result.score).toBe(0);
-    expect(result.unknowns.join(" ")).toContain("not evaluated");
+    expect(result.fitEvaluation?.status).toBe("not_evaluated");
   });
   it("treats startup relevance separately from job requirements", () => {
     const { profile, preferences } = setup();

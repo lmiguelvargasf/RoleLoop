@@ -21,7 +21,7 @@ function opportunity(
   return {
     ...source,
     id,
-    title: "Engineering opportunity",
+    title: kind === "job" ? source.title : "Engineering opportunity",
     description,
     assessment: {
       ...assessOpportunity(
@@ -31,6 +31,7 @@ function opportunity(
         now,
       ),
       score,
+      essentialScore: score,
       recommendation,
     },
   };
@@ -103,7 +104,7 @@ describe.each(["job", "startup"] as const)("%s industry priority", (kind) => {
       orderOpportunities([interested, outside, top], preferences, now).map(
         (op) => op.id,
       ),
-    ).toEqual(["top", "interested", "outside"]);
+    ).toEqual(kind === "job" ? ["outside", "interested", "top"] : ["top", "interested", "outside"]);
     expect(
       orderOpportunities(
         [top, opportunity(kind, "emerging", "Quantum computing", 100)],
@@ -139,7 +140,7 @@ describe.each(["job", "startup"] as const)("%s industry priority", (kind) => {
     const input = [outside, preferred];
     expect(
       orderOpportunities(input, preferences, now).map((op) => op.id),
-    ).toEqual(["preferred", "outside"]);
+    ).toEqual(kind === "job" ? ["outside", "preferred"] : ["preferred", "outside"]);
     expect(input.map((op) => op.id)).toEqual(["outside", "preferred"]);
     expect(preferred.assessment?.score).toBe(80);
   });
@@ -186,7 +187,7 @@ describe.each(["job", "startup"] as const)("%s industry priority", (kind) => {
     ];
     expect(
       orderOpportunities(input, preferences, now).map((op) => op.id),
-    ).toEqual(["ready", "review", "blocked"]);
+    ).toEqual(kind === "job" ? ["review", "ready", "blocked"] : ["ready", "review", "blocked"]);
   });
 
   it("never changes evidence scores or adds an industry exclusion", () => {

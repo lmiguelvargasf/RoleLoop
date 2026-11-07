@@ -354,8 +354,8 @@ function SourceResults({ data }: { data: Bootstrap }) {
         </table>
       </div>
       <p>
-        Counts cover the latest 300 discoveries plus tracked applications.
-        Interview and offer milestones remain counted after a rejection.
+        Counts cover all jobs currently saved in your workspace. Interview and
+        offer milestones remain counted after a rejection.
       </p>
     </details>
   );

@@ -166,11 +166,26 @@ export async function safeFetchText(
     );
   return { text: response.text, url: url.toString() };
 }
-export function plainText(html: string): string {
+export function plainText(html: string, markStructure = false): string {
   let text = html;
   for (let pass = 0; pass < 2; pass++) {
     const $ = load(text);
     $("script,style,noscript,nav,footer,header").remove();
+    // Preserve list boundaries even when a connector stores plain text first.
+    $("li").prepend("• ");
+    if (markStructure) {
+      $("h1,h2,h3,h4,h5,h6").prepend("## ");
+      $("p").each((_, element) => {
+        const paragraph = $(element);
+        const children = paragraph.children();
+        if (
+          children.length === 1 &&
+          children.is("strong,b") &&
+          children.text().trim() === paragraph.text().trim()
+        )
+          paragraph.prepend("## ");
+      });
+    }
     $("li,p,div,section,br,h1,h2,h3,h4,h5,h6,tr").append("\n");
     text = $.text();
     // Some boards return HTML as an escaped string inside their HTML field.
@@ -320,66 +335,142 @@ const skills: Record<string, RegExp> = {
   SQL: /\bsql\b/i,
   Testing: /\b(?:automated|unit|integration) tests?\b|\btesting\b/i,
 };
+// Bump when saved, uncorrected job descriptions need their requirements reparsed.
+export const REQUIREMENT_EXTRACTION_VERSION = 3;
+
+type RequirementSection =
+  "essential" | "preferred" | "responsibilities" | "ignore" | "unknown";
+const requirementHeadings: ReadonlyArray<
+  readonly [RequirementSection, RegExp]
+> = [
+  [
+    "preferred",
+    /^(?:nice[- ]to[- ]haves?|preferred(?: qualifications| skills| experience)?|bonus(?: points)?(?: if you)?|desirable(?: qualifications| skills)?|additional skills(?: that you might also bring)?|what (?:would|will) make you stand out|other things we value)$/i,
+  ],
+  [
+    "essential",
+    /^(?:requirements|qualifications|skills and experience|required(?: qualifications| skills| experience)?|(?:minimum|basic|essential) (?:qualifications|requirements)|must[- ]haves?|what you bring|what (?:we're|we are) looking for(?: in you)?|(?:we're|we are) looking for(?: someone who)?|what you(?:'ll| will) need(?: to succeed)?|who you are|about you|you(?: might be| are|'re) (?:a good|the right) fit if)$/i,
+  ],
+  [
+    "responsibilities",
+    /^(?:(?:key |your |job )?responsibilities|what you(?:'ll| will) (?:do|work on|be responsible for)|what your day will look like|your (?:impact|mission)|in this role[ ,]+you(?:'ll| will)|the role)$/i,
+  ],
+  [
+    "ignore",
+    /^(?:(?:our |your )?(?:benefits|perks)(?: and (?:benefits|perks))?|what we offer(?: you)?|(?:our |the )?(?:tech(?:nology)?(?: stack)?|stack)|what to expect|learn how we (?:think|work)(?: and work)?|why (?:join|work (?:with|at)) .+|about us|about (?:the|this) (?:company|team)|about [A-Z][\w -]{1,60}|(?:compensation|salary)(?: and benefits)?|equal (?:employment )?opportunity(?: employer)?|how to apply|(?:the |our )?(?:application|hiring|interview) process|privacy(?: notice| policy)?|accommodations|apply(?: now| for this job)?)$/i,
+  ],
+];
+
+function requirementHeading(text: string) {
+  const label = text
+    .replace(/[’‘]/g, "'")
+    .replace(/^(?:#+\s*|\*{1,2}|_{1,2})+|(?:\*{1,2}|_{1,2})+$/g, "")
+    .replace(/[\s:!?–—-]+$/g, "")
+    .trim();
+  if (
+    label.length < 240 &&
+    /\b(?:a good|the right) fit if(?: you)?$/i.test(label)
+  )
+    return "essential";
+  return requirementHeadings.find(([, pattern]) => pattern.test(label))?.[0];
+}
+
+function requirementBoilerplate(text: string) {
+  return /\b(?:equal (?:employment )?opportunity employer|all qualified applicants|without regard to (?:race|religion|sex)|protected (?:by (?:applicable )?law|veteran|characteristic)|reasonable accommodations?|privacy (?:policy|notice)|personal (?:data|information).{0,50}(?:collect|process|retain)|consent to.{0,40}(?:data|contact)|recruitment (?:fraud|agency)|recruiting (?:fraud|agency)|unsolicited (?:resumes|applications))\b/i.test(
+    text,
+  );
+}
+
 export function extractRequirements(description: string): Requirement[] {
-  const lines = description
-    .split(/[\n•]/)
-    .map((x) => x.trim().replace(/^(?:#{1,6}\s+|[-*]\s+|\d+[.)]\s+)/, ""))
+  // Sources can contain HTML, escaped HTML, Markdown or text. Normalize before
+  // interpreting headings so legal footers never become one giant requirement.
+  const lines = plainText(description, true)
+    .replace(/([^\n])([•●])/g, "$1\n$2")
+    .split("\n")
+    .map((line) => line.trim())
     .filter(Boolean);
-  const out: Requirement[] = [];
+  const qualifications: Requirement[] = [];
+  const responsibilities: Requirement[] = [];
   const seen = new Set<string>();
-  let section: "essential" | "preferred" | "unknown" = "unknown";
-  const headings = [
-    [
-      "preferred",
-      /^(?:nice[- ]to[- ]haves?|preferred(?: qualifications| skills| experience)?|bonus(?: points)?|desirable(?: qualifications| skills)?)$/i,
-    ],
-    [
-      "essential",
-      /^(?:requirements|qualifications|required(?: qualifications| skills| experience)?|(?:minimum|basic|essential) qualifications|must[- ]haves?|what you bring|what (?:we're|we are) looking for|what you(?:'ll| will) need|who you are|about you)$/i,
-    ],
-    [
-      "unknown",
-      /^(?:benefits|(?:perks and )?benefits|what we offer|about us|about (?:the|this) (?:role|company|team)|compensation(?: and benefits)?|responsibilities|(?:key |your )responsibilities|what you(?:'ll| will) do|the role|equal (?:employment )?opportunity|how to apply)$/i,
-    ],
-  ] as const;
+  const listedSections = new Set<number>();
+  const paragraphSections = new Map<string, number>();
+  let sectionIndex = 0;
+  let section: RequirementSection = "unknown";
   for (const line of lines) {
-    let raw = line;
+    const listed = /^(?:[-*–—•●]\s+|\d+[.)]\s+)/.test(line);
+    let raw = line.replace(/^(?:#{1,6}\s+|[-*–—•●]\s+|\d+[.)]\s+)+/, "");
     const colon = raw.indexOf(":");
-    const label = (colon >= 0 ? raw.slice(0, colon) : raw).trim();
-    const heading = headings.find(([, pattern]) => pattern.test(label));
+    const heading = requirementHeading(colon >= 0 ? raw.slice(0, colon) : raw);
     if (heading) {
-      section = heading[0];
-      // Headings are context, not qualifications. Preserve an inline item.
+      sectionIndex++;
+      section = heading;
       raw = colon >= 0 ? raw.slice(colon + 1).trim() : "";
       if (!raw) continue;
     }
-    const mentioned = Object.entries(skills)
-      .filter(([, re]) => re.test(raw))
-      .map(([name]) => name);
-    const explicitlyRequired = /\b(?:must|required|essential|minimum)\b/i.test(
-      raw,
-    );
-    if (!explicitlyRequired && section === "unknown") continue;
-    const preferred =
-      /\b(?:nice[- ]to[- ]have|preferred|bonus|a plus|optional|not (?:required|necessary))\b/i.test(
-        raw,
-      ) ||
-      /^no\b.+\brequired\b/i.test(raw) ||
-      section === "preferred";
-    const text = raw.slice(0, 700);
-    if (seen.has(text)) continue;
-    seen.add(text);
-    out.push({
-      id: "req-" + createHash("sha256").update(text).digest("hex").slice(0, 12),
-      text,
-      skills: mentioned,
-      essential: !preferred,
-      hard: !preferred && /\b(?:must|mandatory|minimum)\b/i.test(raw),
-    });
-    if (out.length >= 30) break;
+    // Markdown headings that we do not recognize close the previous section.
+    // This prevents a new company/policy section from inheriting "required".
+    if (!heading && /^#{1,6}\s/.test(line)) {
+      sectionIndex++;
+      section = "unknown";
+      continue;
+    }
+    if (requirementBoilerplate(raw) || section === "ignore") continue;
+    const candidates =
+      section === "unknown" ? raw.split(/(?<=[.!?])\s+(?=[A-Z])/) : [raw];
+    for (const candidate of candidates) {
+      if (requirementBoilerplate(candidate)) continue;
+      const explicitlyRequired =
+        /\b(?:must|required|essential|minimum|mandatory)\b/i.test(candidate);
+      if (!explicitlyRequired && section === "unknown") continue;
+      const preferred =
+        /\b(?:nice[- ]to[- ]have|preferred|bonus|a plus|optional|not (?:required|necessary))\b/i.test(
+          candidate,
+        ) ||
+        /^no\b.+\brequired\b/i.test(candidate) ||
+        section === "preferred";
+      const text = candidate.replace(/\s+/g, " ").trim().slice(0, 700);
+      const mentioned = Object.entries(skills)
+        .filter(([, pattern]) => pattern.test(text))
+        .map(([name]) => name);
+      if (
+        (!mentioned.length && text.length < 8) ||
+        requirementHeading(text) ||
+        seen.has(text.toLowerCase())
+      )
+        continue;
+      seen.add(text.toLowerCase());
+      const target =
+        section === "responsibilities" ? responsibilities : qualifications;
+      const id =
+        "req-" + createHash("sha256").update(text).digest("hex").slice(0, 12);
+      if (listed) listedSections.add(sectionIndex);
+      else if (!explicitlyRequired) paragraphSections.set(id, sectionIndex);
+      target.push({
+        id,
+        text,
+        skills: mentioned,
+        essential: !preferred,
+        hard: !preferred && /\b(?:must|mandatory|minimum)\b/i.test(text),
+      });
+    }
   }
-  return out;
+  // Duties are useful capability evidence when no required qualifications are
+  // supplied. Do not double-count both lists as separate mandatory criteria.
+  const actualItems = (items: Requirement[]) =>
+    items.filter((item) => {
+      const paragraphSection = paragraphSections.get(item.id);
+      return (
+        paragraphSection === undefined || !listedSections.has(paragraphSection)
+      );
+    });
+  const requiredItems = actualItems(qualifications);
+  return (
+    requiredItems.some((requirement) => requirement.essential)
+      ? requiredItems
+      : [...actualItems(responsibilities).slice(0, 12), ...requiredItems]
+  ).slice(0, 30);
 }
+
 export function remoteScope(text: string): Opportunity["remoteScope"] {
   const clauses = text.split(/[\n.!?;]+/).map((clause) => clause.trim());
   if (requiresPhysicalPresence(text)) return "onsite";
@@ -555,6 +646,7 @@ export async function discover(
           publishedAt: iso(j.publishedAt),
           ...salary,
           requirements: extractRequirements(desc),
+          requirementsVersion: REQUIREMENT_EXTRACTION_VERSION,
           notes:
             "Ashby publishedAt is the last publication date. Company headquarters and hiring countries require verification.",
         });
@@ -578,6 +670,7 @@ export async function discover(
           salaryPeriod: "unknown",
         }),
         requirements: extractRequirements(desc),
+        requirementsVersion: REQUIREMENT_EXTRACTION_VERSION,
         notes:
           "An update timestamp is not treated as the original posting date. Salary and hiring eligibility may require checking the individual posting.",
       });
@@ -630,6 +723,7 @@ export async function discover(
         publishedAt: iso(j.createdAt),
         ...salary,
         requirements: extractRequirements(desc),
+        requirementsVersion: REQUIREMENT_EXTRACTION_VERSION,
         notes:
           "The public posting may omit application questions and hiring-country restrictions.",
       });
@@ -709,7 +803,10 @@ export async function research(op: Opportunity): Promise<Partial<Opportunity>> {
       .filter(Boolean)
       .join("\n"),
   };
-  if (op.kind === "job") patch.requirements = extractRequirements(description);
+  if (op.kind === "job") {
+    patch.requirements = extractRequirements(description);
+    patch.requirementsVersion = REQUIREMENT_EXTRACTION_VERSION;
+  }
   // A published generic mailbox is a contact lead, not proof that the address belongs to a founder.
   if (contact && !op.contactEmail) {
     patch.contactEmail = contact;
@@ -773,6 +870,7 @@ async function discoverJobicy(source: Source): Promise<Opportunity[]> {
                 ? "hour"
                 : "unknown",
           requirements: extractRequirements(desc),
+          requirementsVersion: REQUIREMENT_EXTRACTION_VERSION,
           notes:
             "Source: Jobicy (https://jobicy.com). Recent seven-day feed; company country and hiring eligibility need verification. Open the Jobicy listing to apply. Absence from this feed does not establish closure.",
         }),
