@@ -87,6 +87,41 @@ describe("practical job requirement parsing", () => {
     expect(requirementsTruncated).toBe(false);
   });
 
+  it("reads OpenTrain-style qualifications without counting perks and pay as capped duties", () => {
+    const { requirements, requirementsTruncated } = extractRequirementDetails([
+      "What you'll do",
+      "• Create and solve realistic full-stack tasks involving user-facing features and APIs",
+      "• Trace requests and data across browsers and back-end services",
+      "• Write professional reference solutions across front-end and back-end systems",
+      "• Review AI-generated code for security, performance and maintainability",
+      "Why this is worth your time",
+      "• Earn $50–$100 per hour equivalent for accepted tasks",
+      "• Review AI-generated code across front-end and back-end systems",
+      "• Use your full-stack experience across unfamiliar codebases",
+      "• Fully remote and flexible, no fixed shifts, no commute",
+      "Who this is for",
+      "• Strong professional experience building production full-stack applications",
+      "• Strong full-stack systems knowledge covering browser applications, APIs and databases",
+      "• Professional fluency in English; experience with software-system architecture and debugging",
+      "• No AI experience needed. Experience reviewing AI-generated code is helpful.",
+      "Pay and details",
+      "• $50–$100 per hour equivalent; pay is per accepted task",
+      "• Part-time, under 20 hours a week; fully remote, United States",
+      "How to apply",
+      "Complete a short application on the hiring platform.",
+    ].join("\n"));
+
+    expect(requirements).toHaveLength(4);
+    expect(requirements.map((requirement) => requirement.essential)).toEqual([
+      true, true, true, false,
+    ]);
+    expect(requirements.every((requirement) => !requirement.hard)).toBe(true);
+    expect(requirements[3].text).toContain("No AI experience needed");
+    expect(requirementsTruncated).toBe(false);
+    expect(requirements.map((requirement) => requirement.text).join(" "))
+      .not.toMatch(/Earn|per hour|no commute|Complete a short application/);
+  });
+
   it.each([
     "TypeScript experience is required; Kubernetes is a plus.",
     "Experience providing executive-level administrative support. Public company or Office of the CFO experience is a plus.",
@@ -138,6 +173,28 @@ describe("practical job requirement parsing", () => {
 });
 
 describe("requirement extraction from real board formats", () => {
+  it("recognizes Karat's experience heading without turning preferred interviewing experience into a minimum", () => {
+    const { requirements, requirementsTruncated } = extractRequirementDetails([
+      "## What Interview Engineers do:",
+      "• Facilitate technical interviews with software developers.",
+      "• Provide input on candidate performance and coding approach.",
+      "## The experience you will bring:",
+      "• 3+ years of experience as a Software Developer or Engineer",
+      "• Excellent English communication skills with a high level of professionalism",
+      "• Reliable access to a working webcam, microphone, and a stable Internet connection",
+      "• Experience conducting technical interviews is preferred (e.g., data structures, algorithms)",
+      "While we review your application, learn more about life as an Interview Engineer!",
+    ].join("\n"));
+
+    expect(requirements).toHaveLength(4);
+    expect(requirements.map((requirement) => requirement.essential)).toEqual([
+      true, true, true, false,
+    ]);
+    expect(requirements[0].text).toContain("3+ years");
+    expect(requirements[3].text).toContain("preferred");
+    expect(requirementsTruncated).toBe(false);
+  });
+
   it("recognizes additional employer qualification headings", () => {
     const requirements = extractRequirements(
       "<p><strong>What you’ll bring</strong></p><ul><li>Experience supporting executive leadership</li></ul><p><span><strong>Strongly preferred</strong></span></p><ul><li>Experience supporting a public company</li></ul>",

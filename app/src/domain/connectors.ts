@@ -339,7 +339,7 @@ const skills: Record<string, RegExp> = {
   Testing: /\b(?:automated|unit|integration) tests?\b|\btesting\b/i,
 };
 // Bump when saved, uncorrected job descriptions need their requirements reparsed.
-export const REQUIREMENT_EXTRACTION_VERSION = 4;
+export const REQUIREMENT_EXTRACTION_VERSION = 6;
 
 type RequirementSection =
   "essential" | "preferred" | "responsibilities" | "ignore" | "unknown";
@@ -352,15 +352,15 @@ const requirementHeadings: ReadonlyArray<
   ],
   [
     "essential",
-    /^(?:requirements|qualifications|skills and experience|required(?: qualifications| skills| experience)?|(?:minimum|basic|essential) (?:qualifications|requirements)|must[- ]haves?|what you(?:(?:'ll| will))? bring|what (?:we're|we are) looking for(?: in you)?|(?:we're|we are) looking for(?: someone who)?|what you(?:'ll| will) need(?: to succeed)?|who you are|about you|you(?: might be| are|'re) (?:a good|the right) fit if)$/i,
+    /^(?:requirements|qualifications|skills and experience|required(?: qualifications| skills| experience)?|(?:minimum|basic|essential) (?:qualifications|requirements)|must[- ]haves?|what you(?:(?:'ll| will))? bring|what (?:we're|we are) looking for(?: in you)?|(?:we're|we are) looking for(?: someone who)?|what you(?:'ll| will) need(?: to succeed)?|(?:the )?experience you(?:'ll| will) bring|who you are|who (?:this|the role) is for|about you|you(?: might be| are|'re) (?:a good|the right) fit if)$/i,
   ],
   [
     "responsibilities",
-    /^(?:(?:key |your |job )?responsibilities|what you(?:'ll| will) (?:do|work on|be responsible for)|what your day will look like|your (?:impact|mission)|in this role[ ,]+you(?:'ll| will)|the role)$/i,
+    /^(?:(?:key |your |job )?responsibilities|what you(?:'ll| will) (?:do|work on|be responsible for)|what your day will look like|what (?:our )?(?:interview )?engineers do|your (?:impact|mission)|in this role[ ,]+you(?:'ll| will)|the role)$/i,
   ],
   [
     "ignore",
-    /^(?:(?:our |your )?(?:benefits|perks)(?: and (?:benefits|perks))?|what we offer(?: you)?|(?:our |the )?(?:tech(?:nology)?(?: stack)?|stack)|what to expect|learn how we (?:think|work)(?: and work)?|why (?:join|work (?:with|at)) .+|about us|about (?:the|this) (?:company|team)|about [A-Z][\w -]{1,60}|(?:compensation|salary)(?: and benefits)?|equal (?:employment )?opportunity(?: employer)?|how to apply|(?:the |our )?(?:application|hiring|interview) process|privacy(?: notice| policy)?|accommodations|apply(?: now| for this job)?)$/i,
+    /^(?:(?:our |your )?(?:benefits|perks)(?: and (?:benefits|perks))?|what we offer(?: you)?|(?:our |the )?(?:tech(?:nology)?(?: stack)?|stack)|what to expect|learn how we (?:think|work)(?: and work)?|why (?:join|work (?:with|at)) .+|why this is worth your time|about us|about (?:the|this) (?:company|team)|about [A-Z][\w -]{1,60}|(?:compensation|salary)(?: and benefits)?|pay and details|equal (?:employment )?opportunity(?: employer)?|how to apply|(?:the |our )?(?:application|hiring|interview) process|privacy(?: notice| policy)?|accommodations|apply(?: now| for this job)?)$/i,
   ],
 ];
 
@@ -385,8 +385,8 @@ function requirementBoilerplate(text: string) {
 }
 
 const optionalQualification = (text: string) =>
-  /\b(?:nice[- ]to[- ]have|preferred|bonus|a plus|optional|not (?:required|necessary))\b/i.test(text) ||
-  /^no\b.+\brequired\b/i.test(text);
+  /\b(?:nice[- ]to[- ]have|preferred|bonus|a plus|optional|(?:is|would be) helpful|not (?:required|necessary|needed))\b/i.test(text) ||
+  /^no\b.+\b(?:required|needed|necessary)\b/i.test(text);
 
 function requirementClauses(raw: string, section: RequirementSection) {
   const clauses = raw.split(/;\s*|(?<=[.!?])\s+(?=[A-Z])/).filter(Boolean);

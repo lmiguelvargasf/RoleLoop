@@ -63,7 +63,7 @@ function restrictedOpportunity(): Opportunity {
 }
 
 integration("geography rules rollout", () => {
-  it("repairs malformed current-version geography in bounded batches while retaining career fit", async () => {
+  it("repairs malformed geography in bounded batches while retaining evidence and clearing stale policy prose", async () => {
     const t = await setup();
     const fit = await import("../src/server/fit.js");
     const ai = vi
@@ -87,7 +87,7 @@ integration("geography rules rollout", () => {
           recommendation: "ready" as const,
           blockers: [],
           unknowns: [],
-          fitSummary: `Retain semantic fit ${index}`,
+          fitSummary: `Career fit ${index}; this role is ready to apply from Ecuador.`,
           learningGaps: ["Confirm a tooling example."],
           relevantEvidenceIds: assessment.matches[0].evidenceIds,
         },
@@ -146,11 +146,13 @@ integration("geography rules rollout", () => {
           rulesVersion: ASSESSMENT_RULES_VERSION,
           geography: { status: "excluded", workingCountry: "Ecuador" },
           recommendation: "excluded",
-          fitSummary: original.assessment.fitSummary,
           learningGaps: original.assessment.learningGaps,
           relevantEvidenceIds: original.assessment.relevantEvidenceIds,
           matches: original.assessment.matches,
         });
+        // The new exclusion invalidates prose that described the job as ready.
+        // Requirement-level evidence remains reusable without another AI call.
+        expect(repaired.assessment?.fitSummary).toBeUndefined();
         expect(repaired.notes).toBe(original.notes);
         expect(repaired.application).toEqual(original.application);
         const persisted = await t.store.get("opportunities", original.id);
@@ -164,7 +166,7 @@ integration("geography rules rollout", () => {
     }
   });
 
-  it("upgrades stored assessments without losing semantic fit, applications or draft content", async () => {
+  it("upgrades stored assessments without losing career evidence, applications or draft content", async () => {
     const t = await setup();
     const fit = await import("../src/server/fit.js");
     const ai = vi
@@ -196,7 +198,7 @@ integration("geography rules rollout", () => {
       blockers: [],
       unknowns: [],
       matches: semanticMatches,
-      fitSummary: "Existing evidence-based fit summary.",
+      fitSummary: "Strong career fit; this role is ready to apply from Ecuador.",
       learningGaps: ["A small tooling gap."],
       relevantEvidenceIds: semanticMatches[0].evidenceIds,
     };
@@ -233,7 +235,7 @@ integration("geography rules rollout", () => {
       expect(upgraded.assessment?.recommendation).toBe("excluded");
       expect(upgraded.assessment?.blockers.join(" ")).toMatch(/Brazil/i);
       expect(upgraded.assessment?.matches).toEqual(semanticMatches);
-      expect(upgraded.assessment?.fitSummary).toBe(op.assessment.fitSummary);
+      expect(upgraded.assessment?.fitSummary).toBeUndefined();
       expect(upgraded.assessment?.learningGaps).toEqual(
         op.assessment.learningGaps,
       );

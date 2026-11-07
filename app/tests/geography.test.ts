@@ -20,6 +20,40 @@ function assess(description: string, country = "Ecuador", location = "Remote") {
 
 describe("geographic hiring eligibility", () => {
   it.each([
+    "Full-Stack Engineer, Part-Time AI Code Evaluation - Remote (United States)",
+    "Part-time, under 20 hours a week, you choose when; fully remote, United States",
+    "Remote worldwide. This role is fully remote (United States).",
+  ])("honors compact remote hiring locations in employer text: %s", (text) => {
+    const result = assess(text, "Ecuador", "Remote worldwide");
+    expect(result.status).toBe("excluded");
+    expect(result.blockers.join(" ")).toContain("United States");
+    expect(assess(text, "United States", "Remote worldwide").blockers).toEqual([]);
+  });
+
+  it.each([
+    "Remote (United States or LATAM)",
+    "Fully remote, United States and Latin America",
+    "Remote (United States, Brazil or Ecuador)",
+  ])("preserves the complete compact country-region union: %s", (text) => {
+    expect(assess(text).status).toBe("eligible");
+    expect(assess(text).blockers).toEqual([]);
+  });
+
+  it.each([
+    "Remote worldwide. Our team is remote (United States).",
+    "Remote worldwide. Work remotely (United States hours).",
+    "Remote worldwide. We are not remote (United States only).",
+  ])("does not turn compact incidental or negated text into a hiring limit: %s", (text) => {
+    expect(assess(text).blockers).toEqual([]);
+  });
+
+  it("does not narrow separately stated remote alternatives to the first country", () => {
+    const result = assess("Remote (United States) or remote (LATAM)");
+    expect(result.status).toBe("review");
+    expect(result.blockers).toEqual([]);
+  });
+
+  it.each([
     ["Remote LATAM — Brazil only", "Brazil"],
     ["Remote worldwide. This role is US-only.", "United States"],
     [

@@ -364,13 +364,15 @@ function listAfter(text: string, start: number): CountryList | null {
   };
 }
 
-const negated = (before: string) =>
-  /\b(?:not|never|no|no longer|cannot|can't|unable to)\s+(?:only\s+)?(?:\w+\s+){0,2}$/i.test(
-    before,
+const negated = (before: string) => {
+  const prefix = before.replace(/\(\s*$/, " ");
+  return /\b(?:not|never|no|no longer|cannot|can't|unable to)\s+(?:only\s+)?(?:\w+\s+){0,2}$/i.test(
+    prefix,
   ) ||
   /\b(?:no need to|not required to|do not need to|don't need to)\s*$/i.test(
-    before,
+    prefix,
   );
+};
 const incidental = (text: string) =>
   /\b(?:headquarters?|headquartered|offices?|customers?|clients?|markets?|company|companies|team|time\s*zones?|hours|time overlap)\b/i.test(
     text,
@@ -379,7 +381,7 @@ const incidental = (text: string) =>
     text,
   );
 
-function restrictions(text: string) {
+function restrictions(text: string, postingText: string) {
   const allowed: Set<string>[] = [],
     excluded = new Set<string>();
   const negatedCountries = new Set<string>();
@@ -389,9 +391,13 @@ function restrictions(text: string) {
   let ambiguousLists = false;
   let timezone = false;
   // Keep dotted country abbreviations intact before splitting sentences.
-  const clean = text
+  const cleanProse = (value: string) => value
     .replace(/\bU\.S\.(?:A\.)?/gi, "US")
     .replace(/\bU\.K\./gi, "UK");
+  const clean = cleanProse(text);
+  const postingClauses = new Set(
+    cleanProse(postingText).split(/[\n.!?;]+/).map((clause) => clause.trim()),
+  );
   for (const raw of clean.split(/[\n.!?;]+/)) {
     const clause = raw.trim();
     if (!clause) continue;
@@ -508,6 +514,27 @@ function restrictions(text: string) {
             timezone = true;
           else regions.add(regionKey(region[1]));
         }
+      }
+    }
+    // A compact remote location in the employer's title/body is hiring
+    // evidence. A coarse feed location alone retains its separate conflict
+    // handling below, so it cannot erase explicit broader hiring coverage.
+    if (postingClauses.has(clause)) {
+      for (const match of clause.matchAll(/\bremote(?:ly)?\s*[(,]\s*/gi)) {
+        const list = listAfter(clause, match.index! + match[0].length);
+        if (negated(clause.slice(0, match.index!))) {
+          if (list)
+            for (const country of list.countries) negatedCountries.add(country);
+          continue;
+        }
+        if (
+          list &&
+          /^\s*\)?\s*(?:or|and)\s+(?:fully\s+)?remote\b/i.test(clause.slice(list.end))
+        ) {
+          ambiguousLists = true;
+          continue;
+        }
+        addAllowed(list);
       }
     }
     // "Only candidates based in Brazil or Ecuador" and "Brazil/Ecuador only".
@@ -679,7 +706,7 @@ export function assessGeography(
     );
   const knownCountry = labels.has(country);
   const text = `${job.title ?? ""}\n${job.location}\n${job.description}`;
-  const evidence = restrictions(text);
+  const evidence = restrictions(text, `${job.title ?? ""}\n${job.description}`);
   const allowed = evidence.allowed.length
     ? new Set(
         [...evidence.allowed[0]].filter((value) =>
