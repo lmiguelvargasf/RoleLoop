@@ -109,7 +109,7 @@ Older board URLs that failed or returned no jobs were excluded, including the em
 
 ## Résumé AI
 
-For local subscription usage, open **Account → ChatGPT → Continue with ChatGPT**. Sign in using an eligible Plus or Pro account and approve ChatGPT plan usage. Return to RoleLoop, refresh the available models, and select a model. The selected account powers CV imports and opportunity evaluations you initiate, including queued tasks. Under **Connection settings**, **Manage usage** opens ChatGPT's usage controls and **Disconnect** revokes the renewable session and clears local tokens. Multiple ChatGPT accounts can be connected and selected separately.
+For local subscription usage, open **Account → ChatGPT → Continue with ChatGPT**. Sign in using an eligible Plus or Pro account and approve ChatGPT plan usage. Return to RoleLoop and choose a model from the automatically loaded list. The selected account powers CV imports and opportunity evaluations you initiate, including queued tasks. Under **Connection settings**, **Manage usage** opens ChatGPT's usage controls and **Disconnect** revokes the renewable session and clears local tokens. Multiple ChatGPT accounts can be connected and selected separately.
 
 Connections are private to each RoleLoop user and stored with owner-only filesystem permissions under `app/.local/chatgpt/`. A stable host ID and issued client registrations are retained for reconnects; credentials never enter the frontend, database, or Git. Tokens refresh automatically. Sign-in alone does not enable inference unless the user grants plan usage permission. Failed or disconnected subscription requests never silently switch to API billing. Background schedules use only the server's API configuration.
 

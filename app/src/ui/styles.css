@@ -4111,15 +4111,6 @@ textarea {
 .chatgpt-preferences > .field {
   margin-top: 16px;
 }
-.chatgpt-model-row {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-}
-.chatgpt-model-row select {
-  flex: 1;
-  min-width: 0;
-}
 .chatgpt-settings {
   margin-top: 20px;
   font-size: 11px;

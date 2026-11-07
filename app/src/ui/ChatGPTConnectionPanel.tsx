@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { ExternalLink, LoaderCircle, RefreshCw, Unplug } from "lucide-react";
+import { ExternalLink, LoaderCircle, Unplug } from "lucide-react";
 import type { ChatGPTConnection } from "../shared/types";
 import { api, write } from "./api";
 
@@ -129,10 +129,10 @@ export function ChatGPTConnectionPanel() {
           </button>
         )}
       </div>
-      {(error || connection?.error) && (
+      {(error || connection?.error || connection?.modelsError) && (
         <div className="notice error" role="alert">
-          {error || connection?.error}
-          {!connection && (
+          {error || connection?.error || connection?.modelsError}
+          {(!connection || connection.modelsError) && (
             <button
               type="button"
               className="text-button"
@@ -228,42 +228,32 @@ export function ChatGPTConnectionPanel() {
           {usingPlan && active && (
             <label className="field">
               <span>Model</span>
-              <div className="chatgpt-model-row">
-                <select
-                  aria-label="Model"
-                  disabled={busy || !active.models.length}
-                  value={active.model || ""}
-                  onChange={(e) =>
-                    void action(() =>
-                      write("/account/chatgpt/select", {
-                        profileId: active.id,
-                        model: e.target.value,
-                      }),
-                    )
-                  }
-                >
-                  {!active.models.length && (
-                    <option value="">Load available models</option>
-                  )}
-                  {active.models.map((model) => (
-                    <option key={model.slug} value={model.slug}>
-                      {model.displayName}
-                    </option>
-                  ))}
-                </select>
-                <button
-                  type="button"
-                  className="icon-button"
-                  aria-label="Refresh models"
-                  title="Refresh models"
-                  disabled={busy}
-                  onClick={() =>
-                    void action(() => write("/account/chatgpt/models"))
-                  }
-                >
-                  <RefreshCw size={16} />
-                </button>
-              </div>
+              <select
+                aria-label="Model"
+                disabled={busy || !active.models.length}
+                value={active.model || ""}
+                onChange={(e) =>
+                  void action(() =>
+                    write("/account/chatgpt/select", {
+                      profileId: active.id,
+                      model: e.target.value,
+                    }),
+                  )
+                }
+              >
+                {!active.models.length && (
+                  <option value="">
+                    {connection.modelsError
+                      ? "Models unavailable"
+                      : "Loading models…"}
+                  </option>
+                )}
+                {active.models.map((model) => (
+                  <option key={model.slug} value={model.slug}>
+                    {model.displayName}
+                  </option>
+                ))}
+              </select>
             </label>
           )}
         </div>

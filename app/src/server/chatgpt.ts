@@ -68,6 +68,7 @@ type Pending = {
 };
 const pending = new Map<string, Pending>();
 const errors = new Map<string, string>();
+const modelLoads = new Map<string, Promise<unknown>>();
 const root = () => resolve(appDir, ".local/chatgpt");
 const random = () => randomBytes(32).toString("base64url");
 function userFile(userId: string) {
@@ -225,13 +226,39 @@ function tokens(
   };
 }
 export async function chatgptStatus(userId: string) {
-  const state = await read(userId);
+  let state = await read(userId);
+  const active = state.profiles.find((p) => p.id === state.activeId);
+  let modelsError: string | undefined;
+  if (
+    state.mode === "chatgpt" &&
+    active?.tokens?.scopes.includes(permission) &&
+    !active.models?.length
+  ) {
+    try {
+      let request = modelLoads.get(userId);
+      if (!request) {
+        request = listChatGPTModels(userId).finally(() =>
+          modelLoads.delete(userId),
+        );
+        modelLoads.set(userId, request);
+      }
+      await request;
+    } catch (error) {
+      modelsError =
+        error instanceof Error
+          ? error.message
+          : "Could not load models. Try again.";
+    }
+    // Discovery may refresh or revoke credentials, or another request may switch accounts.
+    state = await read(userId);
+  }
   return {
     mode: state.mode,
     activeId: state.activeId,
     apiConfigured: !!settings.openaiKey,
     pending: pending.has(userId),
     error: errors.get(userId),
+    modelsError,
     profiles: state.profiles.map((p) => ({
       id: p.id,
       label: p.label,
@@ -354,6 +381,7 @@ export async function startChatGPTLogin(userId: string, profileId?: string) {
         if (attempt.cancelled) throw chatgptError("Sign-in was cancelled.");
         const profile = state.profiles.find((p) => p.id === attempt.profileId)!;
         delete profile.suspended;
+        delete profile.models;
         Object.assign(profile, identity, {
           tokens: tokens(result),
           label: `${identity.email || "ChatGPT account"} · ${profile.id.slice(0, 6)}`,
@@ -447,6 +475,8 @@ export async function selectChatGPT(
         400,
       );
     if (model) profile.model = model;
+    if (state.activeId !== profile.id || state.mode !== "chatgpt")
+      delete profile.models;
     state.activeId = profile.id;
     state.mode = "chatgpt";
   });
@@ -530,10 +560,14 @@ export async function chatgptCredential(userId: string) {
         "ChatGPT plan usage permission is no longer enabled.",
         "chatgpt_permission_required",
       );
-    return { token: profile.tokens.access, model: profile.model };
+    return {
+      token: profile.tokens.access,
+      model: profile.model,
+    };
   });
 }
 export async function listChatGPTModels(userId: string) {
+  const profileId = (await read(userId)).activeId;
   const credential = await chatgptCredential(userId);
   if (!credential) throw chatgptError("Select a ChatGPT connection first.");
   const response = await fetch(`${resource}/models`, {
@@ -556,11 +590,18 @@ export async function listChatGPTModels(userId: string) {
   const models = data.models
     .filter((m) => m.visibility === "list")
     .map((m) => ({ slug: m.slug, displayName: m.display_name }));
+  if (!models.length)
+    throw chatgptError(
+      "No models are available for this ChatGPT account. Try again later.",
+    );
   await locked(userId, async (state) => {
     const profile = state.profiles.find((p) => p.id === state.activeId);
     // Never associate a catalog with another account after a concurrent switch.
-    if (profile?.tokens?.access !== credential.token)
-      throw chatgptError("The ChatGPT account changed. Refresh models again.");
+    if (
+      state.activeId !== profileId ||
+      profile?.tokens?.access !== credential.token
+    )
+      throw chatgptError("The ChatGPT account changed. Try again.");
     profile.models = models;
     if (!models.some((m) => m.slug === profile.model))
       profile.model = models[0]?.slug;

@@ -347,6 +347,7 @@ export interface Bootstrap extends Workspace {
 }
 
 export interface ChatGPTConnection {
+  modelsError?: string;
   mode: "api" | "chatgpt";
   activeId?: string;
   apiConfigured: boolean;

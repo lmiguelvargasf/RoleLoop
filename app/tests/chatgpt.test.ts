@@ -149,12 +149,23 @@ it("checks signed identity, audience, nonce, and selected-account identity", asy
 it("protects credentials, isolates users, discovers models and reuses issued registrations", async () => {
   const alice = user(),
     bob = user();
-  await connect(alice);
+  const { network } = await connect(alice);
   const state = await chatgptStatus(alice);
   expect(state).toMatchObject({
     mode: "chatgpt",
-    profiles: [{ connected: true, planEnabled: true }],
+    profiles: [
+      {
+        connected: true,
+        planEnabled: true,
+        model: "available-model",
+        models: [{ slug: "available-model", displayName: "Available model" }],
+      },
+    ],
   });
+  await chatgptStatus(alice);
+  expect(
+    network.mock.calls.filter(([url]) => String(url).endsWith("/v1/models")),
+  ).toHaveLength(1);
   expect(JSON.stringify(state)).not.toMatch(
     /private-access|private-refresh|idToken/,
   );
@@ -364,4 +375,68 @@ it("pauses subscription requests after a usage limit until explicitly retried", 
   await retryChatGPT(id);
   await expect(request()).rejects.toMatchObject({ statusCode: 429 });
   expect(network).toHaveBeenCalledTimes(2);
+});
+
+it("automatically retries failed model discovery without losing the connection", async () => {
+  const id = user();
+  const { network } = await connect(id);
+  const modelFailure = vi.fn(
+    async () =>
+      new Response(JSON.stringify({ detail: "Temporarily unavailable" }), {
+        status: 503,
+      }),
+  );
+  vi.stubGlobal("fetch", modelFailure);
+  const failed = await chatgptStatus(id);
+  expect(failed.profiles[0].connected).toBe(true);
+  expect(failed.profiles[0].models).toEqual([]);
+  expect(failed.modelsError).toContain("503");
+  vi.stubGlobal("fetch", network);
+  const recovered = await chatgptStatus(id);
+  expect(recovered.modelsError).toBeUndefined();
+  expect(recovered.profiles[0].model).toBe("available-model");
+});
+it("reports an empty model catalog with an actionable error", async () => {
+  const id = user();
+  await connect(id);
+  vi.stubGlobal(
+    "fetch",
+    vi.fn(async () => new Response(JSON.stringify({ models: [] }))),
+  );
+  const state = await chatgptStatus(id);
+  expect(state.profiles[0].connected).toBe(true);
+  expect(state.modelsError).toContain("No models are available");
+});
+it("shares concurrent catalog loads and keeps the result cached", async () => {
+  const id = user();
+  const { network } = await connect(id);
+  const results = await Promise.all([
+    chatgptStatus(id),
+    chatgptStatus(id),
+    chatgptStatus(id),
+  ]);
+  expect(
+    results.every((state) => state.profiles[0].model === "available-model"),
+  ).toBe(true);
+  await chatgptStatus(id);
+  expect(
+    network.mock.calls.filter(([url]) => String(url).endsWith("/v1/models")),
+  ).toHaveLength(1);
+});
+it("reloads the model catalog when switching back to a saved account", async () => {
+  const id = user();
+  await connect(id);
+  const first = (await chatgptStatus(id)).activeId!;
+  const { network } = await connect(id);
+  await chatgptStatus(id);
+  network.mockClear();
+  await selectChatGPT(id, first);
+  const selected = await chatgptStatus(id);
+  expect(selected.activeId).toBe(first);
+  expect(selected.profiles.find((p) => p.id === first)?.model).toBe(
+    "available-model",
+  );
+  expect(
+    network.mock.calls.filter(([url]) => String(url).endsWith("/v1/models")),
+  ).toHaveLength(1);
 });
