@@ -27,7 +27,6 @@ const filters = [
   ["issues", "Issues"],
   ["searches", "Searches"],
   ["drafts", "Drafts"],
-  ["workspace", "Workspace"],
 ] as const;
 type Filter = (typeof filters)[number][0];
 const statusLabels: Record<ActivityStatus, string> = {
@@ -60,11 +59,7 @@ function matchesFilter(item: ActivityItem, filter: Filter): boolean {
     (filter === "issues" && isIssue(item)) ||
     (filter === "searches" &&
       ["search", "evaluation", "research"].includes(item.category)) ||
-    (filter === "drafts" && item.category === "draft") ||
-    (filter === "workspace" &&
-      ["resume", "preferences", "application", "workspace"].includes(
-        item.category,
-      ))
+    (filter === "drafts" && item.category === "draft")
   );
 }
 
