@@ -57,6 +57,15 @@ import {
   type OpportunityView,
 } from "../shared/opportunity-views";
 import { OpportunityFilters } from "./OpportunityFilters";
+import { StartupProspectFilters } from "./StartupProspectFilters";
+import {
+  startupMatchesQuery,
+  startupMatchesSource,
+  startupMatchesView,
+  startupSourceLabels,
+  startupSourceOptions,
+  type StartupView,
+} from "../shared/startup-prospects";
 import {
   jobMatchesSource,
   jobSourceLabels,
@@ -74,7 +83,7 @@ import {
 } from "../shared/outreach-board";
 import { JobFitDetails } from "./JobFitDetails";
 import { StartupFitDetails } from "./StartupFitDetails";
-import { sourceKind, sourcesForDiscovery } from "../shared/discovery";
+import { sourceKind } from "../shared/discovery";
 import {
   applicationColumn,
   applicationProgressFor,
@@ -533,6 +542,7 @@ function Opportunities({
 }) {
   const [query, setQuery] = useState(""),
     [sourceFilter, setSourceFilter] = useState<JobSourceFilter>("all"),
+    [startupSource, setStartupSource] = useState("all"),
     [stage, setStage] = useState(() => {
       const id = routeOpportunity(location.hash);
       return id
@@ -541,7 +551,7 @@ function Opportunities({
           : "all"
         : kind === "job"
           ? "recommended"
-          : "all";
+          : "explore";
     }),
     [visibleCount, setVisibleCount] = useState(() =>
       routeOpportunity(location.hash) || kind === "startup" ? 50 : 10,
@@ -550,7 +560,6 @@ function Opportunities({
     [selected, setSelected] = useState<string | null>(() =>
       routeOpportunity(location.hash),
     ),
-    [adding, setAdding] = useState(false),
     [editing, setEditing] = useState<Opportunity | null>(null);
   useEffect(() => {
     const selectFromLink = () => {
@@ -559,6 +568,7 @@ function Opportunities({
       setSelected(id);
       setQuery("");
       setSourceFilter("all");
+      setStartupSource("all");
       setVisibleCount(50);
       setStage(
         data.opportunities.find((op) => op.id === id)?.stage === "archived"
@@ -573,6 +583,7 @@ function Opportunities({
     setStage(next);
     setVisibleCount(next === "recommended" ? 10 : 50);
     setChecked(new Set());
+    setSelected(null);
   };
   const all = data.opportunities.filter((o) => o.kind === kind),
     list = all.filter((o) =>
@@ -582,12 +593,12 @@ function Opportunities({
             data.preferences,
             stage as OpportunityView,
           ) && jobMatchesSource(o, data.sources, sourceFilter)
-        : (stage === "all" ? o.stage !== "archived" : o.stage === stage) &&
-          `${o.company} ${o.title} ${o.description}`
-            .toLowerCase()
-            .includes(query.toLowerCase()),
+        : startupMatchesView(o, stage as StartupView) &&
+          startupMatchesSource(o, startupSource) &&
+          startupMatchesQuery(o, query),
     );
-  const hasQuery = kind === "startup" && Boolean(query);
+  const hasQuery = kind === "startup" && Boolean(query.trim());
+  const hasStartupFilter = hasQuery || startupSource !== "all";
   const hasSourceFilter = kind === "job" && sourceFilter !== "all";
   const sourceFilterLabel =
     sourceFilter === "all" ? "All sources" : jobSourceLabels[sourceFilter];
@@ -601,7 +612,7 @@ function Opportunities({
       label: jobSourceLabels[sourceFilter],
     });
   const hasActive = all.some((opportunity) => opportunity.stage !== "archived");
-  const visibleList = kind === "job" ? list.slice(0, visibleCount) : list;
+  const visibleList = list.slice(0, visibleCount);
   const recommendations = new Map(
     kind === "job"
       ? all.map((opportunity) => [
@@ -615,7 +626,9 @@ function Opportunities({
       ? all.filter((o) =>
           kind === "startup" ? outreachColumn(o) : applicationColumn(o),
         )
-      : list
+      : kind === "startup"
+        ? all
+        : list
   ).find((o) => o.id === selected);
   const chosenFit = chosen ? recommendations.get(chosen.id) : undefined;
   const isTracked = kind === "job" ? isTrackedApplication : isTrackedOutreach;
@@ -720,7 +733,9 @@ function Opportunities({
       kind === "job" ? "Job search queued." : "Startup research queued.",
     );
   const inspector = chosen ? (
-    <aside className={`inspector ${kind === "job" ? "job-inspector" : ""}`}>
+    <aside
+      className={`inspector job-inspector ${kind === "startup" ? "startup-inspector" : ""}`}
+    >
       <div className="inspector-top">
         <button
           className="text-button back-to-list"
@@ -764,14 +779,6 @@ function Opportunities({
           >
             <Archive size={16} />
           </IconButton>
-          {kind === "startup" && (
-            <IconButton
-              label="Close opportunity details"
-              onClick={() => setSelected(null)}
-            >
-              <X size={18} />
-            </IconButton>
-          )}
         </div>
       </div>
       <div className="inspector-title">
@@ -779,8 +786,10 @@ function Opportunities({
           {chosen.company.slice(0, 2).toUpperCase()}
         </div>
         <div>
-          <span className="company-name">{chosen.company}</span>
-          <h2>{chosen.title}</h2>
+          <span className="company-name">
+            {kind === "startup" ? "Startup prospect" : chosen.company}
+          </span>
+          <h2>{kind === "startup" ? chosen.company : chosen.title}</h2>
         </div>
       </div>
       {kind === "job" && board && (
@@ -890,20 +899,6 @@ function Opportunities({
             )}
           </>
         )}
-        <button
-          className="button"
-          disabled={busy}
-          onClick={() =>
-            void run(kind === "job" ? "analyze" : "research", chosen.id)
-          }
-        >
-          {kind === "job" ? (
-            <SlidersHorizontal size={15} />
-          ) : (
-            <Search size={15} />
-          )}
-          {kind === "job" ? "Re-evaluate fit" : "Research & evaluate"}
-        </button>
         {kind === "startup" &&
           !board &&
           chosen.stage !== "archived" &&
@@ -927,6 +922,20 @@ function Opportunities({
               Add to outreach
             </button>
           ))}
+        <button
+          className="button"
+          disabled={busy}
+          onClick={() =>
+            void run(kind === "job" ? "analyze" : "research", chosen.id)
+          }
+        >
+          {kind === "job" ? (
+            <SlidersHorizontal size={15} />
+          ) : (
+            <Search size={15} />
+          )}
+          {kind === "job" ? "Re-evaluate fit" : "Research & evaluate"}
+        </button>
       </div>
       {kind === "startup" && board && (
         <OutreachPreparation
@@ -1167,7 +1176,7 @@ function Opportunities({
     );
   return (
     <section
-      className="page opportunities-page"
+      className={`page opportunities-page ${kind === "startup" ? "startup-prospects-page" : ""}`}
       aria-labelledby="opportunities-title"
     >
       <header className="page-heading">
@@ -1182,34 +1191,20 @@ function Opportunities({
           </p>
         </div>
         <div className="button-row">
-          {kind === "startup" && (
-            <button className="button" onClick={() => setAdding(true)}>
-              <Plus size={16} />
-              Add startup
-            </button>
-          )}
           <button
             className="button primary"
             disabled={busy || searching || !canSearch}
             onClick={() => void search()}
           >
-            <Search size={16} />
+            {searching ? (
+              <LoaderCircle size={16} className="spin" />
+            ) : (
+              <Search size={16} />
+            )}
             {searching ? "Searching…" : searchLabel}
           </button>
         </div>
       </header>
-      {kind === "startup" && !paused && (
-        <p className="search-setup-note startup-source-note">
-          Sources:{" "}
-          {sourcesForDiscovery(data.sources, "startups")
-            .map((source) => source.label)
-            .join(" · ")}
-          .{" "}
-          <External url="https://www.ycombinator.com/companies">
-            Browse YC directory
-          </External>
-        </p>
-      )}
       {kind === "job" && !canSearch && (
         <p className="search-setup-note">
           Set your target roles and working country, and turn on automatic
@@ -1226,66 +1221,68 @@ function Opportunities({
             : "Startup research is paused. Resume to find new leads."}
         </p>
       )}
-      <div className={kind === "job" ? "job-list-toolbar" : "list-toolbar"}>
-        {kind === "startup" && (
-          <div className="search-field">
-            <Search size={16} />
-            <input
-              aria-label="Search opportunities"
-              placeholder="Search company, role or skills…"
-              value={query}
-              onChange={(e) => {
-                setQuery(e.target.value);
+      {(kind === "job" || all.length > 0) && (
+        <div
+          className={`job-list-toolbar ${kind === "startup" ? "startup-list-toolbar" : ""}`}
+        >
+          {kind === "job" ? (
+            <OpportunityFilters
+              view={stage as OpportunityView}
+              onViewChange={changeView}
+              source={sourceFilter}
+              sourceOptions={sourceOptions}
+              onSourceChange={(source) => {
+                setSourceFilter(source);
+                setVisibleCount(stage === "recommended" ? 10 : 50);
                 setChecked(new Set());
+                setSelected(null);
               }}
             />
-          </div>
-        )}
-        {kind === "job" ? (
-          <OpportunityFilters
-            view={stage as OpportunityView}
-            onViewChange={changeView}
-            source={sourceFilter}
-            sourceOptions={sourceOptions}
-            onSourceChange={(source) => {
-              setSourceFilter(source);
-              setVisibleCount(stage === "recommended" ? 10 : 50);
-              setChecked(new Set());
-              setSelected(null);
-            }}
-          />
-        ) : (
-          <select
-            aria-label="Filter by stage"
-            value={stage}
-            onChange={(e) => changeView(e.target.value)}
-          >
-            <option value="all">All active opportunities</option>
-            {["new", "review", "ready", "drafted", "approved", "archived"].map(
-              (s) => (
-                <option key={s} value={s}>
-                  {statusLabels[s]}
-                </option>
-              ),
-            )}
-          </select>
-        )}
-        <span
-          className={kind === "job" ? "job-list-count" : "result-count"}
-          role="status"
-        >
-          {kind === "job" && visibleList.length < list.length
-            ? `${visibleList.length} of ${list.length}`
-            : list.length}{" "}
-          {kind === "job"
-            ? list.length === 1
-              ? "job"
-              : "jobs"
-            : list.length === 1
-              ? "opportunity"
-              : "opportunities"}
-        </span>
-      </div>
+          ) : (
+            <>
+              <StartupProspectFilters
+                view={stage as StartupView}
+                onViewChange={changeView}
+                source={startupSource}
+                sourceOptions={startupSourceOptions(all)}
+                onSourceChange={(source) => {
+                  setStartupSource(source);
+                  setVisibleCount(50);
+                  setChecked(new Set());
+                  setSelected(null);
+                }}
+              />
+              <div className="startup-search-field">
+                <Search size={16} aria-hidden="true" />
+                <input
+                  type="search"
+                  aria-label="Search companies"
+                  placeholder="Search companies…"
+                  value={query}
+                  onChange={(e) => {
+                    setQuery(e.target.value);
+                    setVisibleCount(50);
+                    setChecked(new Set());
+                    setSelected(null);
+                  }}
+                />
+              </div>
+            </>
+          )}
+          <span className="job-list-count" role="status">
+            {visibleList.length < list.length
+              ? `${visibleList.length} of ${list.length}`
+              : list.length}{" "}
+            {kind === "job"
+              ? list.length === 1
+                ? "job"
+                : "jobs"
+              : list.length === 1
+                ? "company"
+                : "companies"}
+          </span>
+        </div>
+      )}
       {selectedOpportunities.length > 0 && (
         <div className="job-selection-bar" role="status">
           <span>{selectedOpportunities.length} selected</span>
@@ -1307,7 +1304,7 @@ function Opportunities({
         </div>
       )}
       <div
-        className={`opportunity-workspace ${kind === "job" ? "job-browser" : chosen ? "has-selection" : ""}`}
+        className={`opportunity-workspace job-browser ${kind === "startup" ? "startup-browser" : ""}`}
       >
         <div className="opportunity-list">
           {list.length ? (
@@ -1317,7 +1314,11 @@ function Opportunities({
                   <label className="job-select">
                     <input
                       type="checkbox"
-                      aria-label={`Select ${o.title} at ${o.company}`}
+                      aria-label={
+                        kind === "startup"
+                          ? `Select ${o.company}`
+                          : `Select ${o.title} at ${o.company}`
+                      }
                       disabled={busy || isTracked(o) || o.stage === "archived"}
                       checked={checked.has(o.id) && !isTracked(o)}
                       onChange={(event) =>
@@ -1340,15 +1341,24 @@ function Opportunities({
                     {o.company.slice(0, 2).toUpperCase()}
                   </span>
                   <span className="opportunity-info">
-                    <span className="company-name">
-                      {o.company}
-                      {o.isDemo && <span className="demo-tag">SAMPLE</span>}
-                    </span>
-                    <strong>{o.title}</strong>
-                    {kind === "startup" && o.assessment?.fitSummary && (
-                      <span className="startup-contribution-preview">
-                        {o.assessment.fitSummary}
-                      </span>
+                    {kind === "startup" ? (
+                      <>
+                        <strong className="startup-company-name">
+                          {o.company}
+                          {o.isDemo && <span className="demo-tag">SAMPLE</span>}
+                        </strong>
+                        <span className="startup-contribution-preview">
+                          {o.description || o.title}
+                        </span>
+                      </>
+                    ) : (
+                      <>
+                        <span className="company-name">
+                          {o.company}
+                          {o.isDemo && <span className="demo-tag">SAMPLE</span>}
+                        </span>
+                        <strong>{o.title}</strong>
+                      </>
                     )}
                     {(kind !== "job" || stage !== "recommended") &&
                       preferredIndustryMatches(o, data.preferences).length >
@@ -1364,22 +1374,7 @@ function Opportunities({
                       <span>·</span>
                       {kind === "job"
                         ? salary(o)
-                        : [
-                            ...new Set(
-                              (o.discoverySignals?.length
-                                ? o.discoverySignals.map(
-                                    (signal) => signal.source,
-                                  )
-                                : [o.source]
-                              ).map((source) =>
-                                source === "hackernews"
-                                  ? "Show HN"
-                                  : source === "seedcamp"
-                                    ? "Seedcamp"
-                                    : source,
-                              ),
-                            ),
-                          ].join(" · ")}
+                        : startupSourceLabels(o).join(" · ")}
                     </span>
                     {kind === "job" && stage === "recommended" && (
                       <span className="job-fit-explanation">
@@ -1393,7 +1388,9 @@ function Opportunities({
                     )}
                   </span>
                   <span className="opportunity-trailing">
-                    {(kind !== "job" || stage !== "recommended") && (
+                    {(kind === "job"
+                      ? stage !== "recommended"
+                      : o.stage === "archived") && (
                       <Badge value={opportunityBadge(o)} />
                     )}
                     {applicationColumn(o) && (
@@ -1402,15 +1399,14 @@ function Opportunities({
                       </span>
                     )}
                     {outreachColumn(o) && (
-                      <span className="on-board-label">On outreach board</span>
+                      <span className="on-board-label">In outreach</span>
                     )}
                     {kind === "startup" ? (
-                      <span className="fit-evaluation-label">
-                        {o.assessment?.startupFit?.method === "semantic" &&
-                        o.assessment.startupFit.status === "potential"
-                          ? "Potential contribution"
-                          : "To explore"}
-                      </span>
+                      <ArrowRight
+                        size={16}
+                        className="startup-row-arrow"
+                        aria-hidden="true"
+                      />
                     ) : recommendations.get(o.id)?.score == null ? (
                       <span className="fit-evaluation-label">
                         {recommendations.get(o.id)?.fitLabel}
@@ -1429,45 +1425,99 @@ function Opportunities({
                 </button>
               </div>
             ))
+          ) : kind === "startup" ? (
+            <Empty
+              icon={
+                searching ? (
+                  <LoaderCircle size={28} className="spin" />
+                ) : (
+                  <Rocket size={28} />
+                )
+              }
+              title={
+                hasStartupFilter
+                  ? "No companies match these filters"
+                  : stage === "archived"
+                    ? "No archived companies"
+                    : hasActive
+                      ? "No companies left to explore"
+                      : all.length > 0
+                        ? "Your saved companies are archived"
+                        : searching
+                          ? "Finding startup prospects"
+                          : "Find companies worth exploring"
+              }
+              detail={
+                hasStartupFilter
+                  ? "Try a different company name or clear your filters to see more companies in this view."
+                  : stage === "archived"
+                    ? "Companies you archive will appear here. You can restore them anytime."
+                    : hasActive
+                      ? "Your saved companies are already in outreach. Find more leads or revisit your saved companies."
+                      : all.length > 0
+                        ? "Find new leads or revisit your archived companies."
+                        : searching
+                          ? "New companies will appear here as research completes. You can keep browsing while we search."
+                          : "Discover startups, review what they build, and add the companies you want to contact to outreach."
+              }
+            >
+              <button
+                className={`button ${all.length > 0 ? "secondary" : "primary"}`}
+                disabled={all.length === 0 && (busy || searching)}
+                onClick={() => {
+                  if (hasStartupFilter) {
+                    setQuery("");
+                    setStartupSource("all");
+                    setVisibleCount(50);
+                    setChecked(new Set());
+                  } else if (all.length > 0 || stage === "archived") {
+                    changeView(
+                      !hasActive && all.length > 0 ? "archived" : "all",
+                    );
+                  } else void search();
+                }}
+              >
+                {hasStartupFilter
+                  ? "Clear filters"
+                  : all.length > 0 || stage === "archived"
+                    ? !hasActive && all.length > 0
+                      ? "View archived companies"
+                      : "View all saved"
+                    : searching
+                      ? "Searching…"
+                      : searchLabel}
+                <ArrowRight size={15} />
+              </button>
+            </Empty>
           ) : (
             <Empty
               title={
                 hasSourceFilter
                   ? "No jobs match this source"
-                  : hasQuery
-                    ? "No matches in this view"
-                    : kind === "job" && stage === "recommended"
-                      ? "No strong recommendations yet"
-                      : hasActive
-                        ? "No opportunities in this view"
-                        : kind === "job"
-                          ? "Start with your next opportunity"
-                          : "Build your startup shortlist"
+                  : stage === "recommended"
+                    ? "No strong recommendations yet"
+                    : hasActive
+                      ? "No opportunities in this view"
+                      : "Start with your next opportunity"
               }
               detail={
                 hasSourceFilter
                   ? `${sourceFilterLabel} has no jobs in this view. Choose another source or change the view.`
-                  : hasQuery
-                    ? "Try another search or change the view."
-                    : kind === "job" && stage === "recommended" && hasActive
-                      ? `Recommendations need relevant experience at your ${data.preferences.essentialMatch}% minimum match and no confirmed preference conflict. All saved is ranked by fit, and jobs you are already pursuing stay in Applications.`
-                      : kind === "job"
-                        ? "Search for jobs using your preferences. RoleLoop finds openings and evaluates them against your resume."
-                        : "Search for opportunities using your preferences, or add one manually."
+                  : stage === "recommended" && hasActive
+                    ? `Recommendations need relevant experience at your ${data.preferences.essentialMatch}% minimum match and no confirmed preference conflict. All saved is ranked by fit, and jobs you are already pursuing stay in Applications.`
+                    : "Search for jobs using your preferences. RoleLoop finds openings and evaluates them against your resume."
               }
             >
               <button
                 className="button primary"
                 disabled={
-                  !hasSourceFilter &&
-                  (busy || (searching && !hasQuery && !hasActive))
+                  !hasSourceFilter && (busy || (searching && !hasActive))
                 }
                 onClick={() => {
                   if (hasSourceFilter) {
                     setSourceFilter("all");
                     setVisibleCount(stage === "recommended" ? 10 : 50);
-                  } else if (hasQuery || hasActive) {
-                    setQuery("");
+                  } else if (hasActive) {
                     changeView("all");
                   } else if (!canSearch) navigate("settings");
                   else void search();
@@ -1475,10 +1525,8 @@ function Opportunities({
               >
                 {hasSourceFilter
                   ? "Show all sources"
-                  : hasQuery || hasActive
-                    ? kind === "job"
-                      ? "View all saved jobs"
-                      : "View all active opportunities"
+                  : hasActive
+                    ? "View all saved jobs"
                     : !canSearch
                       ? "Set search preferences"
                       : searching
@@ -1488,7 +1536,7 @@ function Opportunities({
               </button>
             </Empty>
           )}
-          {kind === "job" && visibleList.length < list.length && (
+          {visibleList.length < list.length && (
             <div className="job-list-more">
               <button
                 className="button secondary"
@@ -1508,42 +1556,21 @@ function Opportunities({
             </div>
           )}
         </div>
-        {kind === "job"
-          ? chosen && (
-              <Modal title="Job details" close={() => setSelected(null)}>
-                {inspector}
-              </Modal>
-            )
-          : chosen
-            ? inspector
-            : list.length > 0 && (
-                <aside className="inspector placeholder-inspector">
-                  <div className="orbit-illustration">
-                    <span />
-                    <span />
-                    <span />
-                    <Search size={28} />
-                  </div>
-                  <h3>A closer look at your next move.</h3>
-                  <p>
-                    Select a company to review its sources and your potential
-                    contribution, then add it to Startup outreach.
-                  </p>
-                  <span className="keyboard-hint">
-                    Discover → choose → start a conversation
-                  </span>
-                </aside>
-              )}
+        {chosen && (
+          <Modal
+            title={kind === "startup" ? "Company details" : "Job details"}
+            close={() => setSelected(null)}
+          >
+            {inspector}
+          </Modal>
+        )}
       </div>
-      {kind === "startup" && (adding || editing) && (
+      {kind === "startup" && editing && (
         <OpportunityForm
           companies={data.companies ?? []}
-          kind={kind}
-          existing={editing || undefined}
-          close={() => {
-            setAdding(false);
-            setEditing(null);
-          }}
+          kind="startup"
+          existing={editing}
+          close={() => setEditing(null)}
           perform={perform}
           busy={busy}
         />
