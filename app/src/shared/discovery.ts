@@ -381,34 +381,6 @@ export function followUpDue(
   );
 }
 
-// These are manual research destinations; they are not automated connectors.
-export const additionalJobBoards = [
-  {
-    name: "We Work Remotely",
-    url: "https://weworkremotely.com/",
-    description:
-      "Remote roles across engineering, design, support, sales and operations.",
-  },
-  {
-    name: "Wellfound",
-    url: "https://wellfound.com/jobs",
-    description:
-      "Startup openings with role, location and compensation details.",
-  },
-  {
-    name: "YC Work at a Startup",
-    url: "https://www.ycombinator.com/jobs",
-    description:
-      "Open positions at YC companies, plus a candidate profile for founder discovery.",
-  },
-  {
-    name: "LinkedIn Jobs",
-    url: "https://www.linkedin.com/jobs/",
-    description:
-      "Broad employer coverage, saved searches and professional connections.",
-  },
-];
-
 export const startupLibrary: SourceResearch[] = [
   {
     source: {

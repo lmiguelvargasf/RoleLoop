@@ -48,10 +48,7 @@ import type {
   RunAction,
 } from "../shared/types";
 import { api, date, downloadFile, safeUrl, uid, words, write } from "./api";
-import {
-  additionalJobBoards,
-  applicationCounts,
-} from "../shared/discovery";
+import { applicationCounts } from "../shared/discovery";
 import { isPotentialJobMatch, jobLocationStatus } from "../shared/job-matches";
 import {
   opportunityMatchesView,
@@ -642,10 +639,12 @@ function Opportunities({
           </p>
         </div>
         <div className="button-row">
-          <button className="button" onClick={() => setAdding(true)}>
-            <Plus size={16} />
-            Add {kind === "job" ? "role" : "startup"}
-          </button>
+          {kind === "startup" && (
+            <button className="button" onClick={() => setAdding(true)}>
+              <Plus size={16} />
+              Add startup
+            </button>
+          )}
           <button
             className="button primary"
             disabled={busy || searching || !canSearch}
@@ -901,7 +900,9 @@ function Opportunities({
                           stage === "matches" &&
                           outsideMatches > 0
                         ? "Check Needs review for open questions, or All saved for roles outside your preferences."
-                        : "Search for opportunities using your preferences, or add one manually."
+                        : kind === "job"
+                          ? "Search for jobs using your preferences. RoleLoop finds openings and evaluates them against your resume."
+                          : "Search for opportunities using your preferences, or add one manually."
               }
             >
               <button
@@ -1465,26 +1466,6 @@ function OpportunityForm({
     >
       <form onSubmit={submit}>
         <div className="modal-body form-grid">
-          {kind === "job" && !existing && (
-            <details className="wide job-site-links">
-              <summary>Browse job sites</summary>
-              <p>
-                Find a role, then add its original listing or description here.
-              </p>
-              <div>
-                {additionalJobBoards.map((board) => (
-                  <a
-                    key={board.name}
-                    href={board.url}
-                    target="_blank"
-                    rel="noreferrer"
-                  >
-                    {board.name} <ArrowUpRight size={14} />
-                  </a>
-                ))}
-              </div>
-            </details>
-          )}
           <Field label="Company">
             <input
               required

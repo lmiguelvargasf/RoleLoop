@@ -4038,26 +4038,6 @@ summary.source-editor-top::before {
   font-size: 13px;
   line-height: 1.6;
 }
-.job-site-links {
-  grid-column: 1 / -1;
-}
-.job-site-links > p {
-  color: var(--muted);
-  font-size: 12px;
-  margin: 12px 0;
-}
-.job-site-links > div {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 12px 20px;
-}
-.job-site-links a {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  color: var(--accent);
-  font-size: 12px;
-}
 .opportunity-filter-note {
   margin: -8px 0 16px;
   color: var(--muted);
