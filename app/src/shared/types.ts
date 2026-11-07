@@ -312,7 +312,6 @@ export interface AccountContext {
 export interface AuthConfig {
   supabaseUrl: string;
   anonKey: string;
-  setupAvailable: boolean;
 }
 export interface SourceHealth {
   checkedAt: string;

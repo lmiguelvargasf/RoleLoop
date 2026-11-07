@@ -176,17 +176,6 @@ export function assertAdmin(identity: Identity) {
   if (!identity.isAdmin)
     throw fail("Only an account administrator can perform this action.");
 }
-export async function setupAvailable() {
-  const { count, error } = await db
-    .from("app_admins")
-    .select("user_id", { count: "exact", head: true });
-  if (error)
-    throw fail(
-      "Account setup is unavailable. Apply database migrations first.",
-      503,
-    );
-  return count === 0;
-}
 export async function claimOwner(identity: Identity, input: unknown) {
   const { token } = z
     .object({ token: z.string().regex(/^[a-zA-Z0-9_-]{43}$/) })

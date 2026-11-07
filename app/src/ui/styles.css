@@ -3295,31 +3295,6 @@ textarea {
 .auth-form-links .text-button {
   font-size: 11px;
 }
-.setup-help {
-  padding-top: 25px;
-  margin-top: 28px;
-  border-top: 1px solid var(--line);
-  color: var(--muted);
-  font-size: 11px;
-}
-.setup-help summary {
-  cursor: pointer;
-  color: #4d6476;
-}
-.setup-help p {
-  margin-top: 11px;
-  font-size: 11px;
-  line-height: 1.8;
-}
-.setup-help code,
-.setup-instructions code {
-  display: inline-block;
-  padding: 1px 4px;
-  background: #edf2f5;
-  border-radius: 3px;
-  color: #43616f;
-  font-size: 10px;
-}
 .workspace-picker {
   margin: 27px 10px 20px;
   min-width: 0;
@@ -3530,12 +3505,6 @@ textarea {
   font-size: 12px;
   color: var(--muted);
   padding: 18px 0;
-}
-.setup-instructions {
-  font-size: 11px;
-  color: #728397;
-  margin-bottom: 20px;
-  line-height: 1.9;
 }
 .create-account-form {
   max-width: 610px;

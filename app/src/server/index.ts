@@ -117,7 +117,6 @@ export async function buildServer() {
   app.get("/api/auth/config", async () => ({
     supabaseUrl: settings.supabaseUrl,
     anonKey: settings.supabaseAnonKey,
-    setupAvailable: await auth.setupAvailable(),
   }));
   app.get("/api/account", async (req) => auth.accountContext(identity(req)));
   app.post("/api/account/claim-owner", async (req) =>

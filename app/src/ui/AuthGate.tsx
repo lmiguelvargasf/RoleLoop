@@ -99,11 +99,9 @@ function Notice({ error, children }: { error?: boolean; children: ReactNode }) {
 }
 function AuthForm({
   client,
-  config,
   notice,
 }: {
   client: SupabaseClient;
-  config: AuthConfig;
   notice: string;
 }) {
   const [mode, setMode] = useState<"login" | "signup" | "reset">("login");
@@ -279,16 +277,6 @@ function AuthForm({
           </button>
         )}
       </div>
-      {config.setupAvailable && !incomingSetupToken && (
-        <details className="setup-help">
-          <summary>Already have a local workspace?</summary>
-          <p>
-            Run <code>npm run account:setup</code> in the project terminal and
-            open the link it prints. Your existing data stays protected until
-            you claim it.
-          </p>
-        </details>
-      )}
     </div>
   );
 }
@@ -504,13 +492,12 @@ export function AuthGate() {
               { token: incomingSetupToken },
             );
             claimed = result.workspaceId;
-            setConfig((c) => (c ? { ...c, setupAvailable: false } : c));
             setNotice("Your existing workspace is now linked to your account.");
           } catch (err) {
             setNotice(
               err instanceof Error
                 ? `The existing workspace was not claimed: ${err.message}`
-                : "The existing workspace was not claimed. You can retry from Account & access.",
+                : "The existing workspace was not claimed. Open a new setup link from the project terminal to retry.",
             );
           }
         }
@@ -640,7 +627,7 @@ export function AuthGate() {
   if (!session)
     return (
       <AuthShell>
-        <AuthForm client={client} config={config} notice={notice} />
+        <AuthForm client={client} notice={notice} />
       </AuthShell>
     );
   if (!account || !workspaceId)
@@ -689,13 +676,9 @@ export function AuthGate() {
         <AccountPage
           account={account}
           workspace={workspace}
-          config={config}
           client={client}
           notice={notice}
           reloadAccount={reloadAccount}
-          onClaimed={() =>
-            setConfig((c) => (c ? { ...c, setupAvailable: false } : c))
-          }
         />
       }
     />

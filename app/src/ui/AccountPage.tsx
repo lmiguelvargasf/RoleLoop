@@ -7,16 +7,11 @@ import {
   LoaderCircle,
   Mail,
   Save,
-  ShieldCheck,
   Trash2,
   UserPlus,
   Users,
 } from "lucide-react";
-import type {
-  AccountContext,
-  AuthConfig,
-  WorkspaceAccess,
-} from "../shared/types";
+import type { AccountContext, WorkspaceAccess } from "../shared/types";
 import type { ManagedUser, WorkspaceMember } from "./account-types";
 import { ChatGPTConnectionPanel } from "./ChatGPTConnectionPanel";
 import { api, write } from "./api";
@@ -24,25 +19,20 @@ import { api, write } from "./api";
 export function AccountPage({
   account,
   workspace,
-  config,
   client,
   notice,
   reloadAccount,
-  onClaimed,
 }: {
   account: AccountContext;
   workspace: WorkspaceAccess;
-  config: AuthConfig;
   client: SupabaseClient;
   notice: string;
   reloadAccount: (preferredWorkspaceId?: string) => Promise<void>;
-  onClaimed: () => void;
 }) {
   const [members, setMembers] = useState<WorkspaceMember[]>([]),
     [users, setUsers] = useState<ManagedUser[]>([]);
   const [name, setName] = useState(workspace.name),
-    [managerEmail, setManagerEmail] = useState(""),
-    [setupToken, setSetupToken] = useState("");
+    [managerEmail, setManagerEmail] = useState("");
   const [userName, setUserName] = useState(""),
     [userEmail, setUserEmail] = useState(""),
     [userPassword, setUserPassword] = useState("");
@@ -151,18 +141,6 @@ export function AccountPage({
       setUserName("");
       await loadUsers();
     }, "Account created. It will open its own private workspace when the user signs in.");
-  };
-  const claim = (event: FormEvent) => {
-    event.preventDefault();
-    void perform(async () => {
-      const result = await write<{ workspaceId: string }>(
-        "/account/claim-owner",
-        { token: setupToken.trim() },
-      );
-      setSetupToken("");
-      onClaimed();
-      await reloadAccount(result.workspaceId);
-    }, "Your existing workspace is linked to your account.");
   };
   return (
     <section
@@ -323,40 +301,6 @@ export function AccountPage({
           </form>
         )}
       </section>
-      {config.setupAvailable && (
-        <section className="form-section">
-          <div className="section-heading">
-            <div>
-              <h2>Claim the existing workspace</h2>
-              <p>
-                Your earlier local data is preserved until the installation
-                owner claims it.
-              </p>
-            </div>
-            <ShieldCheck size={22} />
-          </div>
-          <p className="setup-instructions">
-            Run <code>npm run account:setup</code> in the project terminal. Open
-            its setup link, or paste the key below.
-          </p>
-          <form onSubmit={claim} className="grant-access-form">
-            <label className="field">
-              <span>Local setup key</span>
-              <input
-                type="password"
-                autoComplete="off"
-                required
-                value={setupToken}
-                onChange={(e) => setSetupToken(e.target.value)}
-              />
-            </label>
-            <button className="button primary" disabled={busy}>
-              <KeyRound size={16} />
-              Claim workspace
-            </button>
-          </form>
-        </section>
-      )}
       {account.isAdmin && (
         <section className="form-section admin-accounts">
           <div className="section-heading">

@@ -33,16 +33,16 @@ During development, the API and worker restart automatically when their code or 
 
 ## Accounts and workspace access
 
-Open the app and create an email/password account (at least 12 characters). Each account receives an empty private workspace. Email confirmation is disabled for local testing; password-reset links go to Mailpit.
+Open the app and create an email/password account (at least 12 characters), or sign in to an existing account. Your private workspace opens automatically so you can upload your résumé and start finding opportunities. No workspace claim or terminal setup is required. Email confirmation is disabled for local testing; password-reset links go to Mailpit.
 
-To become the first account administrator and claim the existing workspace, keep the app running and use a second terminal:
+**Optional installation administration and legacy data recovery:** only the person operating this local installation needs this command, if they want to become its first account administrator or recover a workspace created before accounts were introduced. Keep the app running and use a second terminal:
 
 ```sh
 nvm use
 npm run account:setup
 ```
 
-Open the one-time local link printed by the command, then create your account or sign in. It expires after 30 minutes. The existing data is preserved and remains inaccessible to new signups until this step. The setup key is consumed once; subsequent signups never become administrators automatically. On a clean installation, this makes your personal workspace the initial administrator's workspace.
+Open the one-time local link printed by the command, then create your account or sign in. The link expires after 30 minutes and completes setup automatically after sign-in. Existing legacy data is preserved and remains inaccessible to new signups until the installation operator completes this optional step. The setup key is consumed once; normal signups never become administrators automatically. On a clean installation, setup grants administrator status to your account while keeping its personal workspace.
 
 Under **Account & access**, owners can add an existing account as a manager by email or remove that access. Managers can operate an assigned workspace but cannot grant access themselves. Use the workspace selector to switch between your personal workspace and shared ones. Switching accounts or workspaces clears the previous screen and unsaved edits.
 
