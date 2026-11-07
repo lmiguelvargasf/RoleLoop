@@ -4051,6 +4051,18 @@ summary.source-editor-top::before {
   max-width: calc(100% - 80px);
   min-width: 0;
 }
+.job-list-filters {
+  display: flex;
+  flex: 1;
+  flex-wrap: wrap;
+  min-width: 0;
+  gap: 12px;
+}
+.job-list-filters .job-view-select {
+  flex: 1 1 180px;
+  width: 220px;
+  max-width: 280px;
+}
 .job-view-select .policy-label {
   position: absolute;
   width: 1px;
@@ -4190,6 +4202,18 @@ summary.source-editor-top::before {
   font-size: 12px;
 }
 @media (max-width: 600px) {
+  .job-list-toolbar {
+    flex-wrap: wrap;
+  }
+  .job-list-filters {
+    flex-basis: 100%;
+  }
+  .job-list-filters .job-view-select {
+    max-width: none;
+  }
+  .job-list-toolbar .job-list-count {
+    margin-left: auto;
+  }
   .opportunities-page .list-toolbar {
     flex-wrap: wrap;
   }

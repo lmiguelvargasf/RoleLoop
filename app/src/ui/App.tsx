@@ -56,6 +56,12 @@ import {
   type OpportunityView,
 } from "../shared/opportunity-views";
 import { OpportunityFilters } from "./OpportunityFilters";
+import {
+  jobMatchesSource,
+  jobSourceLabels,
+  jobSourceOptions,
+  type JobSourceFilter,
+} from "../shared/job-sources";
 import { ApplicationsBoard } from "./ApplicationsBoard";
 import { JobFitDetails } from "./JobFitDetails";
 import {
@@ -510,6 +516,7 @@ function Opportunities({
   navigate: (p: Page) => void;
 }) {
   const [query, setQuery] = useState(""),
+    [sourceFilter, setSourceFilter] = useState<JobSourceFilter>("all"),
     [stage, setStage] = useState(() => {
       const id = routeOpportunity(location.hash);
       return id
@@ -535,6 +542,7 @@ function Opportunities({
       if (!id) return;
       setSelected(id);
       setQuery("");
+      setSourceFilter("all");
       setVisibleCount(50);
       setStage(
         data.opportunities.find((op) => op.id === id)?.stage === "archived"
@@ -553,13 +561,23 @@ function Opportunities({
   const all = data.opportunities.filter((o) => o.kind === kind),
     list = all.filter((o) =>
       kind === "job"
-        ? opportunityMatchesView(o, data.preferences, stage as OpportunityView)
+        ? opportunityMatchesView(o, data.preferences, stage as OpportunityView) &&
+          jobMatchesSource(o, data.sources, sourceFilter)
         : (stage === "all" ? o.stage !== "archived" : o.stage === stage) &&
           `${o.company} ${o.title} ${o.description}`
             .toLowerCase()
             .includes(query.toLowerCase()),
     );
   const hasQuery = kind === "startup" && Boolean(query);
+  const hasSourceFilter = kind === "job" && sourceFilter !== "all";
+  const sourceFilterLabel =
+    sourceFilter === "all" ? "All sources" : jobSourceLabels[sourceFilter];
+  const sourceOptions = jobSourceOptions(all, data.sources);
+  if (
+    sourceFilter !== "all" &&
+    !sourceOptions.some((option) => option.value === sourceFilter)
+  )
+    sourceOptions.push({ value: sourceFilter, label: jobSourceLabels[sourceFilter] });
   const hasActive = all.some((opportunity) => opportunity.stage !== "archived");
   const visibleList = kind === "job" ? list.slice(0, visibleCount) : list;
   const recommendations = new Map(
@@ -1111,6 +1129,14 @@ function Opportunities({
           <OpportunityFilters
             view={stage as OpportunityView}
             onViewChange={changeView}
+            source={sourceFilter}
+            sourceOptions={sourceOptions}
+            onSourceChange={(source) => {
+              setSourceFilter(source);
+              setVisibleCount(stage === "recommended" ? 10 : 50);
+              setChecked(new Set());
+              setSelected(null);
+            }}
           />
         ) : (
           <select
@@ -1268,46 +1294,55 @@ function Opportunities({
           ) : (
             <Empty
               title={
-                hasQuery
-                  ? "No matches in this view"
-                  : kind === "job" && stage === "recommended"
-                    ? "No strong recommendations yet"
-                    : hasActive
-                      ? "No opportunities in this view"
-                      : kind === "job"
-                        ? "Start with your next opportunity"
-                        : "Build your startup shortlist"
+                hasSourceFilter
+                  ? "No jobs match this source"
+                  : hasQuery
+                    ? "No matches in this view"
+                    : kind === "job" && stage === "recommended"
+                      ? "No strong recommendations yet"
+                      : hasActive
+                        ? "No opportunities in this view"
+                        : kind === "job"
+                          ? "Start with your next opportunity"
+                          : "Build your startup shortlist"
               }
               detail={
-                hasQuery
-                  ? "Try another search or change the view."
-                  : kind === "job" && stage === "recommended" && hasActive
-                    ? `Recommendations need relevant experience at your ${data.preferences.essentialMatch}% minimum match and no confirmed preference conflict. All saved is ranked by fit, and jobs you are already pursuing stay in Applications.`
-                    : kind === "job"
-                      ? "Search for jobs using your preferences. RoleLoop finds openings and evaluates them against your resume."
-                      : "Search for opportunities using your preferences, or add one manually."
+                hasSourceFilter
+                  ? `${sourceFilterLabel} has no jobs in this view. Choose another source or change the view.`
+                  : hasQuery
+                    ? "Try another search or change the view."
+                    : kind === "job" && stage === "recommended" && hasActive
+                      ? `Recommendations need relevant experience at your ${data.preferences.essentialMatch}% minimum match and no confirmed preference conflict. All saved is ranked by fit, and jobs you are already pursuing stay in Applications.`
+                      : kind === "job"
+                        ? "Search for jobs using your preferences. RoleLoop finds openings and evaluates them against your resume."
+                        : "Search for opportunities using your preferences, or add one manually."
               }
             >
               <button
                 className="button primary"
-                disabled={busy || (searching && !hasQuery && !hasActive)}
+                disabled={!hasSourceFilter && (busy || (searching && !hasQuery && !hasActive))}
                 onClick={() => {
-                  if (hasQuery || hasActive) {
+                  if (hasSourceFilter) {
+                    setSourceFilter("all");
+                    setVisibleCount(stage === "recommended" ? 10 : 50);
+                  } else if (hasQuery || hasActive) {
                     setQuery("");
                     changeView("all");
                   } else if (!canSearch) navigate("settings");
                   else void search();
                 }}
               >
-                {hasQuery || hasActive
-                  ? kind === "job"
-                    ? "View all saved jobs"
-                    : "View all active opportunities"
-                  : !canSearch
-                    ? "Set search preferences"
-                    : searching
-                      ? "Searching…"
-                      : searchLabel}
+                {hasSourceFilter
+                  ? "Show all sources"
+                  : hasQuery || hasActive
+                    ? kind === "job"
+                      ? "View all saved jobs"
+                      : "View all active opportunities"
+                    : !canSearch
+                      ? "Set search preferences"
+                      : searching
+                        ? "Searching…"
+                        : searchLabel}
                 <ArrowRight size={15} />
               </button>
             </Empty>
