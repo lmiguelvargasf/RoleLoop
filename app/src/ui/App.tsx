@@ -503,6 +503,17 @@ export function App({
             preferences={data.preferences}
             employerDiscovery={data.employerDiscovery}
             health={data.sourceHealth}
+            latestSearch={
+              data.runs
+                .filter(
+                  (run) =>
+                    run.action === "discover" &&
+                    (run.discoveryScope ?? "jobs") === "jobs" &&
+                    !run.sourceId &&
+                    ["completed", "failed"].includes(run.status),
+                )
+                .sort((a, b) => b.createdAt.localeCompare(a.createdAt))[0]
+            }
             searching={data.runs.some(
               (r) =>
                 r.action === "discover" &&
