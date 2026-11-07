@@ -169,17 +169,11 @@ code {
   left: 10px;
   border-color: #18293b;
 }
-.workspace-label {
-  font-size: 9px;
-  letter-spacing: 1.5px;
-  font-weight: 700;
-  color: #83909e;
-  margin: 35px 12px 14px;
-}
 .sidebar nav {
   display: flex;
   flex-direction: column;
   gap: 5px;
+  margin-top: 28px;
 }
 .nav-item {
   border: 0;
@@ -2777,6 +2771,10 @@ textarea {
   .sidebar {
     position: static;
     height: auto;
+    display: grid;
+    grid-template-columns: max-content minmax(0, 1fr) max-content;
+    align-items: center;
+    column-gap: 8px;
     padding: 19px 18px 0;
     border-right: 0;
     border-bottom: 1px solid var(--line);
@@ -2786,10 +2784,10 @@ textarea {
     padding: 0;
     font-size: 25px;
   }
-  .workspace-label {
-    display: none;
-  }
   .sidebar nav {
+    grid-column: 1 / -1;
+    grid-row: 2;
+    min-width: 0;
     flex-direction: row;
     overflow: auto;
     gap: 5px;
@@ -2815,9 +2813,11 @@ textarea {
     font-size: 8px;
   }
   .sidebar-bottom {
-    position: absolute;
-    right: 18px;
-    top: 20px;
+    position: static;
+    grid-column: 2;
+    grid-row: 1;
+    justify-self: end;
+    margin: 0;
     padding: 0;
   }
   .test-seal {
@@ -3134,9 +3134,6 @@ textarea {
   .test-seal strong {
     font-size: 8px;
   }
-  .sidebar-bottom {
-    right: 15px;
-  }
   .brand {
     font-size: 23px;
   }
@@ -3295,52 +3292,6 @@ textarea {
 .auth-form-links .text-button {
   font-size: 11px;
 }
-.workspace-picker {
-  margin: 27px 10px 20px;
-  min-width: 0;
-  flex-shrink: 0;
-}
-.workspace-picker-heading {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  margin: -7px -5px 1px 0;
-}
-.workspace-picker-heading .icon-button {
-  min-width: 28px;
-  min-height: 28px;
-}
-.workspace-picker-label {
-  display: block;
-  color: #83909e;
-  font-size: 8px;
-  letter-spacing: 1.3px;
-  font-weight: 700;
-  margin-bottom: 0;
-}
-.workspace-picker select {
-  font-size: 11px;
-  background: transparent;
-  border-color: #d5dfe8;
-  padding: 8px 6px;
-  width: 100%;
-  text-overflow: ellipsis;
-}
-.workspace-name {
-  display: block;
-  font-size: 11px;
-  font-weight: 600;
-  padding: 8px 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-.workspace-picker > span {
-  display: block;
-  font-size: 9px;
-  color: #8794a4;
-  margin-top: 7px;
-}
 .sidebar-account {
   display: flex;
   align-items: center;
@@ -3447,19 +3398,6 @@ textarea {
   color: var(--muted);
   margin-top: 6px;
   overflow-wrap: anywhere;
-}
-.workspace-name-form {
-  display: flex;
-  align-items: flex-start;
-  gap: 13px;
-  max-width: 610px;
-}
-.workspace-name-form > .field {
-  flex: 1;
-}
-.workspace-name-form > .button {
-  margin-top: 24px;
-  flex-shrink: 0;
 }
 .access-list {
   margin: 15px 0 24px;
@@ -3582,23 +3520,9 @@ textarea {
   .auth-form-icon {
     margin-bottom: 18px;
   }
-  .workspace-picker {
-    margin: 16px 43px 0 0;
-  }
-  .workspace-picker-label {
-    font-size: 7px;
-  }
-  .workspace-picker select {
-    padding: 7px 9px;
-    font-size: 11px;
-  }
-  .workspace-picker > span {
-    display: none;
-  }
   .sidebar-account {
-    position: absolute;
-    right: 17px;
-    top: 72px;
+    grid-column: 3;
+    grid-row: 1;
     margin: 0;
     padding: 0;
     border: 0;
@@ -3620,15 +3544,6 @@ textarea {
   }
   .account-page .form-section {
     padding: 25px 0;
-  }
-  .workspace-name-form {
-    flex-wrap: wrap;
-  }
-  .workspace-name-form > .field {
-    min-width: 100%;
-  }
-  .workspace-name-form > .button {
-    margin-top: 0;
   }
   .access-row {
     gap: 9px;
@@ -3970,10 +3885,6 @@ textarea {
   }
 }
 @media (max-width: 700px) {
-  .workspace-picker-heading .icon-button {
-    min-width: 32px;
-    min-height: 32px;
-  }
   .page-heading,
   .editor-header {
     gap: 16px;

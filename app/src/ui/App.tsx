@@ -29,7 +29,6 @@ import {
   Pencil,
   Play,
   Plus,
-  RefreshCw,
   Rocket,
   Save,
   Search,
@@ -43,7 +42,6 @@ import type {
   Activity,
   Company,
   AccountContext,
-  WorkspaceAccess,
   Bootstrap,
   Draft,
   Opportunity,
@@ -227,15 +225,11 @@ function Modal({
 
 export function App({
   account,
-  workspace,
-  onWorkspaceChange,
   onSignOut,
   accountPage,
   accountNotice,
 }: {
   account: AccountContext;
-  workspace: WorkspaceAccess;
-  onWorkspaceChange: (id: string) => void;
   onSignOut: () => void;
   accountPage: ReactNode;
   accountNotice: string;
@@ -348,39 +342,6 @@ export function App({
           <span className="brand-mark" />
           RoleLoop<span className="brand-period">.</span>
         </a>
-        <div className="workspace-picker">
-          <div className="workspace-picker-heading">
-            <span className="workspace-picker-label">WORKSPACE</span>
-            <IconButton
-              label="Refresh workspace"
-              onClick={() => void refresh()}
-              disabled={busy}
-            >
-              <RefreshCw
-                size={14}
-                className={busy ? "spin" : ""}
-                aria-hidden="true"
-              />
-            </IconButton>
-          </div>
-          {account.workspaces.length > 1 ? (
-            <select
-              id="workspace-picker"
-              aria-label="Active workspace"
-              value={workspace.id}
-              onChange={(e) => onWorkspaceChange(e.target.value)}
-            >
-              {account.workspaces.map((item) => (
-                <option key={item.id} value={item.id}>
-                  {item.name}
-                </option>
-              ))}
-            </select>
-          ) : (
-            <strong className="workspace-name">{workspace.name}</strong>
-          )}
-          <span>Your private workspace</span>
-        </div>
         <nav aria-label="Main navigation">
           {nav.map(({ id, label, icon: Icon }, i) => (
             <button

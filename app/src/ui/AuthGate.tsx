@@ -568,20 +568,6 @@ export function AuthGate() {
     window.addEventListener("roleloop-access-error", invalid);
     return () => window.removeEventListener("roleloop-access-error", invalid);
   }, [reloadAccount, signOut]);
-  const switchWorkspace = (id: string) => {
-    const current = sessionRef.current;
-    if (!current || !account?.workspaces.some((w) => w.id === id)) return;
-    generation.current++;
-    workspaceRef.current = id;
-    setApiContext({
-      token: current.access_token,
-      userId: current.user.id,
-      workspaceId: id,
-    });
-    localStorage.setItem(`roleloop-workspace:${current.user.id}`, id);
-    setWorkspaceId(id);
-    setNotice("");
-  };
   if (!config || !client || !sessionReady)
     return (
       <AuthShell>
@@ -663,22 +649,17 @@ export function AuthGate() {
         </div>
       </AuthShell>
     );
-  const workspace = account.workspaces.find((w) => w.id === workspaceId)!;
   return (
     <App
       key={`${account.user.id}:${workspaceId}`}
       account={account}
-      workspace={workspace}
-      onWorkspaceChange={switchWorkspace}
       onSignOut={() => void signOut()}
       accountNotice={notice}
       accountPage={
         <AccountPage
           account={account}
-          workspace={workspace}
           client={client}
           notice={notice}
-          reloadAccount={reloadAccount}
         />
       }
     />

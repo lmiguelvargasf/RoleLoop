@@ -5,30 +5,24 @@ import {
   CheckCircle2,
   KeyRound,
   LoaderCircle,
-  Save,
   UserPlus,
   Users,
 } from "lucide-react";
-import type { AccountContext, WorkspaceAccess } from "../shared/types";
+import type { AccountContext } from "../shared/types";
 import type { ManagedUser } from "./account-types";
 import { ChatGPTConnectionPanel } from "./ChatGPTConnectionPanel";
 import { api, write } from "./api";
 
 export function AccountPage({
   account,
-  workspace,
   client,
   notice,
-  reloadAccount,
 }: {
   account: AccountContext;
-  workspace: WorkspaceAccess;
   client: SupabaseClient;
   notice: string;
-  reloadAccount: (preferredWorkspaceId?: string) => Promise<void>;
 }) {
   const [users, setUsers] = useState<ManagedUser[]>([]);
-  const [name, setName] = useState(workspace.name);
   const [userName, setUserName] = useState(""),
     [userEmail, setUserEmail] = useState(""),
     [userPassword, setUserPassword] = useState("");
@@ -78,17 +72,6 @@ export function AccountPage({
       setBusy(false);
     }
   }
-  const saveName = (event: FormEvent) => {
-    event.preventDefault();
-    void perform(async () => {
-      await write(
-        `/workspaces/${encodeURIComponent(workspace.id)}`,
-        { name: name.trim() },
-        "PATCH",
-      );
-      await reloadAccount();
-    }, "Workspace name saved.");
-  };
   const createUser = (event: FormEvent) => {
     event.preventDefault();
     void perform(async () => {
@@ -130,7 +113,9 @@ export function AccountPage({
         <div className="section-heading">
           <div>
             <h2>Your account</h2>
-            <p>You’re signed in as {account.user.email}.</p>
+            <p>
+              Your résumé, opportunities and drafts are private to your account.
+            </p>
           </div>
           <span className="badge badge-ready">
             {account.isAdmin ? "Installation administrator" : "Account"}
@@ -165,34 +150,6 @@ export function AccountPage({
         </div>
       </section>
       <ChatGPTConnectionPanel key={account.user.id} />
-      <section className="form-section">
-        <div className="section-heading">
-          <div>
-            <h2>Your workspace</h2>
-            <p>
-              Your résumé, opportunities and drafts are private to your account.
-            </p>
-          </div>
-        </div>
-        <form className="workspace-name-form" onSubmit={saveName}>
-          <label className="field">
-            <span>Workspace name</span>
-            <input
-              required
-              maxLength={100}
-              value={name}
-              onChange={(e) => setName(e.target.value)}
-            />
-          </label>
-          <button
-            className="button"
-            disabled={busy || !name.trim() || name === workspace.name}
-          >
-            <Save size={15} />
-            Save name
-          </button>
-        </form>
-      </section>
       {account.isAdmin && (
         <section className="form-section admin-accounts">
           <div className="section-heading">

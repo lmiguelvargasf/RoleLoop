@@ -44,7 +44,7 @@ npm run account:setup
 
 Open the one-time local link printed by the command, then create your account or sign in. The link expires after 30 minutes and completes setup automatically after sign-in. Existing legacy data is preserved and remains inaccessible to new signups until the installation operator completes this optional step. The setup key is consumed once; normal signups never become administrators automatically. On a clean installation, setup grants administrator status to your account while keeping its personal workspace.
 
-Under **Account**, manage your password, AI connection and workspace name. Workspaces are personal: only their owner can access the résumé, opportunities and drafts. Earlier manager memberships no longer grant access; existing workspace data is preserved. Switching accounts clears the previous screen and unsaved edits.
+Under **Account**, manage your password and AI connection. Workspaces are personal: only their owner can access the résumé, opportunities and drafts. Earlier manager memberships no longer grant access; existing workspace data is preserved. Switching accounts clears the previous screen and unsaved edits.
 
 The installation administrator can list accounts and create accounts with an initial password. Administrative status does not grant access to other users' workspaces. Normal users can also self-register. To test isolation on the same computer, use separate browser profiles or an incognito window—tabs in one browser profile share a login session.
 
