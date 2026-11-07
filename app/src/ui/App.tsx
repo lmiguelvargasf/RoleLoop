@@ -833,7 +833,7 @@ function Opportunities({
           ) : (
             <Search size={15} />
           )}
-          {kind === "job" ? "Evaluate fit" : "Research & evaluate"}
+          {kind === "job" ? "Re-evaluate fit" : "Research & evaluate"}
         </button>
         <button
           className={`button ${kind === "startup" || board ? "primary" : ""}`}

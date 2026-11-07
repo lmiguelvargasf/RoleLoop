@@ -74,7 +74,7 @@ export function JobFitDetails({
         <div className="job-fit-evidence">
           <p>
             {match?.explanation ||
-              "Evaluate fit to compare this requirement with your resume."}
+              "Re-evaluate fit to compare this requirement with your resume."}
           </p>
           {facts.length > 0 && (
             <ul aria-label="Supporting resume evidence">

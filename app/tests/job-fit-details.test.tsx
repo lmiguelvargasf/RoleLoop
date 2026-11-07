@@ -100,7 +100,7 @@ describe("job fit details", () => {
     );
     const row = $(".job-fit-required > details").first();
     expect(row.find(".job-fit-status").text()).toBe("Not assessed");
-    expect(row.find(".job-fit-evidence").text()).toContain("Evaluate fit");
+    expect(row.find(".job-fit-evidence").text()).toContain("Re-evaluate fit");
     expect($(".job-fit-score").text()).toBe("Partial assessment");
   });
 
