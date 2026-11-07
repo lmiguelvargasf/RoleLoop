@@ -83,6 +83,20 @@ integration("concurrent employer connections and source editing", () => {
   beforeAll(async () => {
     ({ db } = await import("../src/server/store.js"));
   });
+  it("stores WWR as a shared feed with independent workspace choices", async () => {
+    const first = await actor(), second = await actor();
+    const source: Source = { id: "wwr", provider: "weworkremotely", label: "We Work Remotely", board: "", enabled: true };
+    await replace(first.store, [source]);
+    await replace(second.store, [{ ...source, enabled: false, board: "design" }]);
+    const a = (await first.store.getWorkspace()).sources[0];
+    const b = (await second.store.getWorkspace()).sources[0];
+    expect(a.kind).toBe("job_feed");
+    expect(a.catalogId).toBe(b.catalogId);
+    expect(a.companyId).toBeUndefined();
+    expect(a.enabled).toBe(true);
+    expect(b.enabled).toBe(false);
+    expect(b.board).toBe("design");
+  });
   afterAll(async () => {
     for (const id of workspaces) {
       const removed = await db.from("workspace").delete().eq("id", id);

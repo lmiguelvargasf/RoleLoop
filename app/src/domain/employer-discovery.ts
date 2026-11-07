@@ -394,6 +394,7 @@ export async function discoverEmployerBoards(
     onProgress?: (message: string) => Promise<void>;
     excludeIdentities?: string[];
     himalayasApiKey?: string;
+    roleOffset?: number;
   },
 ): Promise<EmployerDiscoveryResult> {
   const result: EmployerDiscoveryResult = {
@@ -402,11 +403,15 @@ export async function discoverEmployerBoards(
     boardsChecked: 0,
     errors: [],
   };
-  const roles = [
+  const allRoles = [
     ...new Set(
       workspace.preferences.roles.map((role) => role.trim()).filter(Boolean),
     ),
-  ].slice(0, 3);
+  ];
+  const offset = Number.isSafeInteger(options.roleOffset) && options.roleOffset! >= 0
+    ? options.roleOffset! % (allRoles.length || 1)
+    : 0;
+  const roles = [...allRoles.slice(offset), ...allRoles.slice(0, offset)].slice(0, 3);
   const country = workspace.preferences.country.trim();
   if (!roles.length || !country) {
     result.errors.push(
@@ -438,6 +443,7 @@ export async function discoverEmployerBoards(
     } catch {}
   }
   const candidates = new Map<string, Employer>();
+  const roleCandidates: Employer[][] = [];
   for (const role of roles) {
     await options.onProgress?.(
       `Finding companies hiring for ${role} from ${country}.`,
@@ -450,13 +456,21 @@ export async function discoverEmployerBoards(
         workspace.preferences.minimumSalary > 0,
         options.himalayasApiKey,
       );
-      for (const employer of employers)
-        if (!companyNames.has(normalizeName(employer.name)))
-          candidates.set(employer.slug, employer);
+      roleCandidates.push(employers.filter(
+        (employer) => !companyNames.has(normalizeName(employer.name)),
+      ));
     } catch (error) {
       result.errors.push(errorText(error));
     }
   }
+  // Share the bounded website budget across roles. Exhausting the first role's
+  // companies first can otherwise prevent every other target from being tried.
+  const longest = Math.max(0, ...roleCandidates.map((values) => values.length));
+  for (let index = 0; index < longest; index++)
+    for (const employers of roleCandidates) {
+      const employer = employers[index];
+      if (employer) candidates.set(employer.slug, employer);
+    }
   result.companiesFound = candidates.size;
   const pending = [...candidates.values()];
   const preferenceKey = hash(

@@ -116,7 +116,7 @@ export const SourceSchema = z.object({
   kind: z.enum(["company_board", "job_feed", "startup_feed"]).optional(),
   companyId: z.string().optional(),
   companyName: z.string().optional(),
-  provider: z.enum(["ashby", "greenhouse", "lever", "hackernews", "jobicy"]),
+  provider: z.enum(["ashby", "greenhouse", "lever", "hackernews", "jobicy", "weworkremotely"]),
   label: z.string(),
   board: z.string(),
   enabled: z.boolean(),
@@ -148,6 +148,7 @@ export const AssessmentSchema = z.object({
       assessedRequired: z.number().int().nonnegative(),
       totalRequired: z.number().int().nonnegative(),
       concerns: z.array(z.string()).optional(),
+      failureReason: z.string().optional(),
     })
     .optional()
     .catch(undefined),
@@ -160,6 +161,7 @@ export const AssessmentSchema = z.object({
   reasons: z.array(z.string()),
   blockers: z.array(z.string()),
   unknowns: z.array(z.string()),
+  policyUnknowns: z.array(z.string()).optional(),
   matches: z.array(
     z.object({
       requirementId: z.string(),
@@ -185,6 +187,7 @@ export const OpportunitySchema = z.object({
   description: z.string().max(50000),
   descriptionTruncated: z.boolean().default(false),
   requirementsVersion: z.number().int().nonnegative().optional(),
+  requirementsTruncated: z.boolean().default(false),
   url: z.string().max(2000),
   companyUrl: z.string().default(""),
   source: z.string(),
@@ -207,6 +210,7 @@ export const OpportunitySchema = z.object({
     .refine((value) => Number.isFinite(Date.parse(value)), "Use a valid date")
     .nullable()
     .default(null),
+  sourceExpiresAt: z.string().datetime().optional(),
   firstSeenAt: z.string(),
   updatedAt: z.string(),
   requirements: z.array(RequirementSchema).default([]),
@@ -308,6 +312,7 @@ export interface Run {
     sourcesFailed: number;
     companiesConnected: number;
     draftFailures: number;
+    evaluationFailures?: number;
   };
   createdAt: string;
   updatedAt: string;

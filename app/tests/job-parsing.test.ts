@@ -1,12 +1,15 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   discover,
+  extractRequirementDetails,
   extractRequirements,
   plainText,
   remoteScope,
 } from "../src/domain/connectors.js";
 import type { Source } from "../src/shared/types.js";
-import { demoWorkspace } from "./fixtures.js";
+import { assessOpportunity } from "../src/domain/rules.js";
+import { recommendationForJob } from "../src/shared/job-recommendations.js";
+import { demoOpportunities, demoWorkspace } from "./fixtures.js";
 
 afterEach(() => vi.unstubAllGlobals());
 
@@ -72,9 +75,75 @@ describe("practical job requirement parsing", () => {
     );
     expect(requirements[3].skills).toContain("Python");
   });
+
+  it("preserves substantive qualification prose when the same section also has bullets", () => {
+    const { requirements, requirementsTruncated } = extractRequirementDetails(
+      "Requirements\nYou have five years of production ownership.\n- Experience with TypeScript\nJoin our team and help shape the future!",
+    );
+    expect(requirements.map((requirement) => requirement.text)).toEqual([
+      "You have five years of production ownership.",
+      "Experience with TypeScript",
+    ]);
+    expect(requirementsTruncated).toBe(false);
+  });
+
+  it.each([
+    "TypeScript experience is required; Kubernetes is a plus.",
+    "Experience providing executive-level administrative support. Public company or Office of the CFO experience is a plus.",
+  ])("keeps the required part of a mixed optional bullet: %s", (bullet) => {
+    const requirements = extractRequirements(`Requirements\n- ${bullet}`);
+    expect(requirements).toHaveLength(2);
+    expect(requirements.map((requirement) => requirement.essential)).toEqual([true, false]);
+  });
+
+  it("keeps an optional sentence attached when it qualifies the preceding statement", () => {
+    const requirements = extractRequirements("Requirements\n- Experience with Kubernetes. This is preferred, not required.");
+    expect(requirements).toHaveLength(1);
+    expect(requirements[0].essential).toBe(false);
+  });
+
+  it("discloses text and list limits rather than silently claiming complete coverage", () => {
+    const long = extractRequirementDetails(`Requirements\n- ${"Production TypeScript experience. ".repeat(23)} Must hold a professional license.`);
+    expect(long.requirements[0].text).toHaveLength(700);
+    expect(long.requirementsTruncated).toBe(true);
+    const list = extractRequirementDetails("Requirements\n" + Array.from(
+      { length: 31 }, (_, i) => `- Qualification number ${i + 1} must be demonstrated`,
+    ).join("\n"));
+    expect(list.requirements).toHaveLength(30);
+    expect(list.requirementsTruncated).toBe(true);
+    const duties = extractRequirementDetails("Responsibilities\n" + Array.from(
+      { length: 13 }, (_, i) => `- Deliver customer project number ${i + 1}`,
+    ).join("\n"));
+    expect(duties.requirements).toHaveLength(12);
+    expect(duties.requirementsTruncated).toBe(true);
+  });
+
+  it("cannot report a complete fit even when every retained requirement is matched", () => {
+    const workspace = demoWorkspace();
+    const job = { ...demoOpportunities()[0], requirementsTruncated: true };
+    const matches = job.requirements.map((requirement) => ({
+      requirementId: requirement.id,
+      requirement: requirement.text,
+      essential: requirement.essential,
+      status: "matched" as const,
+      evidenceIds: ["demo-e1", "demo-e2"],
+      explanation: "The retained qualification has supporting evidence.",
+    }));
+    job.assessment = assessOpportunity(job, workspace.profile, workspace.preferences, new Date(), matches);
+    expect(job.assessment.fitEvaluation?.status).toBe("partial");
+    expect(job.assessment.recommendation).toBe("review");
+    expect(job.assessment.policyUnknowns?.join(" ")).toContain("qualifications were shortened or omitted");
+    expect(recommendationForJob(job, workspace.preferences).score).toBeNull();
+  });
 });
 
 describe("requirement extraction from real board formats", () => {
+  it("recognizes additional employer qualification headings", () => {
+    const requirements = extractRequirements(
+      "<p><strong>What you’ll bring</strong></p><ul><li>Experience supporting executive leadership</li></ul><p><span><strong>Strongly preferred</strong></span></p><ul><li>Experience supporting a public company</li></ul>",
+    );
+    expect(requirements.map((requirement) => requirement.essential)).toEqual([true, false]);
+  });
   it("reads HTML qualifications under a conversational heading and excludes the legal footer", () => {
     const description = `
       <p><strong>Enough about us, let's talk about you. Working here might be a good fit if:</strong></p>

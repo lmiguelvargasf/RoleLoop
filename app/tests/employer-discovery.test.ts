@@ -122,6 +122,33 @@ afterEach(() => {
 });
 
 describe("employer discovery", () => {
+  it("rotates a bounded role window and interleaves employer research", async () => {
+    const state = workspace();
+    state.preferences.roles = ["Software Engineer", "Backend Engineer", "Frontend Engineer", "Mobile Engineer"];
+    const requestedRoles: string[] = [];
+    const inspected: string[] = [];
+    setup();
+    vi.stubGlobal("fetch", vi.fn(async (input: string, init?: RequestInit) => {
+      const url = new URL(input);
+      if (url.hostname === "himalayas.app") {
+        const role = url.searchParams.get("q")!;
+        requestedRoles.push(role);
+        return new Response(JSON.stringify({ jobs: Array.from({ length: 8 }, (_, i) => ({
+          ...directoryJob(`${role.toLowerCase().replaceAll(" ", "-")}-${i}`), title: role,
+        })) }));
+      }
+      const slug = JSON.parse(String(init?.body)).params.arguments.company_slug;
+      inspected.push(slug);
+      return companyResponse(`https://${slug}.example/`);
+    }));
+    vi.mocked(safeFetchText).mockImplementation(async url => ({ url, text: "No public careers link." }));
+    await discoverEmployerBoards(state, { cache: memoryCache(), roleOffset: 3 });
+    expect(requestedRoles).toEqual(["Mobile Engineer", "Software Engineer", "Backend Engineer"]);
+    expect(inspected).toHaveLength(12);
+    expect(inspected.slice(0, 3)).toEqual(["mobile-engineer-0", "software-engineer-0", "backend-engineer-0"]);
+    expect(inspected.filter(value => value.startsWith("mobile"))).toHaveLength(4);
+  });
+
   it("sends the optional key only to the Himalayas REST API", async () => {
     const fetchMock = setup();
     const cache = memoryCache();

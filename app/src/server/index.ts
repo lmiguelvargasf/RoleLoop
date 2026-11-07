@@ -23,7 +23,7 @@ import {
   cvContentType,
 } from "./cv.js";
 import {
-  extractRequirements,
+  extractRequirementDetails,
   plainText,
   safeFetchText,
   remoteScope,
@@ -310,6 +310,7 @@ export async function buildServer() {
     title: true,
     description: true,
     descriptionTruncated: true,
+    requirementsTruncated: true,
     url: true,
     companyUrl: true,
     location: true,
@@ -335,12 +336,12 @@ export async function buildServer() {
       .object({ url: z.string().url().max(2000) })
       .parse(req.body);
     const page = await safeFetchText(url);
-    const fullDescription = plainText(page.text);
+    const fullDescription = plainText(page.text, true);
     const description = fullDescription.slice(0, 50000);
     return {
       description,
       descriptionTruncated: fullDescription.length > 50000,
-      requirements: extractRequirements(description),
+      ...extractRequirementDetails(description),
       remoteScope: remoteScope(description),
       ...publishedSalary("", fullDescription),
     };
@@ -356,11 +357,10 @@ export async function buildServer() {
       input.salaryMax == null
         ? publishedSalary(input.title, input.description)
         : {}),
-      requirements:
-        input.kind === "job" &&
-        !(input.requirements as unknown[] | undefined)?.length
-          ? extractRequirements(input.description)
-          : input.requirements,
+      ...(input.kind === "job" &&
+      !(input.requirements as unknown[] | undefined)?.length
+        ? extractRequirementDetails(input.description)
+        : { requirements: input.requirements }),
       kind: input.kind,
       id,
       source: "Manual entry",
@@ -392,6 +392,8 @@ export async function buildServer() {
         req.params.id,
       );
       const patch = editable.parse(req.body);
+      if (patch.requirements && patch.requirementsTruncated === undefined)
+        patch.requirementsTruncated = false;
       const saved = OpportunitySchema.parse({
         ...existing,
         ...patch,

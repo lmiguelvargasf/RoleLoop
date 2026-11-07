@@ -627,13 +627,15 @@ export function createWorkspaceStore({
           testReceipt: null,
           updatedAt: new Date().toISOString(),
         });
+    const saved = await saveDerivedOpportunity(old, {
+      ...refreshed,
+      stage: old.stage === "archived" ? "archived" : "new",
+      assessment: null,
+      updatedAt: new Date().toISOString(),
+    });
+    if (!saved) return missing();
     return {
-      opportunity: await save("opportunities", {
-        ...refreshed,
-        stage: old.stage === "archived" ? "archived" : "new",
-        assessment: null,
-        updatedAt: new Date().toISOString(),
-      }),
+      opportunity: saved,
       created: false,
     };
   }

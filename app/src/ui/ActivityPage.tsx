@@ -279,6 +279,9 @@ function ActivityEntry({
                 {summary.draftFailures > 0
                   ? ` · ${summary.draftFailures.toLocaleString()} drafts could not be prepared`
                   : ""}
+                {(summary.evaluationFailures ?? 0) > 0
+                  ? ` · ${summary.evaluationFailures!.toLocaleString()} AI evaluations need retry`
+                  : ""}
                 .
               </p>
             )}

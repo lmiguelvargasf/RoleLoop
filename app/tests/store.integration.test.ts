@@ -5,6 +5,7 @@ import { assessOpportunity } from "../src/domain/rules.js";
 import { createDraft } from "../src/domain/templates.js";
 import { assertApproved, assertFresh } from "../src/server/guards.js";
 import type { Opportunity } from "../src/shared/types.js";
+import { applicationProgressFor } from "../src/shared/application-board.js";
 
 // Opt in against the configured local Supabase stack; the ordinary test suite stays offline.
 const integration =
@@ -82,6 +83,67 @@ async function cleanup(store: import("../src/server/store.js").WorkspaceStore) {
 }
 
 integration("local Supabase source refresh and lifecycle", () => {
+  it("preserves an edit made after import reads the previous source snapshot", async () => {
+    const store = await makeStore();
+    const original = { ...isolatedOpportunity(), updatedAt: "2026-11-01T00:00:00.000Z" };
+    const edited: Opportunity = {
+      ...original,
+      updatedAt: "2030-01-01T00:00:00.000Z",
+      stage: "archived",
+      notes: "Keep the user's concurrent note",
+      application: applicationProgressFor(original, "applied"),
+    };
+    let raced = false;
+    const from = store.db.from.bind(store.db);
+    try {
+      await store.save("opportunities", original);
+      const spy = vi.spyOn(store.db, "from").mockImplementation((table: string) => {
+        const builder = from(table);
+        if (table === "workspace_runtime") {
+          // The corrections lookup occurs after import has read the old job,
+          // making this a deterministic edit-before-refresh interleaving.
+          const select = builder.select.bind(builder);
+          Object.assign(builder, {
+            select: (...args: Parameters<typeof select>) => {
+              const query = select(...args);
+              const read = query.maybeSingle.bind(query);
+              Object.assign(query, {
+                maybeSingle: async () => {
+                  const result = await read();
+                  if (!raced) {
+                    raced = true;
+                    await store.save("opportunities", edited);
+                  }
+                  return result;
+                },
+              });
+              return query;
+            },
+          });
+        }
+        return builder;
+      });
+      try {
+        const result = await store.importOpportunityWithStatus({
+          ...original,
+          id: randomUUID(),
+          salaryMin: original.salaryMin! + 10000,
+        });
+        expect(raced).toBe(true);
+        expect(result.created).toBe(false);
+        expect(result.opportunity).toMatchObject({
+          id: edited.id, stage: edited.stage, notes: edited.notes,
+          application: edited.application, salaryMin: original.salaryMin,
+        });
+        expect(await store.get("opportunities", original.id)).toEqual(result.opportunity);
+      } finally {
+        spy.mockRestore();
+      }
+    } finally {
+      await cleanup(store);
+    }
+  });
+
   it("rejects incomplete geography before overwriting a valid saved job", async () => {
     const store = await makeStore();
     const workspace = demoWorkspace();
@@ -554,9 +616,13 @@ integration("local Supabase source refresh and lifecycle", () => {
       const op = { ...isolatedOpportunity(), stage };
       try {
         await store.save("opportunities", op);
-        const result = await analyze(store, op, workspace);
+        const result = await analyze(store, op, workspace, false);
         expect(result.stage).toBe(stage);
-        expect(result.assessment?.recommendation).toBe("ready");
+        expect(result.assessment?.recommendation).toBe("review");
+        expect(result.assessment?.fitEvaluation).toMatchObject({
+          method: "skills",
+          status: "partial",
+        });
         expect((await store.get("opportunities", op.id)).stage).toBe(stage);
       } finally {
         await cleanup(store);

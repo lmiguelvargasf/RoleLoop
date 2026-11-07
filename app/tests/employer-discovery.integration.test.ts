@@ -135,6 +135,7 @@ integration("employer discovery job-search orchestration", () => {
         summary: { evaluated: 1, newOpportunities: 0, existingOpportunities: 1 },
       });
       expect((await t.store.getWorkspace()).sources).toHaveLength(1);
+      expect(await t.store.runtime("employer-role-offset")).toEqual({ offset: 6 });
       const jobs = await t.store.list("opportunities");
       expect(jobs).toHaveLength(1);
       expect(jobs[0].id).toBe(saved.id);

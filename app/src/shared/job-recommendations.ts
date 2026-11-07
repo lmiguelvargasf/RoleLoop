@@ -6,7 +6,7 @@ import {
 import { matchesTargetRole } from "./discovery.js";
 import type { Opportunity, Preferences } from "./types.js";
 
-export const JOB_RECOMMENDATION_RULES_VERSION = 8;
+export const JOB_RECOMMENDATION_RULES_VERSION = 10;
 
 export function credentialCondition(text: string): {
   kind:
@@ -109,6 +109,8 @@ export type JobRecommendation = {
   score: number | null;
   /** Internal practical-fit ordering; intentionally not shown as a percentage. */
   rankScore: number;
+  /** Preferred qualifications break required-fit ties; never bypass a minimum. */
+  preferredScore: number;
 };
 
 /** Shared by server ordering and the browser. Requires no Node-only imports. */
@@ -121,11 +123,16 @@ export function recommendationForJob(
   const required = opportunity.requirements.filter(
     (requirement) => requirement.essential,
   );
-  const complete = quality?.status === "complete" && required.length > 0;
+  const complete =
+    quality?.status === "complete" &&
+    quality.method === "semantic" &&
+    !opportunity.descriptionTruncated &&
+    !opportunity.requirementsTruncated &&
+    required.length > 0;
   const score = complete ? assessment!.essentialScore : null;
   const fitLabel = complete
     ? "Required match"
-    : quality?.status === "partial"
+    : quality && quality.status !== "not_evaluated"
       ? "Partial assessment"
       : "Not evaluated";
   const result: JobRecommendation = {
@@ -135,6 +142,7 @@ export function recommendationForJob(
     fitLabel,
     score,
     rankScore: -100,
+    preferredScore: 0,
   };
   if (opportunity.kind !== "job") return result;
 
@@ -181,7 +189,7 @@ export function recommendationForJob(
     (match) =>
       match && match.status !== "missing" && match.evidenceIds.length > 0,
   );
-  const coverage = assessed.length
+  const coverage = required.length
     ? (matches.reduce(
         (total, match) =>
           total +
@@ -194,13 +202,32 @@ export function recommendationForJob(
             : 0),
         0,
       ) /
-        assessed.length) *
+        required.length) *
       100
     : 0;
   const completeness = Math.min(1, quality.assessedRequired / required.length);
   // Partial parsing may identify a promising role, but cannot imply a complete
   // evaluation or outrank an equally strong, thoroughly assessed role.
-  const fit = complete ? score! : Math.min(75, coverage * completeness);
+  const fit = complete ? score! : Math.min(75, coverage);
+  const preferred = opportunity.requirements.filter(
+    (requirement) => !requirement.essential,
+  );
+  const preferredScore = preferred.length
+    ? (preferred.reduce((total, requirement) => {
+        const match = assessment.matches.find(
+          (entry) => entry.requirementId === requirement.id,
+        );
+        return total + (
+          match?.evidenceIds.length
+            ? match.status === "matched"
+              ? 1
+              : match.status === "partial"
+                ? 0.5
+                : 0
+            : 0
+        );
+      }, 0) / preferred.length) * 100
+    : 0;
   const mandatoryGap = required.some((requirement) => {
     const match = assessment.matches.find(
       (entry) => entry.requirementId === requirement.id,
@@ -227,7 +254,7 @@ export function recommendationForJob(
     geography.status === "review"
       ? `Confirm hiring from ${preferences.country || "your working country"}.`
       : undefined;
-  const missingEssential = complete
+  const missingEssential = quality.assessedRequired === required.length
     ? required.find((requirement) =>
         assessment.matches.some(
           (match) =>
@@ -242,10 +269,14 @@ export function recommendationForJob(
   const question =
     countryQuestion ||
     condition ||
-    (!complete ? "Review the remaining required experience." : undefined) ||
     experienceQuestion ||
     salaryQuestion ||
-    assessment.unknowns.find((unknown) => /headquarters/i.test(unknown));
+    assessment.unknowns.find((unknown) => /headquarters/i.test(unknown)) ||
+    (!complete
+      ? quality.method === "skills"
+        ? "Review the required experience; this comparison uses skill tags."
+        : "Review the remaining required experience."
+      : undefined);
   const recommendable =
     opportunity.stage !== "archived" &&
     !mandatoryGap &&
@@ -290,5 +321,6 @@ export function recommendationForJob(
       (condition ? 6 : 0) -
       (salaryQuestion ? 2 : 0) -
       (mandatoryGap ? 20 : 0),
+    preferredScore,
   };
 }

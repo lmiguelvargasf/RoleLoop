@@ -63,7 +63,8 @@ describe("date windows", () => {
       ).recommendation,
     ).toBe("excluded");
     const a = assessOpportunity(job, profile, preferences, now);
-    expect(a.recommendation).toBe("ready");
+    expect(a.blockers).toEqual([]);
+    expect(a.policyUnknowns).toEqual([]);
     expect(a.reasons.join(" ")).toContain("lower freshness");
   });
   it("discards legacy timezone settings when loading saved preferences", () => {
@@ -74,6 +75,17 @@ describe("date windows", () => {
   });
 });
 describe("evidence and eligibility", () => {
+  it("excludes a source deadline at its expiry instant and fingerprints extensions", () => {
+    const { profile, preferences, job } = setup();
+    job.sourceExpiresAt = now.toISOString();
+    const expired = assessOpportunity(job, profile, preferences, now);
+    expect(expired.recommendation).toBe("excluded");
+    expect(expired.blockers).toContain("The source's application deadline has passed.");
+    const fingerprint = opportunityFingerprint(job);
+    job.sourceExpiresAt = new Date(now.getTime() + 1000).toISOString();
+    expect(opportunityFingerprint(job)).not.toBe(fingerprint);
+    expect(assessOpportunity(job, profile, preferences, now).blockers).toEqual([]);
+  });
   it("loads existing profiles without retaining duplicate location fields", () => {
     const { profile } = setup();
     expect(
@@ -87,7 +99,7 @@ describe("evidence and eligibility", () => {
   it.each([
     ["us", "Ecuador", "United States", "excluded"],
     ["us", "United States", "Ecuador", "review"],
-    ["latam", "Ecuador", "Canada", "ready"],
+    ["latam", "Ecuador", "Canada", "review"],
     ["latam", "Canada", "Ecuador", "excluded"],
   ] as const)(
     "checks %s eligibility using preference %s despite legacy profile country %s",
@@ -109,11 +121,13 @@ describe("evidence and eligibility", () => {
     expect(result.recommendation).toBe("review");
     expect(result.unknowns).toContain("Your working country is missing.");
   });
-  it("matches the ready example using only verified evidence", () => {
+  it("keeps a skill-only comparison in review using only verified evidence", () => {
     const { profile, preferences, job } = setup();
     const result = assessOpportunity(job, profile, preferences, now);
     expect(result.score).toBe(100);
-    expect(result.recommendation).toBe("ready");
+    expect(result.recommendation).toBe("review");
+    expect(result.fitEvaluation?.status).toBe("partial");
+    expect(result.policyUnknowns).toEqual([]);
     profile.cache!.facts!.evidence.forEach((e) => (e.verified = false));
     expect(assessOpportunity(job, profile, preferences, now).score).toBe(0);
   });
@@ -278,13 +292,15 @@ describe("salary policies", () => {
       for (const [salary, recommendation] of [
         [97199.99, "excluded"],
         [97200, "review"],
-        [108000, "ready"],
-        [200000, "ready"],
+        [108000, "review"],
+        [200000, "review"],
       ] as const) {
         job.salaryMin = job.salaryMax = salary;
         expect(assessOpportunity(job, profile, prefs, now).recommendation).toBe(
           recommendation,
         );
+        if (salary >= prefs.minimumSalary)
+          expect(assessOpportunity(job, profile, prefs, now).policyUnknowns).toEqual([]);
       }
     },
   );
@@ -397,8 +413,8 @@ describe("salary policies", () => {
             profile,
             { ...preferences, targetSalary, salaryPolicy },
             now,
-          ).recommendation,
-        ).toBe("ready");
+          ).policyUnknowns,
+        ).toEqual([]);
       }
     },
   );
@@ -424,8 +440,8 @@ describe("salary policies", () => {
     job.salaryMax = 12000;
     job.salaryPeriod = "month";
     expect(
-      assessOpportunity(job, profile, preferences, now).recommendation,
-    ).toBe("ready");
+      assessOpportunity(job, profile, preferences, now).policyUnknowns,
+    ).toEqual([]);
     job.salaryPeriod = "hour";
     expect(
       assessOpportunity(job, profile, preferences, now).unknowns.join(" "),

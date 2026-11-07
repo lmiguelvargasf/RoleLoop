@@ -237,10 +237,10 @@ describe("practical discovery", () => {
   });
   it("records source provenance across providers without claiming a feed employer is US-based", () => {
     expect(new Set(sourceLibrary.map((r) => r.source.provider))).toEqual(
-      new Set(["greenhouse", "ashby", "lever", "jobicy"]),
+      new Set(["greenhouse", "ashby", "lever", "jobicy", "weworkremotely"]),
     );
     for (const entry of sourceLibrary.filter(
-      (r) => r.source.provider !== "jobicy",
+      (r) => !["jobicy", "weworkremotely"].includes(r.source.provider),
     )) {
       expect(entry.source.countrySource).toMatch(/^https:\/\//);
       expect(entry.source.companyCountry).toBe("United States");
@@ -313,8 +313,8 @@ describe("practical discovery", () => {
     workspace.preferences.companyCountry = "";
     expect(
       assessOpportunity(op, workspace.profile, workspace.preferences)
-        .recommendation,
-    ).toBe("ready");
+        .policyUnknowns,
+    ).toEqual([]);
   });
   it("inherits employer evidence independently of hiring location", async () => {
     vi.stubGlobal(

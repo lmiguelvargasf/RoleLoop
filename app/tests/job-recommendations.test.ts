@@ -148,7 +148,7 @@ describe("practical job recommendations", () => {
     expect(candidate.result().score).toBeNull();
   });
 
-  it("allows grounded partial assessments without presenting a percentage", () => {
+  it("counts unassessed requirements against the minimum without presenting a percentage", () => {
     const candidate = setup();
     candidate.job.requirements.push({
       id: "scope",
@@ -160,11 +160,50 @@ describe("practical job recommendations", () => {
     candidate.assess();
     expect(candidate.result().fitLabel).toBe("Partial assessment");
     expect(candidate.result().score).toBeNull();
+    expect(candidate.result().recommendable).toBe(false);
+    candidate.workspace.preferences.essentialMatch = 60;
     expect(candidate.result().recommendable).toBe(true);
     expect(candidate.result().reason).toContain("TypeScript and React");
     expect(candidate.result().question).toContain(
-      "remaining required experience",
+      "uses skill tags",
     );
+  });
+
+  it("never presents skill-tag fallback as a completed experience assessment", () => {
+    const candidate = setup();
+    expect(candidate.job.assessment!.fitEvaluation).toMatchObject({
+      method: "skills", status: "partial",
+    });
+    expect(candidate.job.assessment!.recommendation).toBe("review");
+    expect(candidate.result().score).toBeNull();
+    expect(candidate.result().fitLabel).toBe("Partial assessment");
+    expect(candidate.result().question).toContain("skill tags");
+    // Legacy complete skill snapshots must not expose a misleading score.
+    candidate.job.assessment!.fitEvaluation!.status = "complete";
+    expect(candidate.result().score).toBeNull();
+  });
+
+  it("uses preferred qualifications to break required-fit ties before freshness", () => {
+    const supported = setup({ id: "supported", publishedAt: "2026-10-01T12:00:00Z" });
+    const unsupported = setup({ id: "unsupported" });
+    unsupported.job.requirements.find((entry) => !entry.essential)!.skills = ["AWS"];
+    unsupported.assess();
+    expect(supported.result().rankScore).toBe(unsupported.result().rankScore);
+    expect(orderOpportunities([unsupported.job, supported.job], supported.workspace.preferences, now)[0].id).toBe("supported");
+    expect(supported.result().recommendable).toBe(unsupported.result().recommendable);
+  });
+
+  it("does not let half of the requirements satisfy a strict match minimum", () => {
+    const candidate = setup();
+    candidate.workspace.preferences.essentialMatch = 85;
+    candidate.job.requirements.push(...["scope", "outcomes"].map((id) => ({
+      id, text: `Own ${id}`, skills: [], essential: true, hard: false,
+    })));
+    candidate.assess();
+    expect(candidate.job.assessment!.fitEvaluation!.assessedRequired).toBe(2);
+    expect(candidate.job.assessment!.fitEvaluation!.totalRequired).toBe(4);
+    expect(candidate.result().recommendable).toBe(false);
+    expect(candidate.result().rankScore).toBe(50);
   });
 
   it("accepts complete semantic evaluation without skill tags", () => {
@@ -419,6 +458,30 @@ describe("practical job recommendations", () => {
     );
     expect(candidate.job.assessment.fitEvaluation?.concerns).toEqual([]);
     expect(candidate.result().recommendable).toBe(true);
+  });
+
+  it("does not let a rejected semantic match establish leadership scope", () => {
+    const candidate = setup({
+      title: "Principal Software Engineer",
+      requirements: [{
+        id: "leadership",
+        text: "Lead architecture with a required professional certification",
+        skills: ["React"], essential: true, hard: true,
+      }],
+    });
+    candidate.job.assessment = assessOpportunity(
+      candidate.job, candidate.workspace.profile, candidate.workspace.preferences, now,
+      [{
+        requirementId: "leadership",
+        requirement: candidate.job.requirements[0].text,
+        essential: true, status: "matched", evidenceIds: ["demo-e1"],
+        explanation: "An overstated match against unrelated application experience.",
+      }],
+    );
+    expect(candidate.job.assessment.matches[0].status).toBe("partial");
+    expect(candidate.job.assessment.fitEvaluation!.concerns).toContain(
+      "The role's leadership scope is not established in your CV.",
+    );
   });
 
   it("keeps unrelated and explicitly lower-seniority roles out", () => {

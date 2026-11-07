@@ -1,4 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { z } from "zod";
 import { structuredAI } from "../src/server/ai.js";
 import {
   assessWithAI,
@@ -27,7 +28,9 @@ function fitFor(job: Opportunity) {
   };
 }
 
-beforeEach(() => vi.mocked(structuredAI).mockReset());
+beforeEach(() => {
+  vi.mocked(structuredAI).mockReset();
+});
 
 describe("practical job-fit instructions and context", () => {
   it("supplies working-country and authoritative eligibility context with only verified facts", async () => {
@@ -42,7 +45,7 @@ describe("practical job-fit instructions and context", () => {
 
     const result = await assessWithAI(job, workspace, "test-user");
 
-    expect(FIT_PROMPT_VERSION).toBe(4);
+    expect(FIT_PROMPT_VERSION).toBe(5);
     expect(structuredAI).toHaveBeenCalledOnce();
     const call = vi.mocked(structuredAI).mock.calls[0];
     expect(call[2]).toBe(JOB_FIT_INSTRUCTIONS);
@@ -66,6 +69,73 @@ describe("practical job-fit instructions and context", () => {
       "unverified-claim",
     );
     expect(result.fitSummary).toBe(fitFor(job).summary);
+  });
+
+  it("constrains generated IDs and match count to the current job and resume", async () => {
+    const job = demoOpportunities()[0];
+    vi.mocked(structuredAI).mockResolvedValue(fitFor(job));
+    await assessWithAI(job, demoWorkspace(), "test-user");
+    const schema = vi.mocked(structuredAI).mock.calls[0][0];
+    expect(schema.safeParse(fitFor(job)).success).toBe(true);
+    for (const change of [
+      { requirementId: "invented-requirement" },
+      { evidenceIds: ["invented-evidence"] },
+    ]) {
+      const fit = fitFor(job);
+      Object.assign(fit.matches[0], change);
+      expect(schema.safeParse(fit).success).toBe(false);
+    }
+    expect(schema.safeParse({ ...fitFor(job), matches: [] }).success).toBe(false);
+    expect(schema.safeParse({
+      ...fitFor(job), relevantEvidenceIds: ["invented-evidence"],
+    }).success).toBe(false);
+  });
+
+  it("keeps large-import schemas bounded while retaining runtime evidence validation", async () => {
+    const job = demoOpportunities()[0];
+    const workspace = demoWorkspace();
+    const evidence = workspace.profile.cache!.facts!.evidence;
+    evidence.push(...Array.from({ length: 450 }, (_, index) => ({
+      ...evidence[0], id: `additional-fact-${index}`,
+    })));
+    vi.mocked(structuredAI).mockResolvedValue(fitFor(job));
+    await assessWithAI(job, workspace, "test-user");
+    const schema = vi.mocked(structuredAI).mock.calls[0][0];
+    const serialized = JSON.stringify(z.toJSONSchema(schema));
+    expect(serialized).not.toContain("additional-fact-449");
+    expect(schema.safeParse(fitFor(job)).success).toBe(true);
+    expect(() => validateFit({ ...fitFor(job), relevantEvidenceIds: ["invented"] }, job, workspace))
+      .toThrow("unknown career facts");
+  });
+
+  it("passes source limits and policy uncertainty without a preliminary skill-based verdict", async () => {
+    const workspace = demoWorkspace();
+    workspace.profile.cache!.warnings = ["One career statement could not be traced and was omitted."];
+    const job = demoOpportunities()[0];
+    job.descriptionTruncated = true;
+    job.requirementsTruncated = true;
+    job.salaryMin = job.salaryMax = null;
+    job.requirements[0].hard = true;
+    job.requirements[0].skills = ["Rust"];
+    vi.mocked(structuredAI).mockResolvedValue(fitFor(job));
+
+    await assessWithAI(job, workspace, "test-user");
+
+    const payload = vi.mocked(structuredAI).mock.calls[0][3] as {
+      deterministicAssessment: { unknowns: string[]; recommendation?: string };
+      opportunity: { descriptionTruncated: boolean; requirementsTruncated: boolean };
+      resumeExtractionNotes: string[];
+      evidence: Array<{ verified?: boolean; source?: unknown }>;
+    };
+    expect(payload.deterministicAssessment).not.toHaveProperty("recommendation");
+    expect(payload.deterministicAssessment.unknowns).toContain("Salary is undisclosed.");
+    expect(payload.deterministicAssessment.unknowns.join(" ")).not.toMatch(
+      /Mandatory requirement|Verified experience covers|experience has only been partially evaluated/,
+    );
+    expect(payload.opportunity.descriptionTruncated).toBe(true);
+    expect(payload.opportunity.requirementsTruncated).toBe(true);
+    expect(payload.resumeExtractionNotes).toEqual(workspace.profile.cache!.warnings);
+    expect(payload.evidence.every((entry) => !Object.hasOwn(entry, "verified") && !Object.hasOwn(entry, "source"))).toBe(true);
   });
 
   it.each([
@@ -193,10 +263,40 @@ describe("practical job-fit instructions and context", () => {
     expect(result.recommendation).toBe("review");
     expect(result.fitSummary).toBeUndefined();
     expect(result.unknowns.join(" ")).toContain("AI fit is unavailable");
+    expect(result.fitEvaluation?.failureReason).toContain("AI fit is unavailable");
+  });
+
+  it("retains an actionable account failure for discovery reporting", async () => {
+    vi.mocked(structuredAI).mockRejectedValue(Object.assign(
+      new Error("Reconnect ChatGPT under Account to continue."),
+      { code: "chatgpt_disconnected" },
+    ));
+    const result = await assessWithAI(demoOpportunities()[0], demoWorkspace(), "test-user");
+    expect(result.fitEvaluation?.failureReason).toBe("Reconnect ChatGPT under Account to continue.");
+    expect(result.recommendation).toBe("review");
   });
 });
 
 describe("fit response evidence validation", () => {
+  it("keeps requirement order stable and rejects duplicate or omitted comparisons", () => {
+    const job = demoOpportunities()[0];
+    const fit = fitFor(job);
+    fit.matches.reverse();
+    expect(validateFit(fit, job, demoWorkspace()).matches.map((match) => match.requirementId))
+      .toEqual(job.requirements.map((requirement) => requirement.id));
+    expect(() => validateFit({ ...fit, matches: [fit.matches[0], fit.matches[0], fit.matches[2]] }, job, demoWorkspace()))
+      .toThrow("unknown career facts or requirements");
+    expect(() => validateFit({ ...fit, matches: fit.matches.slice(1) }, job, demoWorkspace()))
+      .toThrow("incomplete");
+  });
+
+  it("rejects blank resume facts just as the model input does", () => {
+    const workspace = demoWorkspace();
+    workspace.profile.cache!.facts!.evidence[0].text = "  ";
+    expect(() => validateFit(fitFor(demoOpportunities()[0]), demoOpportunities()[0], workspace))
+      .toThrow("unknown career facts");
+  });
+
   it("accepts concise evidence with a limitation while rejecting long generated essays", () => {
     const job = demoOpportunities()[0];
     const fit = {

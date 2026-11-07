@@ -1,5 +1,6 @@
 import { normalizeCountry } from "../domain/geography.js";
 import { matchesTargetRole } from "./discovery.js";
+import { JOB_RECOMMENDATION_RULES_VERSION } from "./job-recommendations.js";
 import type { Opportunity, Preferences } from "./types.js";
 
 export function jobLocationStatus(
@@ -10,6 +11,8 @@ export function jobLocationStatus(
   // Old or differently scoped assessments never establish current eligibility.
   if (
     !geography ||
+    (opportunity.assessment?.rulesVersion ?? 0) <
+      JOB_RECOMMENDATION_RULES_VERSION ||
     !preferences.country.trim() ||
     normalizeCountry(geography.workingCountry) !==
       normalizeCountry(preferences.country)

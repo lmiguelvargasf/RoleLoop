@@ -311,6 +311,23 @@ describe("user-facing activity", () => {
     expect(failed.summary?.newOpportunities).toBe(3);
   });
 
+  it("shows incomplete AI evaluations even when every source succeeded", () => {
+    const [item] = build({ runs: [run({ summary: {
+      evaluated: 3,
+      newOpportunities: 3,
+      existingOpportunities: 0,
+      draftsCreated: 0,
+      sourcesChecked: 2,
+      sourcesFailed: 0,
+      companiesConnected: 0,
+      draftFailures: 0,
+      evaluationFailures: 2,
+    } })] });
+    expect(item.status).toBe("partial");
+    expect(item.description).toContain("2 AI evaluations could not finish");
+    expect(item.description).not.toContain("source did not finish");
+  });
+
   it.each([
     [
       "Application status updated for Engineer at Acme: Saved → Applied.",

@@ -33,6 +33,9 @@ function opportunity(
       score,
       essentialScore: score,
       recommendation,
+      ...(kind === "job" ? {
+        fitEvaluation: { method: "semantic" as const, status: "complete" as const, assessedRequired: 2, totalRequired: 2, concerns: [] },
+      } : {}),
     },
   };
 }

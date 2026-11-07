@@ -7,6 +7,7 @@ import {
 } from "../src/shared/job-matches.js";
 import { demoOpportunities, demoWorkspace } from "./fixtures.js";
 import type { Opportunity } from "../src/shared/types.js";
+import { JOB_RECOMMENDATION_RULES_VERSION } from "../src/shared/job-recommendations.js";
 
 function assessed(patch: Partial<Opportunity> = {}, country = "Ecuador") {
   const workspace = demoWorkspace();
@@ -106,6 +107,13 @@ describe("country-specific job shortlist", () => {
     ).toBe(false);
   });
 
+  it("does not trust location conclusions from older eligibility rules", () => {
+    const { job, preferences } = assessed();
+    job.assessment!.rulesVersion = JOB_RECOMMENDATION_RULES_VERSION - 1;
+    expect(jobLocationStatus(job, preferences)).toBe("review");
+    expect(isPotentialJobMatch(job, preferences)).toBe(false);
+  });
+
   it("ranks materially stronger experience ahead of country certainty", () => {
     const compatible = assessed({
       id: "compatible",
@@ -121,6 +129,10 @@ describe("country-specific job shortlist", () => {
     compatible.job.assessment!.score = 40;
     compatible.job.assessment!.essentialScore = 40;
     unresolved.job.assessment!.score = 100;
+    for (const candidate of [compatible.job, unresolved.job]) {
+      candidate.assessment!.fitEvaluation!.method = "semantic";
+      candidate.assessment!.fitEvaluation!.status = "complete";
+    }
     expect(
       orderOpportunities(
         [unresolved.job, compatible.job],

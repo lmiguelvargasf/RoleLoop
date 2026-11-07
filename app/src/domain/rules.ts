@@ -49,6 +49,7 @@ export const opportunityFingerprint = (op: Opportunity) =>
     title: op.title,
     description: op.description,
     ...(op.descriptionTruncated ? { descriptionTruncated: true } : {}),
+    ...(op.requirementsTruncated ? { requirementsTruncated: true } : {}),
     url: op.url,
     companyCountry: op.companyCountry,
     remoteScope: op.remoteScope,
@@ -58,6 +59,7 @@ export const opportunityFingerprint = (op: Opportunity) =>
     salaryCurrency: op.salaryCurrency,
     salaryPeriod: op.salaryPeriod,
     publishedAt: op.publishedAt,
+    ...(op.sourceExpiresAt ? { sourceExpiresAt: op.sourceExpiresAt } : {}),
     requirements: op.requirements,
     signals: op.signals,
     contactName: op.contactName,
@@ -188,6 +190,7 @@ export function orderOpportunities(
         return (
           Number(b.job.recommendable) - Number(a.job.recommendable) ||
           b.job.rankScore - a.job.rankScore ||
+          b.job.preferredScore - a.job.preferredScore ||
           b.freshness - a.freshness ||
           b.industry - a.industry ||
           (b.op.publishedAt || "").localeCompare(a.op.publishedAt || "") ||
@@ -225,6 +228,10 @@ export function assessOpportunity(
     unknowns.push(
       "The description was shortened. Review the complete source listing before applying.",
     );
+  if (op.requirementsTruncated)
+    unknowns.push(
+      "Some qualifications were shortened or omitted during extraction. Review the complete job posting before trusting the match.",
+    );
   const geography = assessGeography(op, prefs.country);
   blockers.push(...geography.blockers);
   unknowns.push(...geography.unknowns);
@@ -239,6 +246,8 @@ export function assessOpportunity(
       `Company country (${op.companyCountry}) does not match ${prefs.companyCountry}.`,
     );
   if (op.kind === "job") {
+    if (op.sourceExpiresAt && new Date(op.sourceExpiresAt) <= now)
+      blockers.push("The source's application deadline has passed.");
     if (op.salaryMin === null && op.salaryMax === null) {
       if (prefs.missingSalary === "exclude")
         blockers.push(
@@ -325,6 +334,7 @@ export function assessOpportunity(
         );
     } else reasons.push("Within your date window, including today.");
   }
+  const policyUnknowns = [...unknowns];
   const matches: Assessment["matches"] = op.requirements.map((req) => {
     const ids = new Set<string>();
     let matched = 0;
@@ -460,7 +470,8 @@ export function assessOpportunity(
       op.requirements.some(
         (requirement) =>
           scope.test(requirement.text) &&
-          semanticMatches?.some(
+          Boolean(semanticMatches?.length) &&
+          matches.some(
             (match) =>
               match.requirementId === requirement.id &&
               match.status === "matched" &&
@@ -533,8 +544,10 @@ export function assessOpportunity(
     method: assessedRequired ? (hasSemantic ? "semantic" : "skills") : "none",
     status: !assessedRequired
       ? "not_evaluated"
-      : assessedRequired === required.length &&
+      : hasSemantic &&
+          assessedRequired === required.length &&
           !op.descriptionTruncated &&
+          !op.requirementsTruncated &&
           !fitConcerns.length
         ? "complete"
         : "partial",
@@ -555,7 +568,9 @@ export function assessOpportunity(
       unknowns.push("Essential requirements have not been identified.");
     if (fitEvaluation.status === "partial")
       unknowns.push(
-        "The required experience has only been partially evaluated.",
+        fitEvaluation.method === "skills"
+          ? "This comparison uses skill tags; experience-based fit still needs evaluation."
+          : "The required experience has only been partially evaluated.",
       );
     if (
       fitEvaluation.status === "complete" &&
@@ -610,6 +625,7 @@ export function assessOpportunity(
     reasons: [...new Set(reasons)],
     blockers: [...new Set(blockers)],
     unknowns: [...new Set(unknowns)],
+    policyUnknowns: [...new Set(policyUnknowns)],
     matches,
     evaluatedAt: now.toISOString(),
     profileFingerprint: profileFingerprint(profile),

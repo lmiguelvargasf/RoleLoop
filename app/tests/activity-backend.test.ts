@@ -2,10 +2,12 @@ import { randomUUID } from "node:crypto";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import {
   enqueue,
+  analyze,
   processRun,
   recordOpportunityChanges,
 } from "../src/server/service.js";
-import { discover } from "../src/domain/connectors.js";
+import { discover, freshFeedRecords } from "../src/domain/connectors.js";
+import { getGlobalRuntime } from "../src/server/store.js";
 import { discoverEmployerBoards } from "../src/domain/employer-discovery.js";
 import { generateDraft } from "../src/server/model.js";
 import { assessWithAI } from "../src/server/fit.js";
@@ -146,6 +148,7 @@ function setup(existing: Opportunity[] = []) {
 beforeEach(() => {
   vi.resetAllMocks();
   vi.mocked(discover).mockResolvedValue([]);
+  vi.mocked(freshFeedRecords).mockImplementation((ops) => ops);
   vi.mocked(assessWithAI).mockImplementation(async (op, workspace) => ({
     ...assessOpportunity(op, workspace.profile, workspace.preferences),
     recommendation: "ready",
@@ -159,6 +162,119 @@ beforeEach(() => {
 });
 
 describe("useful discovery history", () => {
+  it("preserves an edit and archive made while AI is evaluating a job", async () => {
+    const [job] = demoOpportunities();
+    const t = setup([job]);
+    const edited = {
+      ...job,
+      title: "Corrected title",
+      notes: "Keep my note",
+      stage: "archived" as const,
+      updatedAt: new Date(Date.parse(job.updatedAt) + 1000).toISOString(),
+    };
+    vi.mocked(assessWithAI).mockImplementation(async (op, workspace) => {
+      t.opportunities.set(job.id, edited);
+      return assessOpportunity(op, workspace.profile, workspace.preferences);
+    });
+    const result = await analyze(t.store, job, t.workspace);
+    expect(result).toEqual(edited);
+    expect(t.opportunities.get(job.id)).toEqual(edited);
+  });
+
+  it("does not recreate a job removed during AI evaluation", async () => {
+    const [job] = demoOpportunities();
+    const t = setup([job]);
+    vi.mocked(assessWithAI).mockImplementation(async (op, workspace) => {
+      t.opportunities.delete(job.id);
+      return assessOpportunity(op, workspace.profile, workspace.preferences);
+    });
+    await expect(analyze(t.store, job, t.workspace)).rejects.toThrow("removed");
+    expect(t.opportunities.size).toBe(0);
+  });
+
+  it("reports AI failures separately from successfully imported sources", async () => {
+    const [job] = demoOpportunities();
+    const t = setup();
+    vi.mocked(discover).mockResolvedValue([job]);
+    vi.mocked(assessWithAI).mockImplementation(async (op, workspace) => {
+      const base = assessOpportunity(op, workspace.profile, workspace.preferences);
+      return {
+        ...base,
+        recommendation: "review",
+        fitEvaluation: {
+          ...base.fitEvaluation!,
+          failureReason: "AI fit is unavailable. Retry evaluation.",
+        },
+      };
+    });
+    await processRun(t.store, t.run, async () => {});
+    expect(t.run).toMatchObject({
+      outcome: "partial",
+      summary: { evaluated: 1, evaluationFailures: 1, sourcesFailed: 0 },
+    });
+    expect(t.events.some((event) =>
+      event.category === "evaluation" && event.kind === "warning" && event.opportunityId === job.id,
+    )).toBe(true);
+    expect(t.runtime.get(`fit:${job.id}`)).toBeUndefined();
+  });
+
+  it("does not report a failed feed refresh as healthy by replaying stale cached jobs", async () => {
+    const t = setup();
+    t.workspace.sources = [{ id: "feed", label: "Jobicy", provider: "jobicy", board: "", enabled: true }];
+    t.workspace.preferences.discoverEmployers = false;
+    vi.mocked(getGlobalRuntime).mockResolvedValue({
+      at: Date.now(),
+      opportunities: [demoOpportunities()[0]],
+      ok: false,
+    });
+    await expect(processRun(t.store, t.run, async () => {})).rejects.toThrow("All selected sources failed");
+    expect(discover).not.toHaveBeenCalled();
+    expect(t.opportunities.size).toBe(0);
+    expect(t.run.summary).toMatchObject({ sourcesFailed: 1, evaluated: 0 });
+  });
+
+  it("rechecks cached AI fit when a source expiry passes without another AI call", async () => {
+    const [job] = demoOpportunities();
+    job.sourceExpiresAt = new Date(Date.now() - 1000).toISOString();
+    const t = setup([job]);
+    job.assessment = {
+      ...assessOpportunity(job, t.workspace.profile, t.workspace.preferences),
+      evaluatedAt: new Date(Date.now() - 2000).toISOString(),
+      recommendation: "ready",
+      blockers: [],
+      fitSummary: "Previous fit",
+    };
+    t.runtime.set(`fit:${job.id}`, {
+      fingerprint: `2:${opportunityFingerprint(job)}:${profileFingerprint(t.workspace.profile)}:${preferencesFingerprint(t.workspace.preferences)}:api`,
+      at: Date.now(),
+    });
+    vi.mocked(discover).mockResolvedValue([job]);
+    await processRun(t.store, t.run, async () => {});
+    expect(assessWithAI).not.toHaveBeenCalled();
+    expect(t.opportunities.get(job.id)?.assessment?.recommendation).toBe("excluded");
+    expect(t.opportunities.get(job.id)?.assessment?.fitSummary).toBeUndefined();
+  });
+
+  it("does not extend the AI cache lifetime after a local date recheck", async () => {
+    const [job] = demoOpportunities();
+    const t = setup([job]);
+    const at = Date.now() - 23 * 60 * 60 * 1000;
+    job.assessment = {
+      ...assessOpportunity(job, t.workspace.profile, t.workspace.preferences),
+      evaluatedAt: new Date(at).toISOString(),
+      fitSummary: "Original semantic fit",
+    };
+    const cached = {
+      fingerprint: `2:${opportunityFingerprint(job)}:${profileFingerprint(t.workspace.profile)}:${preferencesFingerprint(t.workspace.preferences)}:api`,
+      at,
+    };
+    t.runtime.set(`fit:${job.id}`, cached);
+    vi.mocked(discover).mockResolvedValue([job]);
+    await processRun(t.store, t.run, async () => {});
+    expect(assessWithAI).not.toHaveBeenCalled();
+    expect(t.runtime.get(`fit:${job.id}`)).toEqual(cached);
+  });
+
   it("refreshes fit produced by the old prompt, then reuses the current prompt result", async () => {
     const [job] = demoOpportunities();
     const t = setup([job]);

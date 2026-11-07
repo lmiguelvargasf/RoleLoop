@@ -176,6 +176,20 @@ export const sourceLibrary: SourceResearch[] = [
     checkedAt: "2026-11-06",
     observedListings: 14,
   },
+  {
+    source: {
+      id: "recommended-weworkremotely",
+      provider: "weworkremotely",
+      label: "We Work Remotely",
+      board: "",
+      enabled: true,
+    },
+    description:
+      "Remote roles across programming, design, product, support and business. Employer country needs checking.",
+    coverage: "Public RSS feed · hourly refresh · explicit expiry dates",
+    careersUrl: "https://weworkremotely.com/remote-job-rss-feed",
+    checkedAt: "2026-11-07",
+  },
 ];
 export const recommendedSources: Source[] = sourceLibrary.map(({ source }) => ({
   ...source,
@@ -221,7 +235,7 @@ export function sourceKind(
 ): "company_board" | "job_feed" | "startup_feed" {
   return source.provider === "hackernews"
     ? "startup_feed"
-    : source.provider === "jobicy"
+    : ["jobicy", "weworkremotely"].includes(source.provider)
       ? "job_feed"
       : "company_board";
 }
@@ -244,7 +258,7 @@ export function normalizeSource(source: Source): Source {
     board = parts[0] ?? "";
   }
   if (
-    !["hackernews", "jobicy"].includes(provider) &&
+    !["hackernews", "jobicy", "weworkremotely"].includes(provider) &&
     !/^[a-zA-Z0-9][a-zA-Z0-9._-]{0,99}$/.test(board)
   )
     throw new Error(

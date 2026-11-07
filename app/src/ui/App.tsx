@@ -1449,6 +1449,7 @@ function OpportunityForm({
     title: existing?.title || "",
     description: existing?.description || "",
     descriptionTruncated: existing?.descriptionTruncated ?? false,
+    requirementsTruncated: existing?.requirementsTruncated ?? false,
     url: existing?.url || "",
     companyUrl: existing?.companyUrl || "",
     location: existing?.location || "Unknown",
@@ -1482,6 +1483,8 @@ function OpportunityForm({
       const result = await write<{
         description: string;
         descriptionTruncated: boolean;
+        requirementsTruncated: boolean;
+        requirements: Opportunity["requirements"];
         remoteScope: Opportunity["remoteScope"];
         salaryMin?: Opportunity["salaryMin"];
         salaryMax?: Opportunity["salaryMax"];
@@ -1492,6 +1495,10 @@ function OpportunityForm({
         ...p,
         description: result.description,
         descriptionTruncated: result.descriptionTruncated,
+        requirementsTruncated: result.requirementsTruncated,
+        requirements: result.requirements.map((r) =>
+          `${r.hard ? "[hard] " : r.essential ? "[essential] " : "[preferred] "}${r.text} | ${r.skills.join(", ")}`,
+        ).join("\n"),
         remoteScope: result.remoteScope,
         ...(!p.salaryMin &&
         !p.salaryMax &&
@@ -1515,7 +1522,11 @@ function OpportunityForm({
     }
   };
   const update = (key: keyof typeof form, value: string) =>
-    setForm((p) => ({ ...p, [key]: value }));
+    setForm((p) => ({
+      ...p,
+      [key]: value,
+      ...(key === "requirements" ? { requirementsTruncated: false } : {}),
+    }));
   const submit = async (e: FormEvent) => {
     e.preventDefault();
     const requirements = form.requirements

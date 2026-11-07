@@ -82,7 +82,7 @@ The database stamps each run's immutable `requested_by` from the authenticated i
 
 ## Practical job search workflow
 
-Company sources carry optional country and official evidence URL; imported listings inherit both. This is independent of remote hiring eligibility. The researched library contains nine US employer boards across Greenhouse, Ashby and Lever, plus Jobicy (broad remote discovery, employer country unverified). Each employer includes official country evidence and a dated board-check snapshot. Internal source connections use case-insensitive provider/board identity and preserve workspace custom labels and paused states. New workspaces receive the library by default. Provider docs: https://jobicy.com/jobs-rss-feed and https://github.com/lever/postings-api. Jobicy feed requests share a persisted hourly installation cache, with bounded cursor traversal; local keywords do not change stable provider IDs. Full-board ATS results and bounded Lever pagination replace the prior first-100 truncation. Missing feed entries never imply closure.
+Company sources carry optional country and official evidence URL; imported listings inherit both. This is independent of remote hiring eligibility. The researched library contains nine US employer boards across Greenhouse, Ashby and Lever, plus Jobicy and We Work Remotely (broad remote discovery, employer country unverified). Each employer includes official country evidence and a dated board-check snapshot. Internal source connections use case-insensitive provider/board identity and preserve workspace custom labels and paused states. New workspaces receive the library by default. Provider docs: https://jobicy.com/jobs-rss-feed and https://github.com/lever/postings-api. Both job feeds share persisted hourly installation caches, with failed refreshes reported as failures rather than healthy stale results. Jobicy uses with bounded cursor traversal; local keywords do not change stable provider IDs. Full-board ATS results and bounded Lever pagination replace the prior first-100 truncation. Missing feed entries never imply closure.
 
 Application progress is separate from matching stage inside each opportunity payload. Submission/interview/offer timestamps, next action, follow-up date and notes survive source refreshes. Progress-only API edits avoid re-evaluation and draft invalidation. Source outcome counts retain interview/offer milestones after rejection. Bootstrap reads all saved opportunities using stable, workspace-scoped pagination and ranks the complete collection before UI pagination. Application submission remains manual through the listing URL.
 
@@ -103,7 +103,7 @@ flowchart LR
     C --> R[Rejected or withdrawn]
 ```
 
-Requirements retain source statements beyond the recognized software tags. HTML headings and lists are normalized before section-aware extraction; headings, benefits and legal boilerplate are not qualifications. `requirementsVersion` tracks parser refreshes. `fitEvaluation` records assessment coverage: incomplete requirements or skill-tag coverage render as an assessment label, not 0%. Tenure/credential conditions cannot be proven by skill mentions: capability support can be partial while the condition remains a review item. Company headquarters is checked when a country preference is set; ambiguous location text stays unknown. Successful semantic assessments are reused for up to one day with opportunity, profile, preference and requester fingerprints. Hard exclusions and unrelated roles use deterministic assessment; job preparation is explicit from the board; globally ordered qualifying startup prospects receive the automatic outreach draft budget. Public job-page capture uses the existing DNS-pinned, size/time-bounded research transport and never executes page scripts.
+Requirements retain source statements beyond the recognized software tags. HTML headings and lists are normalized before section-aware extraction; headings, benefits and legal boilerplate are not qualifications. `requirementsVersion` tracks parser refreshes. `requirementsTruncated` prevents shortened items or capped lists from becoming complete assessments. Structured source expiry is fingerprinted and checked on load and before reuse. `fitEvaluation` records assessment coverage: incomplete requirements or skill-tag coverage render as an assessment label, not 0%. Tenure/credential conditions cannot be proven by skill mentions: capability support can be partial while the condition remains a review item. Company headquarters is checked when a country preference is set; ambiguous location text stays unknown. Successful semantic assessments are reused for up to one day with opportunity, profile, preference and requester fingerprints. Hard exclusions and unrelated roles use deterministic assessment; job preparation is explicit from the board; globally ordered qualifying startup prospects receive the automatic outreach draft budget. Public job-page capture uses the existing DNS-pinned, size/time-bounded research transport and never executes page scripts.
 
 Source health is written independently to the workspace-scoped `source-health` runtime record after each source completes or fails. Bootstrap returns the latest per-source check, while Activity shows search history and failures. These checks may come from different runs and do not assert that a job remains open. Manual board links are explicitly separate from automated connectors. Oversized connector descriptions and captured pages carry `descriptionTruncated`; matching treats this as uncertainty and fingerprints it only when true, preserving existing hashes for complete descriptions.
 
@@ -140,7 +140,7 @@ flowchart TD
     C -->|Yes| D[Query Himalayas by role and country<br/>Inspect observed careers links]
     D --> E[Check supported boards for a matching role<br/>with compatible location and no policy blocker]
     E --> F[Connect up to 5 qualifying boards<br/>Preserve existing source choices]
-    C -->|No| G[Read enabled employer boards and Jobicy]
+    C -->|No| G[Read enabled employer boards and remote feeds]
     F --> G
     G --> H[Parse actual remote or onsite mode,<br/>location, required and preferred qualifications]
     H --> I{Title matches target role?}
@@ -154,7 +154,7 @@ flowchart TD
     O -->|Yes| M
     O -->|No| P{Current unchanged AI fit cached?}
     P -->|Yes| Q[Reuse fit for up to 24 hours]
-    P -->|No| R[Versioned job-fit prompt<br/>Job requirements + verified career facts<br/>Working country + deterministic checks]
+    P -->|No| R[Versioned job-fit prompt<br/>Job requirements + resume-traced career facts<br/>Working country + deterministic checks]
     R --> S[Validate evidence IDs and completeness<br/>Retain required vs preferred distinction]
     S --> T[Compute fit and retain unresolved facts<br/>AI cannot override policy or geography]
     Q --> T
@@ -186,3 +186,9 @@ Migration `20261107000100` changes source ownership into a many-to-many relation
 The migration preserves connection IDs, source revisions, suppression records and opportunity foreign keys. `opportunities.discovery_source_id` continues to reference the workspace connection, not the shared catalog. Removing a connection keeps other workspaces and application history intact; a catalog source is retained even when it has no current subscriptions. Private company evidence stays in workspace-scoped `companies` rather than being copied from the first subscriber into shared data.
 
 The store joins connections to catalog rows and returns the existing API shape, adding optional `catalogId`; `Source.id` remains the connection ID. Validated writes resolve catalog identity from provider and board, never trust a caller-supplied catalog ID, and retain the existing per-workspace revision lock and worker append behavior. Catalog writes are not granted to app accounts. Catalog reads require a connection in an accessible workspace, and subscription reads remain workspace-scoped. Local Studio’s privileged database role can inspect the complete catalog and subscription graph.
+
+## Search audit hardening (7 November 2026)
+
+See [the audit](../docs/SEARCH_AUDIT.md) for findings and source references. Prompt v5 receives policy-only unknowns, source limits and resume extraction notes; it does not receive the preliminary keyword-based recommendation. Its response schema restricts IDs and match count, while runtime validation remains authoritative. `fitEvaluation.failureReason` flows into partial search outcomes and Activity counts.
+
+Employer research rotates a workspace-private role offset in `workspace_runtime` and interleaves candidates across the selected roles. Public feed caches contain no private relationships. New WWR memberships preserve paused choices and source limits; public RSS listings retain attribution and explicit expiry. Concurrent analysis and imports use conditional derived writes so user edits and archives win.

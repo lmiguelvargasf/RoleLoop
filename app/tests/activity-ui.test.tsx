@@ -112,6 +112,7 @@ describe("Activity reading and recovery", () => {
           sourcesFailed: 1,
           companiesConnected: 0,
           draftFailures: 0,
+          evaluationFailures: 2,
         },
       },
     ];
@@ -129,6 +130,7 @@ describe("Activity reading and recovery", () => {
     const html = renderToStaticMarkup(<ActivityPage data={bootstrap} />);
     expect(html.match(/Application draft prepared/g)).toHaveLength(1);
     expect(html).toContain("Partial results");
+    expect(html).toContain("2 AI evaluations need retry");
     expect(html).toContain("new opportunities</dt><dd>2");
     expect(html).toContain("already saved</dt><dd>3");
     expect(html).toContain("#drafts?opportunity=demo-job-northstar");

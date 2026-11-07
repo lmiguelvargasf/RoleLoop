@@ -4,7 +4,7 @@ import {
   ASSESSMENT_RULES_VERSION,
   assessOpportunity,
 } from "../src/domain/rules.js";
-import { REQUIREMENT_EXTRACTION_VERSION } from "../src/domain/connectors.js";
+import { REQUIREMENT_EXTRACTION_VERSION, SALARY_EXTRACTION_VERSION } from "../src/domain/connectors.js";
 import { applicationProgressFor } from "../src/shared/application-board.js";
 import { OpportunitySchema, type Opportunity } from "../src/shared/types.js";
 import { demoOpportunities, demoWorkspace } from "./fixtures.js";
@@ -42,6 +42,7 @@ integration("application board loading", () => {
         firstSeenAt: updatedAt,
         updatedAt,
         requirementsVersion: REQUIREMENT_EXTRACTION_VERSION,
+        salaryVersion: SALARY_EXTRACTION_VERSION,
       });
       op.assessment = assessOpportunity(
         op,

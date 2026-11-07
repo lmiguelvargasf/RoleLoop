@@ -10,11 +10,18 @@ function setup() {
   return { ...demoWorkspace(), job: demoOpportunities(now)[0] };
 }
 
+// These readiness tests supply a completed evidence comparison; skill-only
+// fallback is always preliminary and is covered separately below.
+function assessedFit(...args: Parameters<typeof assessOpportunity>) {
+  const preliminary = assessOpportunity(...args);
+  return assessOpportunity(args[0], args[1], args[2], args[3], preliminary.matches);
+}
+
 describe("required qualifications as the matching minimum", () => {
   it("keeps a job ready when required qualifications match but preferred skills do not", () => {
     const { job, profile, preferences } = setup();
     job.requirements[2].skills = ["AWS"];
-    const result = assessOpportunity(job, profile, preferences, now);
+    const result = assessedFit(job, profile, preferences, now);
     expect(result.essentialScore).toBe(100);
     expect(result.score).toBe(80);
     expect(result.recommendation).toBe("ready");
@@ -39,12 +46,12 @@ describe("required qualifications as the matching minimum", () => {
       hard: false,
     });
     const relaxed = { ...preferences, essentialMatch: 60 };
-    expect(assessOpportunity(job, profile, preferences, now).recommendation)
+    expect(assessedFit(job, profile, preferences, now).recommendation)
       .toBe("review");
-    expect(assessOpportunity(job, profile, relaxed, now).recommendation)
+    expect(assessedFit(job, profile, relaxed, now).recommendation)
       .toBe("ready");
     job.requirements.at(-1)!.hard = true;
-    expect(assessOpportunity(job, profile, relaxed, now).recommendation)
+    expect(assessedFit(job, profile, relaxed, now).recommendation)
       .toBe("review");
   });
 
@@ -57,7 +64,7 @@ describe("required qualifications as the matching minimum", () => {
       essential: false,
       hard: false,
     };
-    const result = assessOpportunity(job, profile, preferences, now);
+    const result = assessedFit(job, profile, preferences, now);
     expect(result.recommendation).toBe("ready");
     expect(result.matches[2].status).toBe("missing");
     job.requirements[2].essential = true;

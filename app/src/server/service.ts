@@ -24,7 +24,7 @@ import {
   discover,
   research,
   freshFeedRecords,
-  extractRequirements,
+  extractRequirementDetails,
   REQUIREMENT_EXTRACTION_VERSION,
   publishedSalary,
   SALARY_EXTRACTION_VERSION,
@@ -42,6 +42,7 @@ import { assessWithAI, FIT_PROMPT_VERSION } from "./fit.js";
 import {
   matchesTargetRole,
   sourceIdentity,
+  sourceKind,
   sourcesForDiscovery,
 } from "../shared/discovery.js";
 import { settings } from "./config.js";
@@ -55,6 +56,18 @@ export const RunInput = z.object({
   draftId: z.string().optional(),
 });
 const collectionRefreshes = new Map<string, Promise<unknown>>();
+
+function needsTimeRefresh(op: Opportunity, now = new Date()) {
+  const evaluatedAt = op.assessment?.evaluatedAt;
+  return (
+    !evaluatedAt ||
+    !Number.isFinite(Date.parse(evaluatedAt)) ||
+    localDay(new Date(evaluatedAt)) !== localDay(now) ||
+    (!!op.sourceExpiresAt &&
+      Date.parse(op.sourceExpiresAt) <= now.getTime() &&
+      Date.parse(evaluatedAt) < Date.parse(op.sourceExpiresAt))
+  );
+}
 
 function needsSalaryExtraction(op: Opportunity) {
   return (
@@ -105,7 +118,10 @@ function localAssessment(
         // Requirement-level evidence is reusable; context-specific prose is not.
         fitSummary:
           previous.preferencesFingerprint ===
-          preferencesFingerprint(workspace.preferences)
+          preferencesFingerprint(workspace.preferences) &&
+          JSON.stringify(previous.blockers) === JSON.stringify(assessment.blockers) &&
+          JSON.stringify(previous.policyUnknowns ?? previous.unknowns) ===
+            JSON.stringify(assessment.policyUnknowns ?? assessment.unknowns)
             ? previous.fitSummary
             : undefined,
         learningGaps: previous.learningGaps,
@@ -187,23 +203,33 @@ async function refreshCollection(
           op.isDemo ||
           op.sourceKey.startsWith("manual:") ||
           op.source === "Manual entry";
+        const extracted = extractRequirementDetails(op.description);
         const requirements =
           correction && Object.hasOwn(correction, "requirements")
             ? correction.requirements!
             : manual && op.requirements.length
               ? op.requirements
-              : extractRequirements(op.description);
+              : extracted.requirements;
+        const requirementsTruncated =
+          correction && Object.hasOwn(correction, "requirements")
+            ? (correction.requirementsTruncated ?? false)
+            : manual && op.requirements.length
+              ? op.requirementsTruncated
+              : extracted.requirementsTruncated;
         const changed =
-          JSON.stringify(requirements) !== JSON.stringify(op.requirements);
+          JSON.stringify(requirements) !== JSON.stringify(op.requirements) ||
+          requirementsTruncated !== op.requirementsTruncated;
         op = {
           ...op,
           requirements,
+          requirementsTruncated,
           requirementsVersion: REQUIREMENT_EXTRACTION_VERSION,
           assessment: changed ? null : op.assessment,
         };
       }
       const stale =
         salaryChanged ||
+        needsTimeRefresh(op) ||
         !op.assessment ||
         op.assessment.profileFingerprint !== profile ||
         op.assessment.preferencesFingerprint !== preferences ||
@@ -398,9 +424,11 @@ export async function analyze(
   )
     assessment = localAssessment(op, current, false);
   const assessed = assessedOpportunity(op, assessment);
-  return options.persist === false
-    ? assessed
-    : store.save("opportunities", assessed);
+  if (options.persist === false) return assessed;
+  const saved = await store.saveDerivedOpportunity(op, assessed);
+  if (!saved)
+    throw new Error("This opportunity was removed while it was being evaluated.");
+  return saved;
 }
 
 async function draftCountToday(store: WorkspaceStore) {
@@ -586,6 +614,7 @@ export async function processRun(
       sourcesFailed: 0,
       companiesConnected: 0,
       draftFailures: 0,
+      evaluationFailures: 0,
     };
     const eventContext = { runId: run.id, category: "search" as const };
     const scope = run.discoveryScope ?? (run.sourceId ? undefined : "jobs");
@@ -599,6 +628,7 @@ export async function processRun(
       run.outcome =
         summary.sourcesFailed ||
         summary.draftFailures ||
+        summary.evaluationFailures ||
         (expansion && expansion.status !== "success")
           ? "partial"
           : "success";
@@ -630,12 +660,19 @@ export async function processRun(
           "Company discovery has reached its current limit. New companies cannot be added in this search.";
       } else {
         try {
+          const storedOffset = await store.runtime<{ offset: number }>("employer-role-offset");
+          const roleOffset = Number.isSafeInteger(storedOffset?.offset) && storedOffset!.offset >= 0
+            ? storedOffset!.offset
+            : 0;
           const found = await discoverEmployerBoards(workspace, {
             cache: { get: getGlobalRuntime, set: setGlobalRuntime },
             himalayasApiKey: settings.himalayasApiKey,
             excludeIdentities: await store.ignoredDiscoveryIdentities(),
+            roleOffset,
             onProgress: (message) => progress(5, message),
           });
+          if (!found.errors.length || found.companiesFound)
+            await store.setRuntime("employer-role-offset", { offset: roleOffset + 3 });
           expansion.companiesFound = found.companiesFound;
           expansion.boardsChecked = found.boardsChecked;
           let limited = false;
@@ -762,28 +799,29 @@ export async function processRun(
               : "Unknown",
             companyCountrySource: source.countrySource,
           }));
-        } else if (source.provider === "jobicy") {
+        } else if (sourceKind(source) === "job_feed") {
+          const feedCacheKey = `${source.provider}-feed-v1`;
           const cached = await getGlobalRuntime<{
             at: number;
             opportunities: Opportunity[];
             ok?: boolean;
-          }>("jobicy-feed-v1");
+          }>(feedCacheKey);
           if (cached && Date.now() - cached.at < 3600000) {
-            if (!cached.ok && !cached.opportunities.length)
+            if (!cached.ok)
               throw new Error(
-                "Jobicy was checked recently; retry after the hourly refresh window.",
+                `${source.label} could not be refreshed recently; retry after the hourly refresh window. Previously saved jobs remain available.`,
               );
             opportunities = cached.opportunities.map((op) =>
               OpportunitySchema.parse({ ...op, sourceId: source.id }),
             );
           } else {
             // Persist before requesting: errors and restarts must not bypass the hourly limit.
-            await setGlobalRuntime("jobicy-feed-v1", {
+            await setGlobalRuntime(feedCacheKey, {
               at: Date.now(),
               opportunities: cached?.opportunities ?? [],
             });
             opportunities = await discover(source, workspace.preferences);
-            await setGlobalRuntime("jobicy-feed-v1", {
+            await setGlobalRuntime(feedCacheKey, {
               at: Date.now(),
               opportunities,
               ok: true,
@@ -808,7 +846,20 @@ export async function processRun(
             )
           )
             continue;
-          const parsed = OpportunitySchema.parse(candidate);
+          // Shared hourly feeds may contain rows parsed before the latest
+          // extraction rules. Repair them before evaluation, not only later
+          // when the UI reloads the saved collection.
+          const parsed = OpportunitySchema.parse({
+            ...candidate,
+            ...(candidate.kind === "job" &&
+            !candidate.isDemo &&
+            candidate.requirementsVersion !== REQUIREMENT_EXTRACTION_VERSION
+              ? {
+                  ...extractRequirementDetails(candidate.description),
+                  requirementsVersion: REQUIREMENT_EXTRACTION_VERSION,
+                }
+              : {}),
+          });
           // Keep the first snapshot within a run. Importing a changed duplicate
           // before skipping it would invalidate the assessment already selected
           // for drafting, so deduplicate before any writes.
@@ -831,12 +882,17 @@ export async function processRun(
             workspace.profile,
             workspace.preferences,
           );
-          const op =
+          const reuseCachedFit =
             existing.assessment &&
             existing.assessment.rulesVersion === ASSESSMENT_RULES_VERSION &&
             previous?.fingerprint === fingerprint &&
-            Date.now() - previous.at < 86400000
-              ? existing
+            Date.now() - previous.at < 86400000;
+          const op = reuseCachedFit
+              ? needsTimeRefresh(existing)
+                ? await analyze(store, existing, workspace, false, {
+                    reuseFit: true,
+                  })
+                : existing
               : await analyze(
                   store,
                   existing,
@@ -850,8 +906,17 @@ export async function processRun(
                       existing.company,
                     ),
                 );
-          if (op !== existing && op.assessment?.fitSummary)
+          if (!reuseCachedFit && op !== existing && op.assessment?.fitSummary)
             await store.setRuntime(cacheKey, { fingerprint, at: Date.now() });
+          if (op.assessment?.fitEvaluation?.failureReason) {
+            summary.evaluationFailures = (summary.evaluationFailures ?? 0) + 1;
+            await store.event(
+              `${op.company}: ${op.assessment.fitEvaluation.failureReason}`,
+              "warning",
+              op.id,
+              { runId: run.id, category: "evaluation" },
+            );
+          }
           imported++;
           summary.evaluated++;
           shortlist.push(op);
@@ -922,7 +987,7 @@ export async function processRun(
       undefined,
       eventContext,
     );
-    return `Evaluated ${imported} opportunities${expansion?.boardsConnected ? ` · ${expansion.boardsConnected} ${expansion.boardsConnected === 1 ? "company" : "companies"} connected` : ""}${failed ? `; ${failed} source(s) failed` : ""}`;
+    return `Evaluated ${imported} opportunities${expansion?.boardsConnected ? ` · ${expansion.boardsConnected} ${expansion.boardsConnected === 1 ? "company" : "companies"} connected` : ""}${failed ? `; ${failed} source(s) failed` : ""}${summary.evaluationFailures ? `; ${summary.evaluationFailures} AI evaluation(s) need retry` : ""}`;
   }
   const op = await store.get("opportunities", run.opportunityId!);
   if (run.action === "analyze") {
@@ -937,7 +1002,6 @@ export async function processRun(
       OpportunitySchema.parse({
         ...op,
         ...facts,
-        updatedAt: new Date().toISOString(),
       }),
       workspace,
     );

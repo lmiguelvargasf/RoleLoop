@@ -339,7 +339,7 @@ const skills: Record<string, RegExp> = {
   Testing: /\b(?:automated|unit|integration) tests?\b|\btesting\b/i,
 };
 // Bump when saved, uncorrected job descriptions need their requirements reparsed.
-export const REQUIREMENT_EXTRACTION_VERSION = 3;
+export const REQUIREMENT_EXTRACTION_VERSION = 4;
 
 type RequirementSection =
   "essential" | "preferred" | "responsibilities" | "ignore" | "unknown";
@@ -348,11 +348,11 @@ const requirementHeadings: ReadonlyArray<
 > = [
   [
     "preferred",
-    /^(?:nice[- ]to[- ]haves?|preferred(?: qualifications| skills| experience)?|bonus(?: points)?(?: if you)?|desirable(?: qualifications| skills)?|additional skills(?: that you might also bring)?|what (?:would|will) make you stand out|other things we value)$/i,
+    /^(?:nice[- ]to[- ]haves?|(?:(?:strongly|highly) )?preferred(?: qualifications| skills| experience)?|bonus(?: points)?(?: if you)?|desirable(?: qualifications| skills)?|additional skills(?: that you might also bring)?|what (?:would|will) make you stand out|other things we value)$/i,
   ],
   [
     "essential",
-    /^(?:requirements|qualifications|skills and experience|required(?: qualifications| skills| experience)?|(?:minimum|basic|essential) (?:qualifications|requirements)|must[- ]haves?|what you bring|what (?:we're|we are) looking for(?: in you)?|(?:we're|we are) looking for(?: someone who)?|what you(?:'ll| will) need(?: to succeed)?|who you are|about you|you(?: might be| are|'re) (?:a good|the right) fit if)$/i,
+    /^(?:requirements|qualifications|skills and experience|required(?: qualifications| skills| experience)?|(?:minimum|basic|essential) (?:qualifications|requirements)|must[- ]haves?|what you(?:(?:'ll| will))? bring|what (?:we're|we are) looking for(?: in you)?|(?:we're|we are) looking for(?: someone who)?|what you(?:'ll| will) need(?: to succeed)?|who you are|about you|you(?: might be| are|'re) (?:a good|the right) fit if)$/i,
   ],
   [
     "responsibilities",
@@ -384,7 +384,26 @@ function requirementBoilerplate(text: string) {
   );
 }
 
-export function extractRequirements(description: string): Requirement[] {
+const optionalQualification = (text: string) =>
+  /\b(?:nice[- ]to[- ]have|preferred|bonus|a plus|optional|not (?:required|necessary))\b/i.test(text) ||
+  /^no\b.+\brequired\b/i.test(text);
+
+function requirementClauses(raw: string, section: RequirementSection) {
+  const clauses = raw.split(/;\s*|(?<=[.!?])\s+(?=[A-Z])/).filter(Boolean);
+  // A preferred add-on must not turn the required part of one bullet optional.
+  // Keep a following "This is preferred" attached to its antecedent, though.
+  const mixed = clauses.some(optionalQualification) &&
+    clauses.some((clause) => !optionalQualification(clause));
+  const refersBack = clauses.slice(1).some((clause) =>
+    optionalQualification(clause) &&
+    /^(?:this|that|these|those|such|it|the above|all of (?:this|the above))\b/i.test(clause),
+  );
+  return section === "unknown" || (mixed && !refersBack) ? clauses : [raw];
+}
+
+export function extractRequirementDetails(description: string): Pick<
+  Opportunity, "requirements" | "requirementsTruncated"
+> {
   // Sources can contain HTML, escaped HTML, Markdown or text. Normalize before
   // interpreting headings so legal footers never become one giant requirement.
   const lines = plainText(description, true)
@@ -397,6 +416,7 @@ export function extractRequirements(description: string): Requirement[] {
   const seen = new Set<string>();
   const listedSections = new Set<number>();
   const paragraphSections = new Map<string, number>();
+  const shortened = new Set<string>();
   let sectionIndex = 0;
   let section: RequirementSection = "unknown";
   for (const line of lines) {
@@ -418,20 +438,18 @@ export function extractRequirements(description: string): Requirement[] {
       continue;
     }
     if (requirementBoilerplate(raw) || section === "ignore") continue;
-    const candidates =
-      section === "unknown" ? raw.split(/(?<=[.!?])\s+(?=[A-Z])/) : [raw];
+    const candidates = requirementClauses(raw, section);
     for (const candidate of candidates) {
       if (requirementBoilerplate(candidate)) continue;
       const explicitlyRequired =
         /\b(?:must|required|essential|minimum|mandatory)\b/i.test(candidate);
-      if (!explicitlyRequired && section === "unknown") continue;
-      const preferred =
-        /\b(?:nice[- ]to[- ]have|preferred|bonus|a plus|optional|not (?:required|necessary))\b/i.test(
-          candidate,
-        ) ||
-        /^no\b.+\brequired\b/i.test(candidate) ||
-        section === "preferred";
-      const text = candidate.replace(/\s+/g, " ").trim().slice(0, 700);
+      if (
+        !explicitlyRequired && section === "unknown" &&
+        !(optionalQualification(candidate) && /\b(?:must|required|essential|minimum|mandatory)\b/i.test(raw))
+      ) continue;
+      const preferred = optionalQualification(candidate) || section === "preferred";
+      const fullText = candidate.replace(/\s+/g, " ").trim();
+      const text = fullText.slice(0, 700);
       const mentioned = Object.entries(skills)
         .filter(([, pattern]) => pattern.test(text))
         .map(([name]) => name);
@@ -446,8 +464,12 @@ export function extractRequirements(description: string): Requirement[] {
         section === "responsibilities" ? responsibilities : qualifications;
       const id =
         "req-" + createHash("sha256").update(text).digest("hex").slice(0, 12);
+      if (fullText.length > text.length) shortened.add(id);
       if (listed) listedSections.add(sectionIndex);
-      else if (!explicitlyRequired) paragraphSections.set(id, sectionIndex);
+      else if (
+        !explicitlyRequired && !mentioned.length &&
+        !/\b(?:experience|years?|skills?|ability|able to|proficien\w*|knowledge|familiar\w*|understand\w*|expertise|background|fluen\w*|track record|education|degree|certifi\w*|licen[cs]\w*|authori[sz]\w*|residen\w*|citizen\w*|comfortable|you (?:have|can|bring|know|excel|thrive))\b/i.test(text)
+      ) paragraphSections.set(id, sectionIndex);
       target.push({
         id,
         text,
@@ -467,11 +489,20 @@ export function extractRequirements(description: string): Requirement[] {
       );
     });
   const requiredItems = actualItems(qualifications);
-  return (
-    requiredItems.some((requirement) => requirement.essential)
-      ? requiredItems
-      : [...actualItems(responsibilities).slice(0, 12), ...requiredItems]
-  ).slice(0, 30);
+  const duties = actualItems(responsibilities);
+  const useDuties = !requiredItems.some((requirement) => requirement.essential);
+  const items = useDuties ? [...duties.slice(0, 12), ...requiredItems] : requiredItems;
+  return {
+    requirements: items.slice(0, 30),
+    requirementsTruncated:
+      items.length > 30 ||
+      (useDuties && duties.length > 12) ||
+      items.some((item) => shortened.has(item.id)),
+  };
+}
+
+export function extractRequirements(description: string): Requirement[] {
+  return extractRequirementDetails(description).requirements;
 }
 
 export function remoteScope(text: string): Opportunity["remoteScope"] {
@@ -514,7 +545,12 @@ function postingScope(
     return "onsite";
   // A source's remote flag establishes work mode, never worldwide permission.
   const prefix = mode === "remote" || remoteFlag === true ? "Remote " : "";
-  return remoteScope(`${prefix}${location}\n${description}`);
+  const scope = remoteScope(`${prefix}${location}\n${description}`);
+  // A coarse region inferred from the first location must not erase the other
+  // locations. Geography evaluates the complete list and explicit restrictions.
+  return location.includes(";") && ["us", "latam"].includes(scope)
+    ? "unknown"
+    : scope;
 }
 function postingLocation(
   location: string,
@@ -538,11 +574,27 @@ function iso(value: unknown): string | null {
 function number(value: unknown): number | null {
   return typeof value === "number" && Number.isFinite(value) ? value : null;
 }
-async function json(url: string): Promise<any> {
+function currency(value: unknown): string {
+  // Missing currency is not USD: a remote board can advertise local pay.
+  return typeof value === "string" && /^[A-Z]{3}$/i.test(value.trim())
+    ? value.trim().toUpperCase()
+    : "Unknown";
+}
+function locations(values: unknown[]): string {
+  return [...new Set(values.filter((value): value is string =>
+    typeof value === "string" && Boolean(value.trim()),
+  ).map((value) => value.trim()))].join("; ") || "Unknown";
+}
+function boardJobs(data: unknown, provider: string): any[] {
+  if (!data || typeof data !== "object" || !("jobs" in data) || !Array.isArray(data.jobs))
+    throw new Error(`${provider} returned an invalid jobs feed.`);
+  return data.jobs;
+}
+async function sourceText(url: string, accept = "application/json"): Promise<string> {
   const res = await fetch(url, {
     signal: AbortSignal.timeout(15000),
     redirect: "error",
-    headers: { Accept: "application/json" },
+    headers: { Accept: accept },
   });
   if (!res.ok)
     throw new Error(
@@ -566,7 +618,10 @@ async function json(url: string): Promise<any> {
   } finally {
     await reader.cancel().catch(() => {});
   }
-  return JSON.parse(Buffer.concat(chunks).toString("utf8"));
+  return Buffer.concat(chunks).toString("utf8");
+}
+async function json(url: string): Promise<any> {
+  return JSON.parse(await sourceText(url));
 }
 function base(
   source: Source,
@@ -602,21 +657,25 @@ export async function discover(
   if (
     source.provider !== "hackernews" &&
     source.provider !== "jobicy" &&
+    source.provider !== "weworkremotely" &&
     !/^[a-zA-Z0-9][a-zA-Z0-9._-]{0,99}$/.test(source.board)
   )
     throw new Error(
       "Use the public job-board identifier, such as acme, rather than a full URL.",
     );
   if (source.provider === "jobicy") return discoverJobicy(source);
+  if (source.provider === "weworkremotely") return discoverWeWorkRemotely(source);
   const board = encodeURIComponent(source.board);
   if (source.provider === "ashby") {
     const data = await json(
       `https://api.ashbyhq.com/posting-api/job-board/${board}?includeCompensation=true`,
     );
-    return (data.jobs ?? [])
+    return boardJobs(data, "Ashby")
       .filter((j: any) => j.isListed !== false)
       .map((j: any) => {
-        const desc = j.descriptionPlain ?? plainText(j.descriptionHtml ?? "");
+        const desc = j.descriptionHtml
+          ? plainText(j.descriptionHtml, true)
+          : (j.descriptionPlain ?? "");
         const components = j.compensation?.summaryComponents ?? [];
         const pay = components.find(
           (p: any) => p.compensationType === "Salary",
@@ -624,7 +683,7 @@ export async function discover(
         const structuredPay: PublishedSalary = {
           salaryMin: number(pay?.minValue),
           salaryMax: number(pay?.maxValue),
-          salaryCurrency: pay?.currencyCode ?? "USD",
+          salaryCurrency: currency(pay?.currencyCode),
           salaryPeriod:
             pay?.interval === "1 YEAR"
               ? "year"
@@ -639,7 +698,13 @@ export async function discover(
             ? structuredPay
             : (publishedSalary(j.title ?? "", desc) ?? structuredPay);
         const workplace = j.workplaceType;
-        const location = j.location ?? "Unknown";
+        const location = locations([
+          j.location,
+          j.address?.postalAddress?.addressCountry,
+          ...(Array.isArray(j.secondaryLocations) ? j.secondaryLocations : []).flatMap(
+            (secondary: any) => [secondary?.location, secondary?.address?.addressCountry],
+          ),
+        ]);
         const scope = postingScope(location, desc, workplace, j.isRemote);
         return base(source, j.id ?? j.jobUrl, {
           title: j.title ?? "Untitled role",
@@ -649,7 +714,7 @@ export async function discover(
           remoteScope: scope,
           publishedAt: iso(j.publishedAt),
           ...salary,
-          requirements: extractRequirements(desc),
+          ...extractRequirementDetails(desc),
           requirementsVersion: REQUIREMENT_EXTRACTION_VERSION,
           notes:
             "Ashby publishedAt is the last publication date. Company headquarters and hiring countries require verification.",
@@ -660,8 +725,8 @@ export async function discover(
     const data = await json(
       `https://boards-api.greenhouse.io/v1/boards/${board}/jobs?content=true`,
     );
-    return (data.jobs ?? []).map((j: any) => {
-      const desc = plainText(j.content ?? "");
+    return boardJobs(data, "Greenhouse").map((j: any) => {
+      const desc = plainText(j.content ?? "", true);
       return base(source, j.id, {
         company: j.company_name ?? source.label,
         title: j.title ?? "Untitled role",
@@ -673,7 +738,7 @@ export async function discover(
         ...(publishedSalary(j.title ?? "", desc) ?? {
           salaryPeriod: "unknown",
         }),
-        requirements: extractRequirements(desc),
+        ...extractRequirementDetails(desc),
         requirementsVersion: REQUIREMENT_EXTRACTION_VERSION,
         notes:
           "An update timestamp is not treated as the original posting date. Salary and hiring eligibility may require checking the individual posting.",
@@ -693,17 +758,20 @@ export async function discover(
     }
     return data.map((j: any) => {
       const desc = [
-        j.descriptionPlain ?? plainText(j.description ?? ""),
+        j.description ? plainText(j.description, true) : (j.descriptionPlain ?? ""),
         ...(j.lists ?? []).map(
-          (l: any) => `${l.text}\n${plainText(l.content ?? "")}`,
+          (l: any) => `## ${l.text}\n${plainText(l.content ?? "", true)}`,
         ),
-        j.additionalPlain ?? "",
+        j.additional ? plainText(j.additional, true) : (j.additionalPlain ?? ""),
+        (j.salaryDescription || j.salaryDescriptionPlain)
+          ? `Compensation: ${j.salaryDescription ? plainText(j.salaryDescription, true) : j.salaryDescriptionPlain}`
+          : "",
       ].join("\n");
       const pay = j.salaryRange;
       const structuredPay: PublishedSalary = {
         salaryMin: number(pay?.min),
         salaryMax: number(pay?.max),
-        salaryCurrency: pay?.currency ?? "USD",
+        salaryCurrency: currency(pay?.currency),
         salaryPeriod: /year|annual/i.test(pay?.interval ?? "")
           ? "year"
           : /month/i.test(pay?.interval ?? "")
@@ -716,7 +784,10 @@ export async function discover(
         structuredPay.salaryMin !== null || structuredPay.salaryMax !== null
           ? structuredPay
           : (publishedSalary(j.text ?? "", desc) ?? structuredPay);
-      const location = j.categories?.location ?? "Unknown";
+      const location = locations([
+        j.categories?.location,
+        ...(Array.isArray(j.categories?.allLocations) ? j.categories.allLocations : []),
+      ]);
       const scope = postingScope(location, desc, j.workplaceType);
       return base(source, j.id, {
         title: j.text ?? "Untitled role",
@@ -726,7 +797,7 @@ export async function discover(
         remoteScope: scope,
         publishedAt: iso(j.createdAt),
         ...salary,
-        requirements: extractRequirements(desc),
+        ...extractRequirementDetails(desc),
         requirementsVersion: REQUIREMENT_EXTRACTION_VERSION,
         notes:
           "The public posting may omit application questions and hiring-country restrictions.",
@@ -770,7 +841,10 @@ export async function discover(
       });
     });
 }
-export async function research(op: Opportunity): Promise<Partial<Opportunity>> {
+export async function research(
+  op: Opportunity,
+  fetchText = safeFetchText,
+): Promise<Partial<Opportunity>> {
   if (op.isDemo)
     return {
       notes: [
@@ -781,24 +855,26 @@ export async function research(op: Opportunity): Promise<Partial<Opportunity>> {
         .join("\n"),
       updatedAt: new Date().toISOString(),
     };
-  const result = await safeFetchText(op.companyUrl || op.url);
+  const result = await fetchText(op.kind === "job" ? op.url : (op.companyUrl || op.url));
   const $ = load(result.text);
   const summary =
     $('meta[name="description"]').attr("content") ??
     $('meta[property="og:description"]').attr("content") ??
     "";
-  const visible = plainText(result.text).slice(0, 14000);
+  const visibleText = plainText(result.text, true);
+  const visible = visibleText.slice(0, 14000);
   const contact = $('a[href^="mailto:"]')
     .map((_, a) => $(a).attr("href") ?? "")
     .get()
     .map((h) => h.slice(7).split("?")[0])
     .find((email) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email));
-  const description = [summary, visible]
+  const fullDescription = [summary, visible]
     .filter(Boolean)
-    .join("\n\n")
-    .slice(0, 18000);
+    .join("\n\n");
+  const description = fullDescription.slice(0, 18000);
   const patch: Partial<Opportunity> = {
     description,
+    descriptionTruncated: visibleText.length > visible.length || fullDescription.length > description.length,
     updatedAt: new Date().toISOString(),
     notes: [
       op.notes,
@@ -808,7 +884,7 @@ export async function research(op: Opportunity): Promise<Partial<Opportunity>> {
       .join("\n"),
   };
   if (op.kind === "job") {
-    patch.requirements = extractRequirements(description);
+    Object.assign(patch, extractRequirementDetails(description));
     patch.requirementsVersion = REQUIREMENT_EXTRACTION_VERSION;
   }
   // A published generic mailbox is a contact lead, not proof that the address belongs to a founder.
@@ -839,11 +915,11 @@ async function discoverJobicy(source: Source): Promise<Opportunity[]> {
         !j.url.startsWith("https://jobicy.com/")
       )
         continue;
-      const desc = plainText(String(j.jobDescription ?? j.jobExcerpt ?? ""));
+      const desc = plainText(String(j.jobDescription ?? j.jobExcerpt ?? ""), true);
       const structuredPay: PublishedSalary = {
         salaryMin: number(j.salaryMin),
         salaryMax: number(j.salaryMax),
-        salaryCurrency: j.salaryCurrency ?? "USD",
+        salaryCurrency: currency(j.salaryCurrency),
         salaryPeriod: /year|annual/i.test(j.salaryPeriod ?? "")
           ? "year"
           : /month/i.test(j.salaryPeriod ?? "")
@@ -880,7 +956,7 @@ async function discoverJobicy(source: Source): Promise<Opportunity[]> {
           description: desc,
           publishedAt: iso(j.pubDate),
           ...salary,
-          requirements: extractRequirements(desc),
+          ...extractRequirementDetails(desc),
           requirementsVersion: REQUIREMENT_EXTRACTION_VERSION,
           notes:
             "Source: Jobicy (https://jobicy.com). Recent seven-day feed; company country and hiring eligibility need verification. Open the Jobicy listing to apply. Absence from this feed does not establish closure.",
@@ -899,12 +975,65 @@ async function discoverJobicy(source: Source): Promise<Opportunity[]> {
   return [...jobs.values()];
 }
 
+async function discoverWeWorkRemotely(source: Source): Promise<Opportunity[]> {
+  const xml = await sourceText(
+    "https://weworkremotely.com/remote-jobs.rss",
+    "application/rss+xml, application/xml, text/xml",
+  );
+  const $ = load(xml, { xml: true });
+  if (!$("rss > channel").length)
+    throw new Error("We Work Remotely returned an invalid RSS feed.");
+  const jobs = new Map<string, Opportunity>();
+  for (const element of $("rss > channel > item").toArray().slice(0, 1000)) {
+    const item = $(element);
+    const field = (name: string) => item.children(name).first().text().trim();
+    const url = field("link");
+    let canonical: URL;
+    try {
+      canonical = new URL(url);
+      if (canonical.origin !== "https://weworkremotely.com" ||
+        canonical.username || canonical.password ||
+        !/^\/remote-jobs\/[^/]+\/?$/.test(canonical.pathname)) continue;
+    } catch { continue; }
+    const sourceExpiresAt = iso(field("expires_at"));
+    if (sourceExpiresAt && Date.parse(sourceExpiresAt) <= Date.now()) continue;
+    const headline = field("title");
+    const separator = headline.indexOf(": ");
+    // WWR's documented/live feed title is "Company: Role". Keep unfamiliar
+    // titles intact instead of inventing employer identity.
+    const company = separator > 0 ? headline.slice(0, separator).trim() : "Unknown";
+    const title = separator > 0 ? headline.slice(separator + 2).trim() : headline;
+    const desc = plainText(field("description"), true);
+    if (!title || !desc) continue;
+    const location = locations([field("region"), field("country"), field("state")]);
+    const scope = postingScope(location, desc, "remote");
+    const key = createHash("sha256").update(canonical.origin + canonical.pathname.replace(/\/$/, "")).digest("hex");
+    jobs.set(key, base(source, key, {
+      company,
+      companyCountry: "Unknown",
+      sourceKey: `weworkremotely:${key}`,
+      title,
+      url,
+      location: postingLocation(location, scope, "remote"),
+      remoteScope: scope,
+      description: desc,
+      publishedAt: iso(field("pubDate")),
+      ...(sourceExpiresAt ? { sourceExpiresAt } : {}),
+      ...(publishedSalary(title, desc) ?? { salaryPeriod: "unknown", salaryCurrency: "Unknown" }),
+      ...extractRequirementDetails(desc),
+      requirementsVersion: REQUIREMENT_EXTRACTION_VERSION,
+      notes: "Source: We Work Remotely (https://weworkremotely.com). Open the original listing to apply. Employer headquarters and hiring restrictions require verification. Feed absence does not establish closure.",
+    }));
+  }
+  return [...jobs.values()];
+}
+
 /** Cached feed data is public; database IDs and relationships belong to a workspace. */
 export function freshFeedRecords(
   records: Opportunity[],
   sourceId: string,
 ): Opportunity[] {
-  return records.map((record) =>
+  return records.filter((record) => !record.sourceExpiresAt || Date.parse(record.sourceExpiresAt) > Date.now()).map((record) =>
     OpportunitySchema.parse({
       ...record,
       id: randomUUID(),
