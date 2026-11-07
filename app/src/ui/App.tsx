@@ -51,13 +51,13 @@ import { api, date, downloadFile, safeUrl, uid, words, write } from "./api";
 import {
   additionalJobBoards,
   applicationCounts,
-  followUpDue,
 } from "../shared/discovery";
+import { isPotentialJobMatch, jobLocationStatus } from "../shared/job-matches";
 import {
-  isPotentialJobMatch,
-  jobLocationStatus,
-  needsLocationReview,
-} from "../shared/job-matches";
+  opportunityMatchesView,
+  type OpportunityView,
+} from "../shared/opportunity-views";
+import { OpportunityFilters } from "./OpportunityFilters";
 import { ApplicationProgress } from "./ApplicationProgress";
 import { SalaryFields } from "./SalaryFields";
 import { SalaryPolicies } from "./SalaryPolicies";
@@ -507,6 +507,7 @@ function Opportunities({
           ? "matches"
           : "all";
     }),
+    [detail, setDetail] = useState("all"),
     [selected, setSelected] = useState<string | null>(() =>
       routeOpportunity(location.hash),
     ),
@@ -518,6 +519,7 @@ function Opportunities({
       if (!id) return;
       setSelected(id);
       setQuery("");
+      setDetail("all");
       setStage(
         data.opportunities.find((op) => op.id === id)?.stage === "archived"
           ? "archived"
@@ -529,8 +531,10 @@ function Opportunities({
   }, [data.opportunities]);
   const potentialMatch = (opportunity: Opportunity) =>
     isPotentialJobMatch(opportunity, data.preferences);
-  const locationReview = (opportunity: Opportunity) =>
-    needsLocationReview(opportunity, data.preferences);
+  const changeView = (next: string) => {
+    setStage(next);
+    setDetail("all");
+  };
   const all = data.opportunities.filter((o) => o.kind === kind),
     outsideMatches = all.filter(
       (opportunity) =>
@@ -538,20 +542,16 @@ function Opportunities({
     ).length,
     list = all.filter(
       (o) =>
-        (stage === "matches"
-          ? potentialMatch(o)
-          : stage === "location-review"
-            ? locationReview(o)
-            : stage === "excluded"
-              ? o.stage !== "archived" &&
-                o.assessment?.recommendation === "excluded"
-              : stage === "all"
-                ? o.stage !== "archived"
-                : stage === "followups"
-                  ? followUpDue(o, new Date().toLocaleDateString("en-CA"))
-                  : stage.startsWith("application:")
-                    ? o.application?.status === stage.slice(12)
-                    : o.stage === stage) &&
+        (kind === "job"
+          ? opportunityMatchesView(
+              o,
+              data.preferences,
+              stage as OpportunityView,
+              detail,
+            )
+          : stage === "all"
+            ? o.stage !== "archived"
+            : o.stage === stage) &&
         `${o.company} ${o.title} ${o.description}`
           .toLowerCase()
           .includes(query.toLowerCase()),
@@ -763,40 +763,30 @@ function Opportunities({
             onChange={(e) => setQuery(e.target.value)}
           />
         </div>
-        <select
-          aria-label="Filter by stage"
-          value={stage}
-          onChange={(e) => setStage(e.target.value)}
-        >
-          {kind === "job" && (
-            <>
-              <option value="matches">
-                Matches for {data.preferences.country || "your country"}
-              </option>
-              <option value="location-review">Needs location review</option>
-            </>
-          )}
-          <option value="all">All active opportunities</option>
-          {kind === "job" && (
-            <option value="excluded">Excluded by preferences</option>
-          )}
-          {kind === "job" && <option value="followups">Follow-ups due</option>}
-          {kind === "job" &&
-            ["applied", "interview", "offer", "rejected", "withdrawn"].map(
-              (status) => (
-                <option key={status} value={`application:${status}`}>
-                  {status[0].toUpperCase() + status.slice(1)}
+        {kind === "job" ? (
+          <OpportunityFilters
+            country={data.preferences.country}
+            view={stage as OpportunityView}
+            detail={detail}
+            onViewChange={changeView}
+            onDetailChange={setDetail}
+          />
+        ) : (
+          <select
+            aria-label="Filter by stage"
+            value={stage}
+            onChange={(e) => changeView(e.target.value)}
+          >
+            <option value="all">All active opportunities</option>
+            {["new", "review", "ready", "drafted", "approved", "archived"].map(
+              (s) => (
+                <option key={s} value={s}>
+                  {statusLabels[s]}
                 </option>
               ),
             )}
-          {["new", "review", "ready", "drafted", "approved", "archived"].map(
-            (s) => (
-              <option key={s} value={s}>
-                {statusLabels[s]}
-              </option>
-            ),
-          )}
-        </select>
+          </select>
+        )}
         <span className="result-count">
           {list.length} {list.length === 1 ? "opportunity" : "opportunities"}
         </span>
@@ -808,22 +798,23 @@ function Opportunities({
           role’s qualifications and remaining questions before applying.
         </p>
       )}
-      {kind === "job" && stage === "location-review" && (
+      {kind === "job" && stage === "review" && (
         <p className="opportunity-filter-note">
-          These roles need confirmation that you can work from{" "}
-          {data.preferences.country || "your selected country"}. They are kept
-          out of your matches until the location is clarified.
+          Roles with open questions about location, qualifications or other
+          requirements. Check the details before applying.
         </p>
       )}
       {kind === "job" &&
         stage === "matches" &&
+        detail === "all" &&
+        !query &&
         outsideMatches > 0 &&
         list.length > 0 && (
           <p className="opportunity-filter-note">
             {outsideMatches} other saved{" "}
             {outsideMatches === 1 ? "role is" : "roles are"} outside this view.{" "}
-            <button className="text-button" onClick={() => setStage("all")}>
-              View all active opportunities
+            <button className="text-button" onClick={() => changeView("all")}>
+              View all saved jobs
             </button>
           </p>
         )}
@@ -887,40 +878,56 @@ function Opportunities({
               title={
                 query
                   ? "No matches in this view"
-                  : kind === "job" && stage === "matches"
-                    ? "No location-compatible matches yet"
-                    : hasActive
-                      ? "No opportunities in this view"
-                      : kind === "job"
-                        ? "Start with your next opportunity"
-                        : "Build your startup shortlist"
+                  : kind === "job" && detail !== "all"
+                    ? "No jobs match this filter"
+                    : kind === "job" && stage === "applications"
+                      ? "No applications in this view"
+                      : kind === "job" && stage === "matches"
+                        ? "No location-compatible matches yet"
+                        : hasActive
+                          ? "No opportunities in this view"
+                          : kind === "job"
+                            ? "Start with your next opportunity"
+                            : "Build your startup shortlist"
               }
               detail={
                 query
-                  ? "Try another search or change the stage filter."
-                  : kind === "job" && stage === "matches" && outsideMatches > 0
-                    ? "Check Needs location review for unclear hiring locations, or All active opportunities for roles outside your preferences."
-                    : "Search for opportunities using your preferences, or add one manually."
+                  ? "Try another search or change the view."
+                  : kind === "job" && detail !== "all"
+                    ? "Clear the extra filter or choose another view."
+                    : kind === "job" && stage === "applications"
+                      ? "Open a saved job to update its application progress after you apply."
+                      : kind === "job" &&
+                          stage === "matches" &&
+                          outsideMatches > 0
+                        ? "Check Needs review for open questions, or All saved for roles outside your preferences."
+                        : "Search for opportunities using your preferences, or add one manually."
               }
             >
               <button
                 className="button primary"
                 disabled={busy || (searching && !query && !hasActive)}
                 onClick={() => {
-                  if (query || hasActive) {
+                  if (kind === "job" && detail !== "all" && !query) {
+                    setDetail("all");
+                  } else if (query || hasActive) {
                     setQuery("");
-                    setStage("all");
+                    changeView("all");
                   } else if (!canSearch) navigate("settings");
                   else void search();
                 }}
               >
-                {query || hasActive
-                  ? "View all active opportunities"
-                  : !canSearch
-                    ? "Set search preferences"
-                    : searching
-                      ? "Searching…"
-                      : searchLabel}
+                {kind === "job" && detail !== "all" && !query
+                  ? "Clear filter"
+                  : query || hasActive
+                    ? kind === "job"
+                      ? "View all saved jobs"
+                      : "View all active opportunities"
+                    : !canSearch
+                      ? "Set search preferences"
+                      : searching
+                        ? "Searching…"
+                        : searchLabel}
                 <ArrowRight size={15} />
               </button>
             </Empty>

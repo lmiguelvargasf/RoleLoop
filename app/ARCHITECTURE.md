@@ -131,7 +131,7 @@ flowchart TD
     I -->|Yes| K[Deduplicate and save or refresh listing<br/>Preserve application history and user corrections]
     K --> L{Hiring location compatible<br/>with selected country?}
     L -->|Clear mismatch or onsite| M[Excluded by preferences<br/>Record the location reason]
-    L -->|Unclear or contradictory| N[Needs location review<br/>Record what needs confirmation]
+    L -->|Unclear or contradictory| N[Needs review: hiring location<br/>Record what needs confirmation]
     L -->|Affirmative remote coverage| O{Salary, company-country<br/>or date policy blocker?}
     O -->|Yes| M
     O -->|No| P{Current unchanged AI fit cached?}
@@ -153,7 +153,7 @@ flowchart TD
 
 Job and startup prompts are separate named constants in `server/fit.ts`. Job instructions ask for demonstrated outcomes, truthful transferable evidence, concrete gaps and a useful next action, without inventing tenure, credentials, residence or success probabilities. The structured response must cover each extracted requirement exactly once and cite existing career-fact IDs. Preferred qualifications cannot become mandatory through parsing or prompting. An unavailable or invalid AI response falls back to deterministic review.
 
-`Assessment.geography` persists the eligibility status, working country and unresolved/blocking reasons. The default job view requires a current-country eligible status and the existing role/preference checks. Location-review and excluded filters preserve access to all saved records. These categories describe advertised scope, not independent verification that an employer can legally employ a particular candidate. Remote mode and restrictions come from the posting; a strong skills score cannot override them.
+`Assessment.geography` persists the eligibility status, working country and unresolved/blocking reasons. The default job view requires a current-country eligible status and the existing role/preference checks. The five main views are matches, review, applications, all saved and archived. `opportunity-views.ts` intersects optional detail filters with the selected view; `OpportunityFilters.tsx` reveals only relevant refinements under More filters. Changing views or opening a job deep link clears the detail filter. Location-review and excluded refinements preserve access to saved records without crowding the main view selector. These categories describe advertised scope, not independent verification that an employer can legally employ a particular candidate. Remote mode and restrictions come from the posting; a strong skills score cannot override them.
 
 Employer expansion requires at least one location-compatible opening. Both search and manual evaluation avoid AI calls for definite policy blockers or unresolved job locations; automatic drafting additionally requires geographic eligibility and overall readiness. `ASSESSMENT_RULES_VERSION` triggers local reassessment of saved records without paid AI calls, preserving previous semantic matches and application history. `FIT_PROMPT_VERSION` participates in the AI cache fingerprint, so a later eligible search cannot reuse the previous prompt's cached result.
 
