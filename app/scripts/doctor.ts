@@ -99,6 +99,11 @@ async function main() {
       ? "OK OpenAI key configured (connection not tested)"
       : "OPTIONAL API key missing; connect ChatGPT in Account & access for subscription usage",
   );
+  console.log(
+    (process.env.HIMALAYAS_API_KEY ?? env.HIMALAYAS_API_KEY)?.trim()
+      ? "OK Himalayas REST API key configured (connection not tested)"
+      : "OPTIONAL Himalayas key missing; company discovery uses the shared public allowance",
+  );
   try {
     const { stdout } = await promisify(execFile)(
       "docker",

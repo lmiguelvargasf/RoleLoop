@@ -122,6 +122,122 @@ afterEach(() => {
 });
 
 describe("employer discovery", () => {
+  it("sends the optional key only to the Himalayas REST API", async () => {
+    const fetchMock = setup();
+    const cache = memoryCache();
+    const apiKey = "test_himalayas_secret";
+    const onProgress = vi.fn(async () => {});
+    const result = await discoverEmployerBoards(workspace(), {
+      cache,
+      himalayasApiKey: apiKey,
+      onProgress,
+    });
+    expect(result.errors).toEqual([]);
+    expect(result.boards).toHaveLength(1);
+    expect(fetchMock.mock.calls).toHaveLength(3);
+    for (const [input, init] of fetchMock.mock.calls) {
+      const url = new URL(input);
+      const authorization = new Headers(init?.headers).get("Authorization");
+      if (url.origin === "https://himalayas.app") {
+        expect(url.pathname).toBe("/jobs/api/search");
+        expect(authorization).toBe(`Bearer ${apiKey}`);
+        expect(init?.redirect).toBe("error");
+      } else {
+        expect(authorization).toBeNull();
+      }
+      expect(url.href).not.toContain(apiKey);
+    }
+    expect(safeFetchText).toHaveBeenCalled();
+    expect(JSON.stringify(vi.mocked(safeFetchText).mock.calls)).not.toContain(
+      apiKey,
+    );
+    expect(JSON.stringify([...cache.values])).not.toContain(apiKey);
+    expect(JSON.stringify(result)).not.toContain(apiKey);
+    expect(JSON.stringify(onProgress.mock.calls)).not.toContain(apiKey);
+  });
+
+  it.each([undefined, ""])(
+    "keeps public discovery working without a key (%s)",
+    async (apiKey) => {
+      const fetchMock = setup();
+      const result = await discoverEmployerBoards(workspace(), {
+        cache: memoryCache(),
+        himalayasApiKey: apiKey,
+      });
+      expect(result.errors).toEqual([]);
+      expect(result.boards).toHaveLength(1);
+      for (const [, init] of fetchMock.mock.calls)
+        expect(new Headers(init?.headers).has("Authorization")).toBe(false);
+    },
+  );
+
+  it.each([
+    { apiKey: undefined, status: 429 },
+    { apiKey: "revoked_test_key", status: 401 },
+  ])(
+    "retries a cached HTTP $status after adding or replacing the key",
+    async ({ apiKey, status }) => {
+      const fetchMock = setup();
+      const cache = memoryCache();
+      fetchMock.mockResolvedValueOnce(new Response(null, { status }));
+      const first = await discoverEmployerBoards(workspace(), {
+        cache,
+        himalayasApiKey: apiKey,
+      });
+      expect(first.errors).toEqual([
+        `Employer directory returned HTTP ${status}.`,
+      ]);
+      expect(
+        (
+          await discoverEmployerBoards(workspace(), {
+            cache,
+            himalayasApiKey: apiKey,
+          })
+        ).errors,
+      ).toEqual(first.errors);
+      expect(fetchMock).toHaveBeenCalledTimes(1);
+      const retried = await discoverEmployerBoards(workspace(), {
+        cache,
+        himalayasApiKey: "new_test_key",
+      });
+      expect(retried.errors).toEqual([]);
+      expect(retried.boards).toHaveLength(1);
+      expect(
+        new Headers(fetchMock.mock.calls[1][1]?.headers).get("Authorization"),
+      ).toBe("Bearer new_test_key");
+    },
+  );
+
+  it("reuses successful public directory data after configuring a key", async () => {
+    const fetchMock = setup();
+    const cache = memoryCache();
+    await discoverEmployerBoards(workspace(), { cache });
+    fetchMock.mockClear();
+    const result = await discoverEmployerBoards(workspace(), {
+      cache,
+      himalayasApiKey: "new_test_key",
+    });
+    expect(result.boards).toHaveLength(1);
+    expect(fetchMock.mock.calls.map(([url]) => new URL(url).hostname)).toEqual([
+      "api.ashbyhq.com",
+    ]);
+  });
+
+  it("reports malformed keys without exposing their value", async () => {
+    const fetchMock = setup();
+    const cache = memoryCache();
+    const apiKey = "private\nmalformed_key";
+    const result = await discoverEmployerBoards(workspace(), {
+      cache,
+      himalayasApiKey: apiKey,
+    });
+    expect(result.errors).toEqual([
+      "Himalayas API key has an invalid format. Update the server configuration.",
+    ]);
+    expect(fetchMock).not.toHaveBeenCalled();
+    expect(JSON.stringify([...cache.values])).not.toContain("malformed_key");
+  });
+
   it("finds employers broadly but imports only independently fetched company jobs", async () => {
     const fetchMock = setup();
     const cache = memoryCache();

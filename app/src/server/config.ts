@@ -16,6 +16,7 @@ function localUrl(value: string, name: string) {
 export const settings = {
   openaiKey: process.env.OPENAI_API_KEY || "",
   openaiModel: process.env.OPENAI_MODEL || "gpt-4o-mini",
+  himalayasApiKey: process.env.HIMALAYAS_API_KEY?.trim() || "",
   supabaseUrl: localUrl(
     process.env.SUPABASE_URL || "http://127.0.0.1:54331",
     "Supabase",

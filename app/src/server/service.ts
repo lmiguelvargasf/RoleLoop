@@ -352,6 +352,7 @@ export async function processRun(
         try {
           const found = await discoverEmployerBoards(workspace, {
             cache: { get: getGlobalRuntime, set: setGlobalRuntime },
+            himalayasApiKey: settings.himalayasApiKey,
             excludeIdentities: await store.ignoredDiscoveryIdentities(),
             onProgress: (message) => progress(5, message),
           });

@@ -22,7 +22,9 @@ type Cache = {
   get<T>(key: string): Promise<T | null>;
   set(key: string, value: unknown): Promise<void>;
 };
-type Cached<T> = { at: number; value: T } | { at: number; error: string };
+type Cached<T> =
+  | { at: number; value: T }
+  | { at: number; error: string; errorContext?: string };
 type Employer = { name: string; slug: string; discoveredFrom: string };
 type Board = { provider: "ashby" | "greenhouse" | "lever"; board: string };
 type Careers = { website: string | null; board: Board | null };
@@ -48,11 +50,17 @@ async function cached<T>(
   key: string,
   ttl: number,
   read: () => Promise<T>,
+  errorContext = "",
 ): Promise<T> {
   const saved = await cache.get<Cached<T>>(key);
   const age = saved ? Date.now() - saved.at : Infinity;
   if (saved && age >= 0) {
-    if ("error" in saved && age < HOUR) throw new Error(saved.error);
+    if (
+      "error" in saved &&
+      age < HOUR &&
+      (saved.errorContext ?? "") === errorContext
+    )
+      throw new Error(saved.error);
     if ("value" in saved && age < ttl) return saved.value;
   }
   try {
@@ -60,14 +68,35 @@ async function cached<T>(
     await cache.set(key, { at: Date.now(), value });
     return value;
   } catch (error) {
-    await cache.set(key, { at: Date.now(), error: errorText(error) });
+    await cache.set(key, {
+      at: Date.now(),
+      error: errorText(error),
+      errorContext,
+    });
     throw error;
   }
 }
 
 // Only fixed, public HTTPS API endpoints call this helper. Employer websites
 // use safeFetchText, which validates and pins DNS, including every redirect.
-async function apiText(url: string, body?: unknown): Promise<string> {
+async function apiText(
+  url: string,
+  body?: unknown,
+  apiKey?: string,
+): Promise<string> {
+  const endpoint = new URL(url);
+  const authenticated =
+    apiKey &&
+    !body &&
+    endpoint.origin === "https://himalayas.app" &&
+    !endpoint.username &&
+    !endpoint.password &&
+    (endpoint.pathname === "/jobs/api" ||
+      endpoint.pathname.startsWith("/jobs/api/"));
+  if (authenticated && /[^\x21-\x7e]/.test(apiKey))
+    throw new Error(
+      "Himalayas API key has an invalid format. Update the server configuration.",
+    );
   const response = await fetch(url, {
     method: body ? "POST" : "GET",
     redirect: "error",
@@ -75,6 +104,7 @@ async function apiText(url: string, body?: unknown): Promise<string> {
     headers: {
       Accept: body ? "application/json, text/event-stream" : "application/json",
       ...(body ? { "Content-Type": "application/json" } : {}),
+      ...(authenticated ? { Authorization: `Bearer ${apiKey}` } : {}),
     },
     ...(body ? { body: JSON.stringify(body) } : {}),
   });
@@ -154,6 +184,7 @@ async function directoryEmployers(
   country: string,
   cache: Cache,
   prioritizePay: boolean,
+  apiKey?: string,
 ): Promise<Employer[]> {
   const sort = prioritizePay ? "salaryDesc" : "recent";
   return cached(
@@ -172,7 +203,11 @@ async function directoryEmployers(
         let data: unknown;
         try {
           data = JSON.parse(
-            await apiText(`https://himalayas.app/jobs/api/search?${params}`),
+            await apiText(
+              `https://himalayas.app/jobs/api/search?${params}`,
+              undefined,
+              apiKey,
+            ),
           );
         } catch (error) {
           if (error instanceof SyntaxError)
@@ -212,6 +247,9 @@ async function directoryEmployers(
       // application links, salary claims, or workspace database IDs are cached.
       return [...employers.values()];
     },
+    // Keep successful public metadata shared, but retry failures immediately
+    // after a key is added or replaced. Never retain the credential itself.
+    apiKey ? hash(apiKey) : "",
   );
 }
 
@@ -355,6 +393,7 @@ export async function discoverEmployerBoards(
     cache: Cache;
     onProgress?: (message: string) => Promise<void>;
     excludeIdentities?: string[];
+    himalayasApiKey?: string;
   },
 ): Promise<EmployerDiscoveryResult> {
   const result: EmployerDiscoveryResult = {
@@ -409,6 +448,7 @@ export async function discoverEmployerBoards(
         country,
         options.cache,
         workspace.preferences.minimumSalary > 0,
+        options.himalayasApiKey,
       );
       for (const employer of employers)
         if (!companyNames.has(normalizeName(employer.name)))
