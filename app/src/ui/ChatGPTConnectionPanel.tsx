@@ -1,11 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import {
-  CheckCircle2,
-  ExternalLink,
-  LoaderCircle,
-  RefreshCw,
-  Unplug,
-} from "lucide-react";
+import { ExternalLink, LoaderCircle, RefreshCw, Unplug } from "lucide-react";
 import type { ChatGPTConnection } from "../shared/types";
 import { api, write } from "./api";
 
@@ -47,12 +41,12 @@ export function ChatGPTConnectionPanel() {
       window.removeEventListener("focus", focus);
     };
   }, []);
-  async function action(task: () => Promise<unknown>) {
+  async function action(task?: () => Promise<unknown>) {
     setBusy(true);
     setError("");
     setMessage("");
     try {
-      await task();
+      await task?.();
       if (alive.current) await load();
     } catch (err) {
       if (alive.current && (err as Error).name !== "AbortError")
@@ -86,35 +80,68 @@ export function ChatGPTConnectionPanel() {
   const active = connection?.profiles.find((p) => p.id === connection.activeId);
   const usingPlan =
     connection?.mode === "chatgpt" && active?.connected && active.planEnabled;
+  const usingApi = connection?.mode === "api" && connection.apiConfigured;
   return (
     <section
       className="form-section chatgpt-connection"
       aria-labelledby="chatgpt-title"
     >
-      <div className="section-heading">
-        <div>
-          <h2 id="chatgpt-title">AI connection</h2>
-          <p>
-            Connect your ChatGPT plan for résumé import and matching on this
-            computer.
-          </p>
+      <div className="chatgpt-summary">
+        <div className="chatgpt-summary-copy">
+          <div className="chatgpt-title-row">
+            <h2 id="chatgpt-title">ChatGPT</h2>
+            <span
+              className={`chatgpt-status ${usingPlan || usingApi ? "is-connected" : ""}`}
+              role="status"
+            >
+              {!connection
+                ? error
+                  ? "Unavailable"
+                  : "Loading…"
+                : connection.pending
+                  ? "Signing in…"
+                  : usingPlan
+                    ? "Connected"
+                    : usingApi
+                      ? "API billing"
+                      : "Not connected"}
+            </span>
+          </div>
+          <p>For résumé import and job matching.</p>
         </div>
-        <span className={`badge ${usingPlan ? "badge-ready" : "badge-review"}`}>
-          {usingPlan
-            ? "Using ChatGPT plan"
-            : connection?.mode === "api" && connection.apiConfigured
-              ? "Using API billing"
-              : "Not connected"}
-        </span>
+        {!usingPlan && (
+          <button
+            type="button"
+            className="button chatgpt-signin"
+            data-oai-siwc-button
+            disabled={busy || !connection || connection.pending}
+            onClick={() =>
+              connect(connection?.mode === "chatgpt" ? active?.id : undefined)
+            }
+          >
+            {busy && <LoaderCircle className="spin" size={16} />}
+            {active &&
+            connection?.mode === "chatgpt" &&
+            active.connected &&
+            !active.planEnabled
+              ? "Enable plan usage"
+              : "Continue with ChatGPT"}
+          </button>
+        )}
       </div>
-      <p className="chatgpt-explanation">
-        Eligible ChatGPT Plus and Pro accounts can approve plan usage. Your
-        allowance and app limits apply. This connection belongs to your RoleLoop
-        account.
-      </p>
       {(error || connection?.error) && (
         <div className="notice error" role="alert">
           {error || connection?.error}
+          {!connection && (
+            <button
+              type="button"
+              className="text-button"
+              onClick={() => void action()}
+              disabled={busy}
+            >
+              Try again
+            </button>
+          )}
         </div>
       )}
       {message && (
@@ -122,85 +149,88 @@ export function ChatGPTConnectionPanel() {
           {message}
         </div>
       )}
-      {!connection && !error && (
-        <p>
-          <LoaderCircle size={16} className="spin" /> Loading connection…
-        </p>
-      )}
       {connection?.pending && (
-        <p role="status">
-          <LoaderCircle size={16} className="spin" /> Complete sign-in in the
-          browser window.
+        <p className="chatgpt-hint" role="status">
+          Finish signing in in the browser window.
         </p>
       )}
+      {connection?.mode === "chatgpt" &&
+        active?.connected &&
+        !active.planEnabled && (
+          <p className="chatgpt-hint">Approve plan usage to start using AI.</p>
+        )}
       {!!connection?.profiles.length && (
-        <label className="field">
-          <span>ChatGPT account</span>
-          <select
-            value={
-              connection.mode === "chatgpt" ? connection.activeId || "" : ""
-            }
-            disabled={busy}
-            onChange={(e) =>
-              void action(() =>
-                write("/account/chatgpt/select", { profileId: e.target.value }),
-              )
-            }
-          >
-            <option value="" disabled>
-              Select a connected account
-            </option>
-            {connection.profiles.map((p) => (
-              <option value={p.id} key={p.id}>
-                {p.label}
-                {!p.connected
-                  ? " · reconnect"
-                  : !p.planEnabled
-                    ? " · enable plan usage"
-                    : ""}
-              </option>
-            ))}
-          </select>
-        </label>
-      )}
-      {connection?.mode === "chatgpt" && active && (
-        <div className="chatgpt-active">
-          <p>
-            {active.connected ? (
-              <>
-                <CheckCircle2 size={16} /> Connected as{" "}
-                {active.email || active.label}.
-              </>
-            ) : (
-              "Reconnect this account to use your ChatGPT plan."
-            )}
-          </p>
-          {active.error && (
+        <div className="chatgpt-preferences">
+          {connection.profiles.length > 1 ? (
+            <label className="field">
+              <span>Account</span>
+              <select
+                value={
+                  connection.mode === "chatgpt" ? connection.activeId || "" : ""
+                }
+                disabled={busy}
+                onChange={(e) =>
+                  void action(() =>
+                    write("/account/chatgpt/select", {
+                      profileId: e.target.value,
+                    }),
+                  )
+                }
+              >
+                <option value="" disabled>
+                  Select an account
+                </option>
+                {connection.profiles.map((p) => (
+                  <option value={p.id} key={p.id}>
+                    {p.label}
+                    {!p.connected
+                      ? " · reconnect"
+                      : !p.planEnabled
+                        ? " · enable plan usage"
+                        : ""}
+                  </option>
+                ))}
+              </select>
+            </label>
+          ) : connection.mode === "chatgpt" && active ? (
+            <p className="chatgpt-account">{active.email || active.label}</p>
+          ) : (
+            <button
+              className="text-button"
+              type="button"
+              disabled={busy}
+              onClick={() =>
+                void action(() =>
+                  write("/account/chatgpt/select", {
+                    profileId: connection.profiles[0].id,
+                  }),
+                )
+              }
+            >
+              Use {connection.profiles[0].label}
+            </button>
+          )}
+          {connection.mode === "chatgpt" && active?.error && (
             <div className="notice error" role="alert">
               {active.error}
               <button
                 type="button"
-                className="button"
+                className="text-button"
                 disabled={busy}
                 onClick={() =>
                   void action(() => write("/account/chatgpt/retry"))
                 }
               >
-                Retry AI requests
+                Retry
               </button>
             </div>
           )}
-          {active.connected && !active.planEnabled && (
-            <p>
-              Sign-in is complete, but plan usage has not been approved. Choose
-              Enable plan usage below.
-            </p>
-          )}
-          {active.connected && active.planEnabled && (
+          {usingPlan && active && (
             <label className="field">
               <span>Model</span>
               <div className="chatgpt-model-row">
                 <select
+                  aria-label="Model"
                   disabled={busy || !active.models.length}
                   value={active.model || ""}
                   onChange={(e) =>
@@ -223,87 +253,78 @@ export function ChatGPTConnectionPanel() {
                 </select>
                 <button
                   type="button"
-                  className="button"
+                  className="icon-button"
+                  aria-label="Refresh models"
+                  title="Refresh models"
                   disabled={busy}
                   onClick={() =>
                     void action(() => write("/account/chatgpt/models"))
                   }
                 >
-                  <RefreshCw size={15} />
-                  Refresh models
+                  <RefreshCw size={16} />
                 </button>
               </div>
             </label>
           )}
         </div>
       )}
-      <div className="button-row chatgpt-actions">
-        <button
-          type="button"
-          className="button chatgpt-signin"
-          data-oai-siwc-button
-          disabled={busy || connection?.pending}
-          onClick={() =>
-            connect(connection?.mode === "chatgpt" ? active?.id : undefined)
-          }
-        >
-          {busy ? <LoaderCircle className="spin" size={16} /> : null}
-          {active && connection?.mode === "chatgpt" && !active.planEnabled
-            ? "Enable plan usage"
-            : "Continue with ChatGPT"}
-        </button>
-        {!!connection?.profiles.length && (
-          <button
-            type="button"
-            className="button"
-            disabled={busy || connection.pending}
-            onClick={() => connect()}
-          >
-            Add another account
-          </button>
+      {connection &&
+        (!!connection.profiles.length || connection.apiConfigured) && (
+          <details className="chatgpt-settings">
+            <summary>Connection settings</summary>
+            <div className="chatgpt-actions">
+              {!!connection.profiles.length && (
+                <button
+                  type="button"
+                  className="text-button"
+                  disabled={busy || connection.pending}
+                  onClick={() => connect()}
+                >
+                  Add account
+                </button>
+              )}
+              {connection.mode === "chatgpt" && active?.connected && (
+                <>
+                  <a
+                    className="text-button"
+                    href="https://chatgpt.com/settings/usage"
+                    target="_blank"
+                    rel="noreferrer"
+                  >
+                    Manage usage <ExternalLink size={13} />
+                  </a>
+                  <button
+                    type="button"
+                    className="text-button"
+                    disabled={busy}
+                    onClick={() =>
+                      void action(async () => {
+                        await write("/account/chatgpt/disconnect", {
+                          profileId: active.id,
+                        });
+                        if (alive.current) setMessage("Disconnected.");
+                      })
+                    }
+                  >
+                    <Unplug size={14} /> Disconnect
+                  </button>
+                </>
+              )}
+              {connection.apiConfigured && connection.mode !== "api" && (
+                <button
+                  type="button"
+                  className="text-button"
+                  disabled={busy}
+                  onClick={() =>
+                    void action(() => write("/account/chatgpt/use-api"))
+                  }
+                >
+                  Use API billing
+                </button>
+              )}
+            </div>
+          </details>
         )}
-        {connection?.mode === "chatgpt" && active?.connected && (
-          <button
-            type="button"
-            className="button"
-            disabled={busy}
-            onClick={() =>
-              void action(async () => {
-                const result = await write<{ message: string }>(
-                  "/account/chatgpt/disconnect",
-                  { profileId: active.id },
-                );
-                if (alive.current) setMessage(result.message);
-              })
-            }
-          >
-            <Unplug size={15} />
-            Disconnect
-          </button>
-        )}
-        {connection?.apiConfigured && connection.mode !== "api" && (
-          <button
-            type="button"
-            className="button"
-            disabled={busy}
-            onClick={() => void action(() => write("/account/chatgpt/use-api"))}
-          >
-            Use API billing
-          </button>
-        )}
-        <a
-          className="button"
-          href="https://chatgpt.com/settings/usage"
-          target="_blank"
-          rel="noreferrer"
-        >
-          Manage usage <ExternalLink size={14} />
-        </a>
-      </div>
-      <small>
-        Background schedules use the server’s API configuration. Your
-        subscription is used for requests you initiate, including queued tasks.
-      </small>
     </section>
   );
 }

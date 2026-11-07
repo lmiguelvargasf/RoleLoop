@@ -4043,44 +4043,49 @@ textarea {
   border-radius: 8px;
 }
 
-.chatgpt-connection {
-  display: block;
-}
-.chatgpt-connection .section-heading {
-  margin-bottom: 16px;
-}
-.chatgpt-explanation {
-  max-width: 72ch;
-  color: var(--muted);
-  margin-bottom: 20px;
-}
-.chatgpt-connection > .field {
-  max-width: 600px;
-  margin: 20px 0;
-}
-.chatgpt-active {
-  margin: 20px 0;
-}
-.chatgpt-active p {
+.chatgpt-summary {
   display: flex;
   align-items: center;
-  gap: 8px;
-  margin: 10px 0;
+  justify-content: space-between;
+  gap: 24px;
 }
-.chatgpt-model-row {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-}
-.chatgpt-model-row select {
-  flex: 1;
+.chatgpt-summary-copy {
   min-width: 0;
 }
-.chatgpt-actions {
+.chatgpt-title-row {
+  display: flex;
+  align-items: center;
   flex-wrap: wrap;
-  margin: 20px 0;
+  gap: 14px;
+}
+.chatgpt-summary p {
+  margin-top: 8px;
+  font-size: 12px;
+  color: var(--muted);
+  line-height: 1.6;
+}
+.chatgpt-status {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--muted);
+  font-size: 10px;
+}
+.chatgpt-status::before {
+  content: "";
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: #a2adba;
+}
+.chatgpt-status.is-connected {
+  color: #28756c;
+}
+.chatgpt-status.is-connected::before {
+  background: #28756c;
 }
 .chatgpt-signin {
+  flex-shrink: 0;
   background: #111;
   color: #fff;
   border-color: #111;
@@ -4089,19 +4094,62 @@ textarea {
   background: #333;
   color: #fff;
 }
-.chatgpt-connection > small {
-  display: block;
+.chatgpt-connection > .notice {
+  margin-top: 18px;
+}
+.chatgpt-hint,
+.chatgpt-account {
+  margin-top: 16px;
   color: var(--muted);
-  line-height: 1.6;
+  font-size: 12px;
+  overflow-wrap: anywhere;
+}
+.chatgpt-preferences {
+  max-width: 440px;
+  margin-top: 20px;
+}
+.chatgpt-preferences > .field {
+  margin-top: 16px;
+}
+.chatgpt-model-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.chatgpt-model-row select {
+  flex: 1;
+  min-width: 0;
+}
+.chatgpt-settings {
+  margin-top: 20px;
+  font-size: 11px;
+  color: var(--muted);
+}
+.chatgpt-settings summary {
+  cursor: pointer;
+  width: fit-content;
+}
+.chatgpt-actions {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 20px;
+  margin-top: 16px;
+}
+.chatgpt-actions .text-button {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 11px;
 }
 @media (max-width: 600px) {
-  .chatgpt-model-row {
+  .chatgpt-summary {
+    align-items: flex-start;
     flex-direction: column;
-    align-items: stretch;
+    gap: 18px;
   }
-  .chatgpt-connection .section-heading {
-    flex-wrap: wrap;
-    gap: 12px;
+  .chatgpt-signin {
+    min-height: 44px;
   }
 }
 
