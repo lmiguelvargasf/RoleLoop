@@ -168,4 +168,52 @@ describe("Activity reading and recovery", () => {
     expect(html).toContain('aria-label="Filter activity"');
     expect(html).toContain('aria-pressed="true"');
   });
+
+  it("summarizes job sources separately from startup leads and preserves historical outcomes", () => {
+    const bootstrap = data();
+    const job = bootstrap.opportunities.find((op) => op.kind === "job")!;
+    const startup = bootstrap.opportunities.find(
+      (op) => op.kind === "startup",
+    )!;
+    const appliedAt = "2026-11-01T12:00:00Z";
+    bootstrap.sources = [];
+    bootstrap.opportunities = [
+      {
+        ...job,
+        id: "applied-job",
+        sourceId: "career-board",
+        source: "Career board",
+        application: {
+          status: "applied",
+          appliedAt,
+          nextAction: "",
+          followUpOn: null,
+          notes: "",
+        },
+      },
+      {
+        ...job,
+        id: "closed-job",
+        sourceId: "career-board",
+        source: "Career board",
+        application: {
+          status: "rejected",
+          appliedAt,
+          interviewAt: appliedAt,
+          offerAt: appliedAt,
+          nextAction: "",
+          followUpOn: null,
+          notes: "",
+        },
+      },
+      { ...startup, sourceId: "startup-feed", source: "Startup feed" },
+    ];
+    const html = renderToStaticMarkup(<ActivityPage data={bootstrap} />);
+    expect(html).toContain('<details class="activity-source-results">');
+    expect(html).toContain(
+      '<th scope="row">Career board</th><td>2</td><td>2</td><td>1</td><td>1</td>',
+    );
+    expect(html).not.toContain("Startup feed");
+    expect(html).toContain("latest 300 discoveries plus tracked applications");
+  });
 });

@@ -20,11 +20,8 @@ function job(patch: Partial<Opportunity> = {}): Opportunity {
   return opportunity;
 }
 
-const matches = (
-  opportunity: Opportunity,
-  view: OpportunityView,
-  detail = "all",
-) => opportunityMatchesView(opportunity, preferences, view, detail);
+const matches = (opportunity: Opportunity, view: OpportunityView) =>
+  opportunityMatchesView(opportunity, preferences, view);
 
 describe("simplified opportunity views", () => {
   it("preserves the selected-country gate in the default Matches view", () => {
@@ -37,10 +34,9 @@ describe("simplified opportunity views", () => {
     expect(matches(eligible, "matches")).toBe(true);
     expect(matches(restricted, "matches")).toBe(false);
     expect(matches(restricted, "all")).toBe(true);
-    expect(matches(restricted, "all", "excluded")).toBe(true);
   });
 
-  it("combines location and other review questions while allowing relevant narrowing", () => {
+  it("combines location and other open questions in Needs review", () => {
     const location = job({
       location: "Remote",
       description: "Build software for global customers.",
@@ -49,11 +45,9 @@ describe("simplified opportunity views", () => {
     const salary = job({ salaryMin: null, salaryMax: null });
     expect(matches(location, "review")).toBe(true);
     expect(matches(salary, "review")).toBe(true);
-    expect(matches(location, "review", "location-review")).toBe(true);
-    expect(matches(location, "review", "fit-review")).toBe(false);
-    expect(matches(salary, "review", "location-review")).toBe(false);
-    expect(matches(salary, "review", "fit-review")).toBe(true);
+    expect(matches(location, "matches")).toBe(false);
     expect(matches(salary, "matches")).toBe(true);
+    expect(matches(job(), "review")).toBe(false);
   });
 
   it("keeps unrelated and excluded roles out of the review queue", () => {
@@ -70,60 +64,42 @@ describe("simplified opportunity views", () => {
     expect(matches(unevaluated, "matches")).toBe(false);
   });
 
-  it("narrows All saved by exclusion or location questions", () => {
+  it("keeps excluded and uncertain roles accessible in All saved", () => {
     const excluded = job({ salaryMin: 20000, salaryMax: 30000 });
     const location = job({
       location: "Remote",
       description: "Build software for global customers.",
       remoteScope: "unknown",
     });
-    expect(matches(excluded, "all", "excluded")).toBe(true);
-    expect(matches(job(), "all", "excluded")).toBe(false);
-    expect(matches(location, "all", "location-review")).toBe(true);
-    expect(matches(job(), "all", "location-review")).toBe(false);
+    expect(matches(excluded, "matches")).toBe(false);
+    expect(matches(excluded, "all")).toBe(true);
+    expect(matches(location, "all")).toBe(true);
+    expect(matches(job(), "all")).toBe(true);
   });
 
   it("keeps archived records accessible only in Archived", () => {
     const archived = job({ stage: "archived" });
     for (const view of ["matches", "review", "all"] as const) {
       expect(matches(archived, view)).toBe(false);
-      expect(matches(archived, view, "location-review")).toBe(false);
     }
     expect(matches(archived, "archived")).toBe(true);
-    expect(matches(archived, "archived", "location-review")).toBe(false);
     expect(matches(job(), "archived")).toBe(false);
   });
 
-  it("does not expose job-specific views and details for startup entries", () => {
+  it("does not expose job-specific views for startup entries", () => {
     const startup = { ...demoOpportunities()[3], stage: "drafted" as const };
     expect(matches(startup, "all")).toBe(true);
     for (const view of ["matches", "review"] as const)
       expect(matches(startup, view)).toBe(false);
-    expect(matches(startup, "all", "excluded")).toBe(false);
-    expect(matches(startup, "all", "location-review")).toBe(false);
   });
 
-  it.each([
-    "new",
-    "review",
-    "ready",
-    "drafted",
-    "approved",
-    "applied",
-    "followups",
-    "unexpected",
-  ])("rejects obsolete or invalid detail %s in every view", (detail) => {
-    for (const view of ["matches", "review", "all", "archived"] as const)
-      expect(matches(job({ stage: "drafted" }), view, detail)).toBe(false);
-  });
-
-  it("rejects inapplicable details rather than bypassing the main view", () => {
-    const salary = job({ salaryMin: null, salaryMax: null });
-    expect(matches(salary, "matches", "fit-review")).toBe(false);
-    expect(matches(salary, "all", "fit-review")).toBe(false);
-    expect(matches(salary, "review", "excluded")).toBe(false);
-    expect(matches(salary, "matches", "location-review")).toBe(false);
-    expect(matches(salary, "matches", "excluded")).toBe(false);
-    expect(matches(salary, "applications" as OpportunityView)).toBe(false);
-  });
+  it.each(["applications", "drafted", "location-review", "unexpected", ""])(
+    "rejects unknown or obsolete view %s instead of exposing all roles",
+    (view) => {
+      expect(matches(job(), view as OpportunityView)).toBe(false);
+      expect(matches(job({ stage: "archived" }), view as OpportunityView)).toBe(
+        false,
+      );
+    },
+  );
 });

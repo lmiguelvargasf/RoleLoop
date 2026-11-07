@@ -22,37 +22,16 @@ function needsReview(
   );
 }
 
-/** A detail always narrows its main view; it never replaces eligibility checks. */
+/** Saved roles stay accessible while Matches enforces current eligibility. */
 export function opportunityMatchesView(
   opportunity: Opportunity,
   preferences: Preferences,
   view: OpportunityView,
-  detail = "all",
 ): boolean {
-  if (view === "archived")
-    return opportunity.stage === "archived" && detail === "all";
+  if (view === "archived") return opportunity.stage === "archived";
   if (opportunity.stage === "archived") return false;
 
-  if (view === "review") {
-    if (!needsReview(opportunity, preferences)) return false;
-    if (detail === "all") return true;
-    if (detail === "location-review")
-      return needsLocationReview(opportunity, preferences);
-    if (detail === "fit-review")
-      return !needsLocationReview(opportunity, preferences);
-    return false;
-  }
-
-  if (view === "matches")
-    return detail === "all" && isPotentialJobMatch(opportunity, preferences);
-  if (view !== "all") return false;
-
-  if (detail === "all") return true;
-  if (opportunity.kind === "job") {
-    if (detail === "excluded")
-      return opportunity.assessment?.recommendation === "excluded";
-    if (detail === "location-review")
-      return needsLocationReview(opportunity, preferences);
-  }
-  return false;
+  if (view === "review") return needsReview(opportunity, preferences);
+  if (view === "matches") return isPotentialJobMatch(opportunity, preferences);
+  return view === "all";
 }

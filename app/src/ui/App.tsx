@@ -49,7 +49,6 @@ import type {
   RunAction,
 } from "../shared/types";
 import { api, date, downloadFile, safeUrl, uid, words, write } from "./api";
-import { applicationCounts } from "../shared/discovery";
 import { isPotentialJobMatch, jobLocationStatus } from "../shared/job-matches";
 import {
   opportunityMatchesView,
@@ -519,7 +518,6 @@ function Opportunities({
           ? "matches"
           : "all";
     }),
-    [detail, setDetail] = useState("all"),
     [checked, setChecked] = useState<Set<string>>(new Set()),
     [selected, setSelected] = useState<string | null>(() =>
       routeOpportunity(location.hash),
@@ -532,7 +530,6 @@ function Opportunities({
       if (!id) return;
       setSelected(id);
       setQuery("");
-      setDetail("all");
       setStage(
         data.opportunities.find((op) => op.id === id)?.stage === "archived"
           ? "archived"
@@ -546,7 +543,6 @@ function Opportunities({
     isPotentialJobMatch(opportunity, data.preferences);
   const changeView = (next: string) => {
     setStage(next);
-    setDetail("all");
     setChecked(new Set());
   };
   const all = data.opportunities.filter((o) => o.kind === kind),
@@ -554,22 +550,15 @@ function Opportunities({
       (opportunity) =>
         opportunity.stage !== "archived" && !potentialMatch(opportunity),
     ).length,
-    list = all.filter(
-      (o) =>
-        (kind === "job"
-          ? opportunityMatchesView(
-              o,
-              data.preferences,
-              stage as OpportunityView,
-              detail,
-            )
-          : stage === "all"
-            ? o.stage !== "archived"
-            : o.stage === stage) &&
-        `${o.company} ${o.title} ${o.description}`
-          .toLowerCase()
-          .includes(query.toLowerCase()),
+    list = all.filter((o) =>
+      kind === "job"
+        ? opportunityMatchesView(o, data.preferences, stage as OpportunityView)
+        : (stage === "all" ? o.stage !== "archived" : o.stage === stage) &&
+          `${o.company} ${o.title} ${o.description}`
+            .toLowerCase()
+            .includes(query.toLowerCase()),
     );
+  const hasQuery = kind === "startup" && Boolean(query);
   const hasActive = all.some((opportunity) => opportunity.stage !== "archived");
   const chosen = (board ? all.filter((o) => applicationColumn(o)) : list).find(
     (o) => o.id === selected,
@@ -1083,71 +1072,26 @@ function Opportunities({
             : "Startup research is paused. Resume to find new leads."}
         </p>
       )}
-      {kind === "job" && all.length > 0 && (
-        <details className="job-source-results">
-          <summary>Results by source</summary>
-          <table>
-            <thead>
-              <tr>
-                <th>Source</th>
-                <th>Saved</th>
-                <th>Applied</th>
-                <th>Interviews</th>
-                <th>Offers</th>
-              </tr>
-            </thead>
-            <tbody>
-              {[...new Set(all.map((o) => o.sourceId || o.source))].map(
-                (id) => {
-                  const items = all.filter(
-                    (o) => (o.sourceId || o.source) === id,
-                  );
-                  const counts = applicationCounts(items);
-                  return (
-                    <tr key={id}>
-                      <td>
-                        {data.sources.find((s) => s.id === id)?.label ??
-                          items[0].source}
-                      </td>
-                      <td>{items.length}</td>
-                      <td>{counts.applied}</td>
-                      <td>{counts.interview}</td>
-                      <td>{counts.offer}</td>
-                    </tr>
-                  );
-                },
-              )}
-            </tbody>
-          </table>
-          <p className="muted">
-            Counts cover the latest 300 discoveries plus tracked applications.
-            Interview and offer milestones remain counted after a rejection.
-          </p>
-        </details>
-      )}
-      <div className="list-toolbar">
-        <div className="search-field">
-          <Search size={16} />
-          <input
-            aria-label="Search opportunities"
-            placeholder="Search company, role or skills…"
-            value={query}
-            onChange={(e) => {
-              setQuery(e.target.value);
-              setChecked(new Set());
-            }}
-          />
-        </div>
+      <div className={kind === "job" ? "job-list-toolbar" : "list-toolbar"}>
+        {kind === "startup" && (
+          <div className="search-field">
+            <Search size={16} />
+            <input
+              aria-label="Search opportunities"
+              placeholder="Search company, role or skills…"
+              value={query}
+              onChange={(e) => {
+                setQuery(e.target.value);
+                setChecked(new Set());
+              }}
+            />
+          </div>
+        )}
         {kind === "job" ? (
           <OpportunityFilters
             country={data.preferences.country}
             view={stage as OpportunityView}
-            detail={detail}
             onViewChange={changeView}
-            onDetailChange={(next) => {
-              setDetail(next);
-              setChecked(new Set());
-            }}
           />
         ) : (
           <select
@@ -1165,37 +1109,20 @@ function Opportunities({
             )}
           </select>
         )}
-        <span className="result-count">
-          {list.length} {list.length === 1 ? "opportunity" : "opportunities"}
+        <span
+          className={kind === "job" ? "job-list-count" : "result-count"}
+          role="status"
+        >
+          {list.length}{" "}
+          {kind === "job"
+            ? list.length === 1
+              ? "job"
+              : "jobs"
+            : list.length === 1
+              ? "opportunity"
+              : "opportunities"}
         </span>
       </div>
-      {kind === "job" && stage === "matches" && (
-        <p className="opportunity-filter-note">
-          Remote roles whose hiring scope includes{" "}
-          {data.preferences.country || "your working country"}. Review each
-          role’s qualifications and remaining questions before applying.
-        </p>
-      )}
-      {kind === "job" && stage === "review" && (
-        <p className="opportunity-filter-note">
-          Roles with open questions about location, qualifications or other
-          requirements. Check the details before applying.
-        </p>
-      )}
-      {kind === "job" &&
-        stage === "matches" &&
-        detail === "all" &&
-        !query &&
-        outsideMatches > 0 &&
-        list.length > 0 && (
-          <p className="opportunity-filter-note">
-            {outsideMatches} other saved{" "}
-            {outsideMatches === 1 ? "role is" : "roles are"} outside this view.{" "}
-            <button className="text-button" onClick={() => changeView("all")}>
-              View all saved jobs
-            </button>
-          </p>
-        )}
       {kind === "job" && selectedJobs.length > 0 && (
         <div className="job-selection-bar" role="status">
           <span>{selectedJobs.length} selected</span>
@@ -1303,56 +1230,46 @@ function Opportunities({
           ) : (
             <Empty
               title={
-                query
+                hasQuery
                   ? "No matches in this view"
-                  : kind === "job" && detail !== "all"
-                    ? "No jobs match this filter"
-                    : kind === "job" && stage === "matches"
-                      ? "No location-compatible matches yet"
-                      : hasActive
-                        ? "No opportunities in this view"
-                        : kind === "job"
-                          ? "Start with your next opportunity"
-                          : "Build your startup shortlist"
+                  : kind === "job" && stage === "matches"
+                    ? "No location-compatible matches yet"
+                    : hasActive
+                      ? "No opportunities in this view"
+                      : kind === "job"
+                        ? "Start with your next opportunity"
+                        : "Build your startup shortlist"
               }
               detail={
-                query
+                hasQuery
                   ? "Try another search or change the view."
-                  : kind === "job" && detail !== "all"
-                    ? "Clear the extra filter or choose another view."
-                    : kind === "job" &&
-                        stage === "matches" &&
-                        outsideMatches > 0
-                      ? "Check Needs review for open questions, or All saved for roles outside your preferences."
-                      : kind === "job"
-                        ? "Search for jobs using your preferences. RoleLoop finds openings and evaluates them against your resume."
-                        : "Search for opportunities using your preferences, or add one manually."
+                  : kind === "job" && stage === "matches" && outsideMatches > 0
+                    ? "Check Needs review for open questions, or All saved for roles outside your preferences."
+                    : kind === "job"
+                      ? "Search for jobs using your preferences. RoleLoop finds openings and evaluates them against your resume."
+                      : "Search for opportunities using your preferences, or add one manually."
               }
             >
               <button
                 className="button primary"
-                disabled={busy || (searching && !query && !hasActive)}
+                disabled={busy || (searching && !hasQuery && !hasActive)}
                 onClick={() => {
-                  if (kind === "job" && detail !== "all" && !query) {
-                    setDetail("all");
-                  } else if (query || hasActive) {
+                  if (hasQuery || hasActive) {
                     setQuery("");
                     changeView("all");
                   } else if (!canSearch) navigate("settings");
                   else void search();
                 }}
               >
-                {kind === "job" && detail !== "all" && !query
-                  ? "Clear filter"
-                  : query || hasActive
-                    ? kind === "job"
-                      ? "View all saved jobs"
-                      : "View all active opportunities"
-                    : !canSearch
-                      ? "Set search preferences"
-                      : searching
-                        ? "Searching…"
-                        : searchLabel}
+                {hasQuery || hasActive
+                  ? kind === "job"
+                    ? "View all saved jobs"
+                    : "View all active opportunities"
+                  : !canSearch
+                    ? "Set search preferences"
+                    : searching
+                      ? "Searching…"
+                      : searchLabel}
                 <ArrowRight size={15} />
               </button>
             </Empty>

@@ -14,6 +14,7 @@ import {
   X,
 } from "lucide-react";
 import type { Bootstrap } from "../shared/types";
+import { applicationCounts } from "../shared/discovery";
 import {
   buildActivityItems,
   type ActivityItem,
@@ -302,6 +303,64 @@ function ActivityEntry({
   );
 }
 
+function SourceResults({ data }: { data: Bootstrap }) {
+  const groups = new Map<string, Bootstrap["opportunities"]>();
+  for (const job of data.opportunities) {
+    if (job.kind !== "job") continue;
+    const key = job.sourceId || job.source;
+    const group = groups.get(key);
+    if (group) group.push(job);
+    else groups.set(key, [job]);
+  }
+  if (!groups.size) return null;
+  return (
+    <details className="activity-source-results">
+      <summary>
+        <ChevronDown size={14} aria-hidden="true" /> Results by source
+      </summary>
+      <div
+        className="activity-source-table"
+        role="region"
+        aria-label="Saved jobs and hiring outcomes by source"
+        tabIndex={0}
+      >
+        <table>
+          <thead>
+            <tr>
+              <th scope="col">Source</th>
+              <th scope="col">Saved</th>
+              <th scope="col">Applied</th>
+              <th scope="col">Interviews</th>
+              <th scope="col">Offers</th>
+            </tr>
+          </thead>
+          <tbody>
+            {[...groups].map(([id, jobs]) => {
+              const counts = applicationCounts(jobs);
+              return (
+                <tr key={id}>
+                  <th scope="row">
+                    {data.sources.find((source) => source.id === id)?.label ??
+                      jobs[0].source}
+                  </th>
+                  <td>{jobs.length}</td>
+                  <td>{counts.applied}</td>
+                  <td>{counts.interview}</td>
+                  <td>{counts.offer}</td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+      </div>
+      <p>
+        Counts cover the latest 300 discoveries plus tracked applications.
+        Interview and offer milestones remain counted after a rejection.
+      </p>
+    </details>
+  );
+}
+
 export function ActivityPage({ data }: { data: Bootstrap }) {
   const [{ filter, query }, setFilters] = useState(readFilters);
   const [visible, setVisible] = useState(20);
@@ -496,6 +555,7 @@ export function ActivityPage({ data }: { data: Bootstrap }) {
           <span>({filtered.length - shown.length} more)</span>
         </button>
       )}
+      <SourceResults data={data} />
       <footer className="activity-footer">
         <p>Recent history · up to 100 tasks and 60 workspace events.</p>
         <details>
