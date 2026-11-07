@@ -331,6 +331,12 @@ export async function buildServer() {
     stage: true,
     application: true,
   }).partial();
+  const jobProgress = OpportunitySchema.pick({
+    stage: true,
+    application: true,
+  })
+    .partial()
+    .strict();
   app.post("/api/opportunities/capture", async (req) => {
     const { url } = z
       .object({ url: z.string().url().max(2000) })
@@ -391,7 +397,20 @@ export async function buildServer() {
         "opportunities",
         req.params.id,
       );
-      const patch = editable.parse(req.body);
+      const parsedPatch =
+        existing.kind === "job"
+          ? jobProgress.parse(req.body)
+          : editable.parse(req.body);
+      // Optional schema defaults must not overwrite facts or progress omitted
+      // from the request.
+      const patch = Object.fromEntries(
+        Object.keys(req.body as object)
+          .filter((key) => Object.hasOwn(parsedPatch, key))
+          .map((key) => [
+            key,
+            parsedPatch[key as keyof typeof parsedPatch],
+          ]),
+      ) as z.infer<typeof editable>;
       if (patch.requirements && patch.requirementsTruncated === undefined)
         patch.requirementsTruncated = false;
       const saved = OpportunitySchema.parse({
@@ -431,12 +450,14 @@ export async function buildServer() {
         application: _application,
         ...corrections
       } = patch;
-      await requestStore(req).setRuntime(`corrections:${existing.id}`, {
-        ...((await requestStore(req).runtime(
-          `corrections:${existing.id}`,
-        )) as object),
-        ...corrections,
-      });
+      if (existing.kind === "startup") {
+        await requestStore(req).setRuntime(`corrections:${existing.id}`, {
+          ...((await requestStore(req).runtime(
+            `corrections:${existing.id}`,
+          )) as object),
+          ...corrections,
+        });
+      }
       await requestStore(req).save("opportunities", saved);
       await service.recordOpportunityChanges(
         requestStore(req),

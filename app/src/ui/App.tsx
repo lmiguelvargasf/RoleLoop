@@ -690,12 +690,14 @@ function Opportunities({
         </button>
         <Badge value={opportunityBadge(chosen)} />
         <div className="button-row">
-          <IconButton
-            label="Edit opportunity details"
-            onClick={() => setEditing(chosen)}
-          >
-            <Pencil size={16} />
-          </IconButton>
+          {chosen.kind === "startup" && (
+            <IconButton
+              label="Edit opportunity details"
+              onClick={() => setEditing(chosen)}
+            >
+              <Pencil size={16} />
+            </IconButton>
+          )}
           <IconButton
             label={
               chosen.stage === "archived"
@@ -1049,16 +1051,6 @@ function Opportunities({
             {inspector}
           </Modal>
         )}
-        {editing && (
-          <OpportunityForm
-            companies={data.companies ?? []}
-            kind="job"
-            existing={editing}
-            close={() => setEditing(null)}
-            perform={perform}
-            busy={busy}
-          />
-        )}
       </section>
     );
   return (
@@ -1394,7 +1386,7 @@ function Opportunities({
                 </aside>
               )}
       </div>
-      {(adding || editing) && (
+      {kind === "startup" && (adding || editing) && (
         <OpportunityForm
           companies={data.companies ?? []}
           kind={kind}
