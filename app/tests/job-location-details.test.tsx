@@ -6,10 +6,50 @@ import { assessOpportunity } from "../src/domain/rules";
 import {
   JobHiringLocation,
   JobLocationDetails,
+  JobLocationPreview,
 } from "../src/ui/JobLocationDetails";
 import { demoOpportunities, demoWorkspace } from "./fixtures";
 
 describe("job location details", () => {
+  it("summarizes country lists in job rows and keeps the full list in details", () => {
+    const location =
+      "Remote: Argentina; Bonaire, Sint Eustatius and Saba; Brazil; Ecuador; United States";
+    const $ = load(
+      renderToStaticMarkup(
+        <button>
+          <JobLocationPreview location={location} />
+        </button>,
+      ),
+    );
+    expect($("button").text()).toBe("Remote · 5 listed locations");
+    expect($("button").text()).not.toContain("Argentina");
+    expect($("button").text()).not.toContain("worldwide");
+    expect($("button details, button button")).toHaveLength(0);
+    const details = load(
+      renderToStaticMarkup(<JobLocationDetails location={location} />),
+    );
+    expect(details(".job-location-full").text()).toBe(location);
+    expect(details(".job-location-count").text()).toBe("5 listed locations");
+  });
+
+  it.each([
+    ["Remote · Ecuador", "Remote · Ecuador"],
+    ["Quito, Ecuador", "Quito, Ecuador"],
+    ["Remote worldwide", "Remote worldwide"],
+    ["", "Location to confirm"],
+    ["Quito; Cuenca; Guayaquil; Loja", "Location details · 4 listed locations"],
+    ["Remote: Ecuador; Brazil; Mexico; United States; ;", "Remote · 4 listed locations"],
+    [
+      "Remote, with office access in Quito, Ecuador, subject to team arrangements and the specific project work schedule",
+      "Remote · View full location",
+    ],
+  ])("shows a bounded row preview for %s", (location, expected) => {
+    const $ = load(
+      renderToStaticMarkup(<JobLocationPreview location={location} />),
+    );
+    expect($(".job-location-preview").text()).toBe(expected);
+  });
+
   it("collapses long country lists without dropping or rewriting source text", () => {
     const location =
       "Remote: Argentina; Bonaire, Sint Eustatius and Saba; Brazil; Ecuador; United States";

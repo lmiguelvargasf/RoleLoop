@@ -4,22 +4,40 @@ import { jobLocationAssessment } from "../shared/job-matches";
 import { assessGeography } from "../domain/geography";
 import "./JobLocationDetails.css";
 
-export function JobLocationDetails({ location }: { location: string }) {
+function locationSummary(location: string) {
   const locations = location.split(";").filter((part) => part.trim());
-  const long = location.length > 100 || locations.length > 3;
+  return {
+    long: location.length > 100 || locations.length > 3,
+    label: /^\s*remote\b/i.test(location) ? "Remote" : "Location details",
+    count:
+      locations.length > 1
+        ? `${locations.length} listed locations`
+        : "View full location",
+  };
+}
+
+export function JobLocationPreview({ location }: { location: string }) {
+  const summary = locationSummary(location);
+  return (
+    <span className="job-location-preview">
+      {summary.long
+        ? `${summary.label} · ${summary.count}`
+        : location || "Location to confirm"}
+    </span>
+  );
+}
+
+export function JobLocationDetails({ location }: { location: string }) {
+  const summary = locationSummary(location);
   return (
     <div className="job-location">
       <small>Location</small>
-      {long ? (
+      {summary.long ? (
         <details key={location} className="job-location-details">
           <summary>
-            <span>
-              {/^\s*remote\b/i.test(location) ? "Remote" : "Location details"}
-            </span>
+            <span>{summary.label}</span>
             <span className="job-location-count">
-              {locations.length > 1
-                ? `${locations.length} listed locations`
-                : "View full location"}
+              {summary.count}
             </span>
             <ChevronDown size={14} aria-hidden="true" />
           </summary>

@@ -80,7 +80,11 @@ import {
   outreachProgressFor,
 } from "../shared/outreach-board";
 import { JobFitDetails } from "./JobFitDetails";
-import { JobHiringLocation, JobLocationDetails } from "./JobLocationDetails";
+import {
+  JobHiringLocation,
+  JobLocationDetails,
+  JobLocationPreview,
+} from "./JobLocationDetails";
 import { StartupFitDetails } from "./StartupFitDetails";
 import {
   StartupCompanyOverview,
@@ -1433,7 +1437,11 @@ function Opportunities({
                           o.location.trim(),
                         )) && (
                         <>
-                          {o.location}
+                          {kind === "job" ? (
+                            <JobLocationPreview location={o.location} />
+                          ) : (
+                            o.location
+                          )}
                           <span>·</span>
                         </>
                       )}
