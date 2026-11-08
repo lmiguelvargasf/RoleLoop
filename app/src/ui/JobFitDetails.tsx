@@ -2,6 +2,7 @@ import { ChevronDown } from "lucide-react";
 import { useState } from "react";
 import { careerFacts, type Opportunity, type Profile } from "../shared/types";
 import type { JobRecommendation } from "../shared/job-recommendations";
+import { explainLocationReason } from "./job-location-copy";
 import "./JobFitDetails.css";
 
 const matchLabels = {
@@ -102,7 +103,7 @@ export function JobFitDetails({
           <h3>Outside your criteria</h3>
           <ul>
             {blockers.map((item) => (
-              <li key={item}>{item}</li>
+              <li key={item}>{explainLocationReason(item)}</li>
             ))}
           </ul>
         </div>
@@ -112,7 +113,7 @@ export function JobFitDetails({
           <h3>To confirm</h3>
           <ul>
             {questions.map((item) => (
-              <li key={item}>{item}</li>
+              <li key={item}>{explainLocationReason(item)}</li>
             ))}
           </ul>
         </div>

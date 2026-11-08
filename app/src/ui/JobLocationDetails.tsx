@@ -1,7 +1,12 @@
 import { ChevronDown } from "lucide-react";
 import type { Opportunity, Preferences } from "../shared/types";
 import { jobLocationAssessment } from "../shared/job-matches";
-import { assessGeography } from "../domain/geography";
+import { explainLocationReason } from "./job-location-copy";
+import {
+  assessGeography,
+  hasUnrestrictedTimezones,
+  normalizeCountry,
+} from "../domain/geography";
 import "./JobLocationDetails.css";
 
 function locationSummary(location: string) {
@@ -77,48 +82,90 @@ export function JobHiringLocation({
       { ...opportunity, sourceTimezoneRestrictions: [] },
       preferences.country,
     ).status === "eligible";
+  const country = preferences.country.trim() || "your country";
+  const locationMatches = geography.status === "eligible" || countrySupported;
   return (
     <div className="job-hiring-location">
-      <small>Hiring from {preferences.country || "your country"}</small>
-      <span>
-        {geography.status === "eligible"
-          ? "Eligible location"
-          : geography.status === "excluded"
-            ? "Outside hiring area"
-            : countrySupported
-              ? "Confirm time zone"
-              : "Needs confirmation"}
-      </span>
-      {geography.reasons.length > 0 && (
-        <p className="job-location-reason">
-          {countrySupported
-            ? "The country is supported. Check that your local UTC offset is allowed."
-            : geography.reasons.join(" ")}
-        </p>
-      )}
-      {opportunity.sourceTimezoneRestrictions?.length ? (
-        <details className="job-location-details job-timezone-details">
-          <summary>
-            <span>Allowed UTC offsets</span>
-            <ChevronDown size={14} aria-hidden="true" />
-          </summary>
-          <p
-            className="job-location-full"
-            tabIndex={0}
-            role="region"
-            aria-label="Allowed UTC offsets"
-          >
-            {opportunity.sourceTimezoneRestrictions
-              .map((offset) => {
-                const minutes = Math.round(Math.abs(offset) * 60);
-                const hours = String(Math.floor(minutes / 60)).padStart(2, "0");
-                const remainder = String(minutes % 60).padStart(2, "0");
-                return `UTC${offset >= 0 ? "+" : "−"}${hours}:${remainder}`;
-              })
-              .join(", ")}
+      <section className="job-country-eligibility">
+        <small>Can I apply from {country}?</small>
+        <span>
+          {locationMatches
+            ? "Location matches the listing"
+            : geography.status === "excluded"
+              ? "Outside the listed hiring area"
+              : "Check with the employer"}
+        </span>
+        {locationMatches && (
+          <p className="job-location-reason">
+            The listing includes {country}. Confirm the hiring arrangement with
+            the employer.
           </p>
-        </details>
-      ) : null}
+        )}
+        {geography.reasons.length > 0 && !countrySupported && (
+          <p className="job-location-reason">
+            {geography.reasons.map(explainLocationReason).join(" ")}
+          </p>
+        )}
+      </section>
+      <JobTimezoneRequirements
+        offsets={opportunity.sourceTimezoneRestrictions ?? []}
+        country={country}
+      />
     </div>
+  );
+}
+
+function JobTimezoneRequirements({
+  offsets,
+  country,
+}: {
+  offsets: number[];
+  country: string;
+}) {
+  if (!offsets.length) return null;
+  const unrestricted = hasUnrestrictedTimezones(offsets);
+  const ecuador = normalizeCountry(country) === "ecuador";
+  const mainland = offsets.includes(-5);
+  const summary = unrestricted
+    ? "No time-zone restriction listed"
+    : ecuador
+      ? mainland
+        ? "Mainland Ecuador time is included"
+        : "Mainland Ecuador time is not listed"
+      : "Confirm that your local time zone is included";
+  return (
+    <section
+      className="job-timezone-requirements"
+      aria-label="Time-zone requirements"
+    >
+      <small>Time-zone requirements</small>
+      <p className="job-timezone-summary">{summary}</p>
+      <p className="job-location-reason">
+        {unrestricted || (ecuador && mainland)
+          ? "Confirm the expected working hours with the employer."
+          : "Ask whether your location is accepted, even if you can adapt your working hours."}
+      </p>
+      <details className="job-location-details job-timezone-details">
+        <summary>
+          <span>View source time zones</span>
+          <ChevronDown size={14} aria-hidden="true" />
+        </summary>
+        <p
+          className="job-location-full"
+          tabIndex={0}
+          role="region"
+          aria-label="Time zones listed by the source"
+        >
+          {offsets
+            .map((offset) => {
+              const minutes = Math.round(Math.abs(offset) * 60);
+              const hours = String(Math.floor(minutes / 60)).padStart(2, "0");
+              const remainder = String(minutes % 60).padStart(2, "0");
+              return `UTC${offset >= 0 ? "+" : "−"}${hours}:${remainder}`;
+            })
+            .join(", ")}
+        </p>
+      </details>
+    </section>
   );
 }

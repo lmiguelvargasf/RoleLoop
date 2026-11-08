@@ -34,6 +34,9 @@ const worldwideTimezoneOffsets = [
   4.5, 5, 5.5, 5.75, 6, 6.5, 7, 8, 8.75, 9, 9.5, 10, 10.5, 11, 12, 12.75, 13,
   14,
 ];
+export function hasUnrestrictedTimezones(offsets: readonly number[]): boolean {
+  return worldwideTimezoneOffsets.every((offset) => offsets.includes(offset));
+}
 // Complete known country coverage, not a guess at the applicant's time zone.
 // IANA tzdb: America/Guayaquil UTC−05:00 and Pacific/Galapagos UTC−06:00.
 // https://data.iana.org/time-zones/tzdb/southamerica
@@ -750,9 +753,7 @@ export function assessGeography(
   if (
     job.sourceTimezoneRestrictions?.length &&
     !sourceCoversCountryOffsets &&
-    !worldwideTimezoneOffsets.every((offset) =>
-      job.sourceTimezoneRestrictions!.includes(offset),
-    )
+    !hasUnrestrictedTimezones(job.sourceTimezoneRestrictions)
   )
     unknowns.push(
       "The source restricts candidates to specific UTC offsets. Confirm that your actual work location is included; country alone does not establish timezone eligibility.",

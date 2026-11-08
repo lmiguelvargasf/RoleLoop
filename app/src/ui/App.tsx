@@ -886,9 +886,6 @@ function Opportunities({
             </div>
           )
         )}
-        {kind === "job" && (
-          <JobHiringLocation opportunity={chosen} preferences={data.preferences} />
-        )}
         {kind === "startup" && chosen.companyCountry !== "Unknown" && (
           <div>
             <small>Company country</small>
@@ -928,6 +925,9 @@ function Opportunities({
           </div>
         )}
       </div>
+      {kind === "job" && (
+        <JobHiringLocation opportunity={chosen} preferences={data.preferences} />
+      )}
       <div className="inspector-links">
         {chosen.sourceAttributionUrl && (
           <External url={chosen.sourceAttributionUrl}>

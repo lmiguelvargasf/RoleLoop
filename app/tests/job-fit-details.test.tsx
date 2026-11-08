@@ -7,6 +7,19 @@ import { JobFitDetails } from "../src/ui/JobFitDetails";
 import { demoOpportunities, demoWorkspace } from "./fixtures";
 
 describe("job fit details", () => {
+  it("explains saved UTC restrictions in plain language", () => {
+    const workspace = demoWorkspace();
+    const job = { ...demoOpportunities()[0], sourceTimezoneRestrictions: [-5] };
+    job.assessment = assessOpportunity(job, workspace.profile, workspace.preferences);
+    const $ = load(renderToStaticMarkup(
+      <JobFitDetails opportunity={job} profile={workspace.profile} />,
+    ));
+    expect($(".job-fit-notice").text()).toContain(
+      "Confirm that your working location and expected hours meet the employer’s time-zone requirements.",
+    );
+    expect($.text()).not.toContain("UTC offsets");
+  });
+
   it("keeps restrictions visible and evidence under its own requirement", () => {
     const workspace = demoWorkspace();
     const job = demoOpportunities()[0];
