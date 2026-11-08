@@ -859,6 +859,9 @@ export async function processRun(
       await store.setRuntime("source-health", { ...previous, [id]: health });
     };
     const shortlist: Opportunity[] = [];
+    const savedSourceKeys = new Set(
+      (await store.listAllOpportunities()).map((op) => op.sourceKey),
+    );
     const countedOpportunities = new Set<string>();
     const seenSourceKeys = new Set<string>();
     let imported = 0,
@@ -1080,6 +1083,21 @@ export async function processRun(
                 }
               : {}),
           });
+          // Apply the same policy checks used by job details before inserting
+          // new listings. Unknown facts remain reviewable; explicit conflicts
+          // should never populate the saved collection or consume AI calls.
+          // Already-saved jobs still refresh, preserving application history
+          // and allowing source corrections to clear earlier exclusions.
+          if (
+            parsed.kind === "job" &&
+            !savedSourceKeys.has(parsed.sourceKey) &&
+            assessOpportunity(
+              parsed,
+              workspace.profile,
+              workspace.preferences,
+            ).blockers.length
+          )
+            return;
           const importedOpportunity =
             await store.importOpportunityWithStatus(parsed);
           const existing = importedOpportunity.opportunity;

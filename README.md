@@ -96,6 +96,8 @@ help avoid applying twice while preserving distinct requisition IDs.
 
 **Search jobs** is the entry point for finding roles. Enable **Check for new opportunities automatically** in **Search preferences** to run searches on a schedule. Jobs are discovered and evaluated against your preferences and resume; no manual job entry is needed.
 
+Before saving new jobs, discovery skips explicit conflicts with your remote hiring eligibility, employer country, salary policy, posting-date window or application deadline. Missing or uncertain facts remain available for review. Previously saved jobs continue to refresh so application history and corrected source details remain available. Jobs can still move outside your criteria as they age or your preferences change.
+
 Company boards and feeds are maintained internally. Ashby, Greenhouse and Lever host individual employers’ boards; connecting one board does not search every employer using that platform. The board for Ashby itself contains openings at Ashby, while its customers have separate boards. Job feeds cover multiple employers.
 
 Automatic employer discovery uses the public [Himalayas search API](https://himalayas.app/api) and [company-details tool](https://github.com/Himalayas-App/himalayas-mcp) to identify employers and their websites. Only role and working-country queries are sent; no resume or contact information is sent. The worker follows observed careers links and checks supported boards; it never guesses board identifiers. Company provenance is retained with the internal connection records.

@@ -70,6 +70,7 @@ function setup(existing: Opportunity[] = []) {
   const store = {
     workspaceId: "activity-test",
     getWorkspace: async () => workspace,
+    listAllOpportunities: async () => [...opportunities.values()],
     ignoredDiscoveryIdentities: async () => [],
     list: async (table: keyof typeof tables) => [...tables[table].values()],
     get: async (table: keyof typeof tables, id: string) =>
@@ -524,13 +525,11 @@ describe("useful discovery history", () => {
     ]);
     expect(generateDraft).not.toHaveBeenCalled();
     expect(t.drafts.size).toBe(0);
-    expect(t.opportunities.get("foreign")?.assessment?.recommendation).toBe(
-      "excluded",
-    );
+    expect(t.opportunities.has("foreign")).toBe(false);
     expect(t.opportunities.get("unclear")?.assessment?.geography?.status).toBe(
       "review",
     );
-    expect(t.opportunities.size).toBe(3);
+    expect(t.opportunities.size).toBe(2);
   });
 
   it("counts new and existing records separately and skips archives and duplicate results", async () => {
