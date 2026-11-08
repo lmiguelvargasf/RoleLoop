@@ -19,7 +19,7 @@ export function isExpiredFeedListing(
   );
 }
 
-/** Expired adverts stay out of discovery; tracked archives preserve private history. */
+/** Selected jobs leave discovery; archived application history stays recoverable. */
 export function opportunityMatchesView(
   opportunity: Opportunity,
   preferences: Preferences,
@@ -33,11 +33,9 @@ export function opportunityMatchesView(
     );
   if (expired) return false;
   if (opportunity.stage === "archived") return false;
+  if (isTrackedApplication(opportunity)) return false;
 
   if (view === "recommended")
-    return (
-      !isTrackedApplication(opportunity) &&
-      recommendationForJob(opportunity, preferences).recommendable
-    );
+    return recommendationForJob(opportunity, preferences).recommendable;
   return view === "all";
 }

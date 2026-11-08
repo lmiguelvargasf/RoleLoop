@@ -5,7 +5,10 @@ import {
   type OpportunityView,
 } from "../src/shared/opportunity-views.js";
 import type { Opportunity } from "../src/shared/types.js";
-import { applicationColumn } from "../src/shared/application-board.js";
+import {
+  applicationColumn,
+  applicationProgressFor,
+} from "../src/shared/application-board.js";
 import { demoOpportunities, demoWorkspace } from "./fixtures.js";
 
 const workspace = demoWorkspace();
@@ -107,17 +110,38 @@ describe("simplified opportunity views", () => {
     }
   });
 
-  it("leaves tracked jobs on Applications and in All saved", () => {
-    const tracked = job();
-    tracked.application = {
-      status: "saved",
-      appliedAt: null,
-      nextAction: "",
-      followUpOn: null,
-      notes: "",
-    };
-    expect(matches(tracked, "recommended")).toBe(false);
-    expect(matches(tracked, "all")).toBe(true);
+  it.each([
+    "saved",
+    "applied",
+    "interview",
+    "offer",
+    "rejected",
+    "withdrawn",
+  ] as const)(
+    "keeps %s jobs on Applications and out of discovery",
+    (status) => {
+      const tracked = job();
+      tracked.application = applicationProgressFor(tracked, status);
+      expect(matches(tracked, "recommended")).toBe(false);
+      expect(matches(tracked, "all")).toBe(false);
+      expect(applicationColumn(tracked)).not.toBeNull();
+    },
+  );
+
+  it("moves a job out of discovery as soon as it is added and preserves archived recovery", () => {
+    const opportunity = job();
+    expect(matches(opportunity, "all")).toBe(true);
+    expect(matches(opportunity, "recommended")).toBe(true);
+    opportunity.application = applicationProgressFor(opportunity, "saved");
+    expect(matches(opportunity, "all")).toBe(false);
+    expect(matches(opportunity, "recommended")).toBe(false);
+    expect(applicationColumn(opportunity)).toBe("to_apply");
+
+    const archived = { ...opportunity, stage: "archived" as const };
+    expect(matches(archived, "archived")).toBe(true);
+    const restored = { ...archived, stage: "new" as const };
+    expect(matches(restored, "all")).toBe(false);
+    expect(applicationColumn(restored)).toBe("to_apply");
   });
 
   it("keeps excluded and uncertain roles accessible in All saved", () => {

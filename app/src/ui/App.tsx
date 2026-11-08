@@ -650,7 +650,16 @@ function Opportunities({
       value: sourceFilter,
       label: jobSourceLabels[sourceFilter],
     });
-  const hasActive = all.some((opportunity) => opportunity.stage !== "archived");
+  const hasActive = all.some(
+    (opportunity) =>
+      opportunity.stage !== "archived" &&
+      (kind !== "job" || !isTrackedApplication(opportunity)),
+  );
+  const applicationsOnly =
+    kind === "job" &&
+    stage !== "archived" &&
+    !hasActive &&
+    all.some((opportunity) => applicationColumn(opportunity) !== null);
   const visibleList = list.slice(0, visibleCount);
   const similarCounts = new Map<string, number>();
   for (const opportunity of all.filter((op) => op.stage !== "archived")) {
@@ -1217,7 +1226,7 @@ function Opportunities({
           </h1>
           <p>
             {kind === "job"
-              ? "Find promising roles and add the ones you want to pursue to Applications."
+              ? "Find promising roles. Jobs you add to Applications move out of this list."
               : "Discover companies and add the ones you want to contact to Startup outreach."}
           </p>
         </div>
@@ -1595,23 +1604,27 @@ function Opportunities({
                   ? "No jobs match these filters"
                   : hasSourceFilter
                     ? "No jobs match these filters"
-                    : stage === "recommended"
-                      ? "No strong recommendations yet"
-                      : hasActive
-                        ? "No opportunities in this view"
-                        : "Start with your next opportunity"
+                    : applicationsOnly
+                      ? "Your selected jobs are in Applications"
+                      : stage === "recommended"
+                        ? "No strong recommendations yet"
+                        : hasActive
+                          ? "No opportunities in this view"
+                          : "Start with your next opportunity"
               }
               detail={
                 hasQuery
                   ? "Try another company, title or skill, or clear your filters to see the jobs in this view."
                   : hasSourceFilter
                     ? "No jobs match this source and work type. Clear filters or change the view."
-                    : stage === "recommended" && hasActive
-                      ? `Recommendations need relevant experience at your ${data.preferences.essentialMatch}% minimum match and no confirmed preference conflict. All saved is ranked by fit, and jobs you are already pursuing stay in Applications.`
-                      : "Search for jobs using your preferences. RoleLoop finds openings and evaluates them against your resume."
+                    : applicationsOnly
+                      ? "Open Applications to prepare documents, track progress and follow up."
+                      : stage === "recommended" && hasActive
+                        ? `Recommendations need relevant experience at your ${data.preferences.essentialMatch}% minimum match and no confirmed preference conflict. All saved is ranked by fit, and jobs you are already pursuing stay in Applications.`
+                        : "Search for jobs using your preferences. RoleLoop finds openings and evaluates them against your resume."
               }
             >
-              {(hasQuery || hasSourceFilter || hasActive) && (
+              {(hasQuery || hasSourceFilter || hasActive || applicationsOnly) && (
                 <button
                   className="button secondary"
                   onClick={() => {
@@ -1621,12 +1634,15 @@ function Opportunities({
                       setSourceFilter("all");
                       setEngagement("all");
                       setVisibleCount(stage === "recommended" ? 10 : 50);
-                    } else changeView("all");
+                    } else if (applicationsOnly) navigate("applications");
+                    else changeView("all");
                   }}
                 >
                   {hasQuery || hasSourceFilter
                     ? "Clear filters"
-                    : "View all saved jobs"}
+                    : applicationsOnly
+                      ? "View applications"
+                      : "View all saved jobs"}
                   <ArrowRight size={15} />
                 </button>
               )}

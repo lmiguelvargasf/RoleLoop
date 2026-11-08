@@ -203,7 +203,7 @@ export function nextRecommendedJobs(
   now = new Date(),
 ): Opportunity[] {
   // A regional copy must not become a new suggestion after its identical
-  // posting was selected. Keep every saved record available in All saved.
+  // posting was selected. Distinct untracked roles remain available in discovery.
   const seen = new Set(
     rankedOpportunities
       .filter((op) => op.kind === "job" && !!op.application)
