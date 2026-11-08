@@ -6,7 +6,7 @@ import {
 import { matchesTargetRole } from "./discovery.js";
 import type { Opportunity, Preferences } from "./types.js";
 
-export const JOB_RECOMMENDATION_RULES_VERSION = 13;
+export const JOB_RECOMMENDATION_RULES_VERSION = 15;
 
 export function credentialCondition(text: string): {
   kind:

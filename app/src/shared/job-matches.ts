@@ -3,10 +3,10 @@ import { matchesTargetRole } from "./discovery.js";
 import { JOB_RECOMMENDATION_RULES_VERSION } from "./job-recommendations.js";
 import type { Opportunity, Preferences } from "./types.js";
 
-export function jobLocationStatus(
+export function jobLocationAssessment(
   opportunity: Opportunity,
   preferences: Preferences,
-): "eligible" | "review" | "excluded" {
+): { status: "eligible" | "review" | "excluded"; reasons: string[] } {
   const geography = opportunity.assessment?.geography;
   // Old or differently scoped assessments never establish current eligibility.
   if (
@@ -17,8 +17,20 @@ export function jobLocationStatus(
     normalizeCountry(geography.workingCountry) !==
       normalizeCountry(preferences.country)
   )
-    return "review";
-  return geography.status;
+    return {
+      status: "review",
+      reasons: [
+        "Hiring eligibility has not been checked for your current working country.",
+      ],
+    };
+  return geography;
+}
+
+export function jobLocationStatus(
+  opportunity: Opportunity,
+  preferences: Preferences,
+): "eligible" | "review" | "excluded" {
+  return jobLocationAssessment(opportunity, preferences).status;
 }
 
 export function isPotentialJobMatch(

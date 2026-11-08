@@ -19,6 +19,59 @@ function assess(description: string, country = "Ecuador", location = "Remote") {
 }
 
 describe("geographic hiring eligibility", () => {
+  it("understands a complete union of regions without inventing authorization uncertainty", () => {
+    const description = "This position is available for candidates based in EMEA, LATAM or North America.";
+    for (const country of ["Ecuador", "Germany"]) {
+      const result = assess(description, country, "Remote");
+      expect(result.status).toBe("eligible");
+      expect(result.unknowns).toEqual([]);
+    }
+    expect(assess(description, "United States").blockers).toEqual([]);
+    expect(assess(description, "Japan").status).toBe("excluded");
+  });
+
+  it("retains a separate timezone check for supported multi-region countries", () => {
+    const result = assessGeography({
+      location: "Remote: Ecuador; Brazil; United States",
+      description: "This position is available for candidates based in EMEA, LATAM or North America.",
+      remoteScope: "unknown",
+      sourceTimezoneRestrictions: [-5],
+    }, "Ecuador");
+    expect(result.status).toBe("review");
+    expect(result.blockers).toEqual([]);
+    expect(result.unknowns).toHaveLength(1);
+    expect(result.unknowns[0]).toContain("UTC offsets");
+  });
+
+  it.each([[-6, -5], [-6, -5, -4]])("accepts source offsets covering all Ecuador locations: %j", (...offsets) => {
+    const result = assessGeography({
+      location: "Remote: Ecuador; Brazil; United States",
+      description: "This position is available for candidates based in EMEA, LATAM or North America.",
+      remoteScope: "unknown",
+      sourceTimezoneRestrictions: offsets,
+    }, "EC");
+    expect(result.status).toBe("eligible");
+    expect(result.unknowns).toEqual([]);
+  });
+
+  it("does not use compatible UTC offsets to bypass country restrictions or missing coverage", () => {
+    const job = {
+      location: "Remote",
+      description: "We can only hire in the United States.",
+      remoteScope: "unknown" as const,
+      sourceTimezoneRestrictions: [-6, -5],
+    };
+    expect(assessGeography(job, "Ecuador").status).toBe("excluded");
+    expect(assessGeography({...job, description: "Build software."}, "Ecuador").status).toBe("review");
+    expect(assessGeography({...job, location: "Remote worldwide", description: "Work remotely worldwide."}, "Germany").status).toBe("review");
+  });
+
+  it("does not treat a partially understood region list as exhaustive", () => {
+    const result = assess("Candidates must be based in EMEA, LATAM or an unlisted region.", "Japan");
+    expect(result.status).toBe("review");
+    expect(result.blockers).toEqual([]);
+  });
+
   it("reviews source timezone restrictions without assuming a timezone from country", () => {
     const job = {
       location: "Remote worldwide", description: "We hire globally.",

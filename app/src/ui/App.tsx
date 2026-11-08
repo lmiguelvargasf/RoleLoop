@@ -80,6 +80,7 @@ import {
   outreachProgressFor,
 } from "../shared/outreach-board";
 import { JobFitDetails } from "./JobFitDetails";
+import { JobHiringLocation, JobLocationDetails } from "./JobLocationDetails";
 import { StartupFitDetails } from "./StartupFitDetails";
 import {
   StartupCompanyOverview,
@@ -871,26 +872,18 @@ function Opportunities({
             <span>{salary(chosen)}</span>
           </div>
         )}
-        {(kind === "job" ||
-          !/^(unknown|location.*confirm)$/i.test(chosen.location.trim())) && (
-          <div>
-            <small>Location</small>
-            <span>{chosen.location}</span>
-          </div>
+        {kind === "job" ? (
+          <JobLocationDetails key={chosen.id} location={chosen.location} />
+        ) : (
+          !/^(unknown|location.*confirm)$/i.test(chosen.location.trim()) && (
+            <div>
+              <small>Location</small>
+              <span>{chosen.location}</span>
+            </div>
+          )
         )}
         {kind === "job" && (
-          <div>
-            <small>
-              Hiring from {data.preferences.country || "your country"}
-            </small>
-            <span>
-              {jobLocationStatus(chosen, data.preferences) === "eligible"
-                ? "Eligible location"
-                : jobLocationStatus(chosen, data.preferences) === "excluded"
-                  ? "Outside hiring area"
-                  : "Needs confirmation"}
-            </span>
-          </div>
+          <JobHiringLocation opportunity={chosen} preferences={data.preferences} />
         )}
         {kind === "startup" && chosen.companyCountry !== "Unknown" && (
           <div>

@@ -34,6 +34,13 @@ const worldwideTimezoneOffsets = [
   4.5, 5, 5.5, 5.75, 6, 6.5, 7, 8, 8.75, 9, 9.5, 10, 10.5, 11, 12, 12.75, 13,
   14,
 ];
+// Complete known country coverage, not a guess at the applicant's time zone.
+// IANA tzdb: America/Guayaquil UTC−05:00 and Pacific/Galapagos UTC−06:00.
+// https://data.iana.org/time-zones/tzdb/southamerica
+// Countries without a verified complete set retain the local-offset check.
+const knownCountryTimezoneOffsets = new Map<string, readonly number[]>([
+  ["ecuador", [-6, -5]],
+]);
 const aliases = new Map<string, string>();
 const countryCodes = new Map<string, string>();
 const labels = new Map<string, string>();
@@ -317,23 +324,20 @@ function listAfter(text: string, start: number): CountryList | null {
     end: mention.end,
     countries: new Set([mention.country]),
   }));
-  // A fully understood list is a union: "US and Europe" never means US
-  // intersected with Europe. Only extend country lists here; standalone region
-  // handling and APAC's deliberately uncertain boundaries remain unchanged.
-  if (countryMentions.length) {
-    for (const match of rest.matchAll(
-      new RegExp(`\\b(?:${regionPattern})\\b`, "gi"),
-    )) {
-      const region = regionKey(match[0]);
-      if (region === "apac") continue;
-      found.push({
-        start: match.index!,
-        end: match.index! + match[0].length,
-        countries: countriesInRegion(region),
-      });
-    }
-    found.sort((a, b) => a.start - b.start);
+  // Fully understood countries and regions form one union, including lists
+  // containing only regions. APAC's uncertain boundaries remain unresolved.
+  for (const match of rest.matchAll(
+    new RegExp(`\\b(?:${regionPattern})\\b`, "gi"),
+  )) {
+    const region = regionKey(match[0]);
+    if (region === "apac") continue;
+    found.push({
+      start: match.index!,
+      end: match.index! + match[0].length,
+      countries: countriesInRegion(region),
+    });
   }
+  found.sort((a, b) => a.start - b.start);
   if (
     !found.length ||
     !/^(?:\s|[:(])*(?:(?:the|either)\s+)?$/i.test(rest.slice(0, found[0].start))
@@ -355,6 +359,8 @@ function listAfter(text: string, start: number): CountryList | null {
   }
   const tail = rest.slice(end);
   if (
+    (!countryMentions.length &&
+      /^\s*(?:,|\/|&|\band\b|\bor\b)\s*\S/i.test(tail)) ||
     /^\s*(?:(?:,|\/|&|\band\b|\bor\b)\s*)+(?:the\s+)?(?:LATAM|Latin America|Americas|AMER|EMEA|Europe|European Union|APAC|Asia Pacific|worldwide|global|anywhere)\b/i.test(
       tail,
     ) ||
@@ -737,8 +743,13 @@ export function assessGeography(
   const blockers: string[] = [],
     unknowns: string[] = [];
   const country = normalizeCountry(workingCountry);
+  const countryOffsets = knownCountryTimezoneOffsets.get(country);
+  const sourceCoversCountryOffsets = countryOffsets?.every((offset) =>
+    job.sourceTimezoneRestrictions?.includes(offset),
+  );
   if (
     job.sourceTimezoneRestrictions?.length &&
+    !sourceCoversCountryOffsets &&
     !worldwideTimezoneOffsets.every((offset) =>
       job.sourceTimezoneRestrictions!.includes(offset),
     )
