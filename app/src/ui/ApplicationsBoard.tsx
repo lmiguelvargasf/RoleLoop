@@ -263,6 +263,7 @@ export function ApplicationsBoard({
                         <button
                           type="button"
                           className="application-card-title"
+                          title={op.title}
                           onClick={() => onSelect(op)}
                         >
                           {op.title}
@@ -270,10 +271,14 @@ export function ApplicationsBoard({
                         <dl className="application-card-metrics">
                           <div className="application-card-salary">
                             <dt>
-                              Salary
+                              <span className="application-card-salary-label">
+                                Salary
+                              </span>
                               {op.salaryCurrency &&
                                 !/^unknown$/i.test(op.salaryCurrency) && (
-                                  <span>{op.salaryCurrency}</span>
+                                  <span className="application-card-currency">
+                                    {op.salaryCurrency}
+                                  </span>
                                 )}
                             </dt>
                             <dd>{formatOpportunitySalary(op)}</dd>

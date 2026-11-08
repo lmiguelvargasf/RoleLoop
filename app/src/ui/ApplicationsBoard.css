@@ -207,7 +207,7 @@
   align-items: baseline;
   gap: 6px;
 }
-.application-card-salary dt span {
+.application-card-currency {
   font-size: 9px;
   letter-spacing: 0.04em;
 }
@@ -379,6 +379,97 @@
 }
 .application-preparation-error a {
   text-decoration: underline;
+}
+@media (min-width: 701px) {
+  .job-applications-page > .page-heading {
+    padding-block: 20px 16px;
+    margin-bottom: 18px;
+  }
+  .applications-board .application-board-toolbar {
+    margin-bottom: 14px;
+  }
+  .applications-board .application-column-heading {
+    padding-block: 10px;
+  }
+  .applications-board .application-column-cards {
+    gap: 6px;
+  }
+  .applications-board .application-card {
+    padding: 9px;
+    border-radius: 7px;
+  }
+  .applications-board .application-card-company {
+    margin-bottom: 2px;
+    font-size: 10px;
+    line-height: 1.4;
+  }
+  .applications-board .application-drag-handle {
+    display: flex;
+  }
+  .applications-board .application-card-title {
+    display: -webkit-box;
+    -webkit-line-clamp: 2;
+    -webkit-box-orient: vertical;
+    overflow: hidden;
+    font-size: 12px;
+    line-height: 1.35;
+  }
+  .application-card-metrics {
+    margin-top: 6px;
+    gap: 4px;
+  }
+  .application-card-salary {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: 6px;
+  }
+  .application-card-salary dt {
+    order: 1;
+    flex-shrink: 0;
+    flex-wrap: wrap;
+    gap: 0 4px;
+  }
+  .application-card-salary-label {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    padding: 0;
+    overflow: hidden;
+    clip-path: inset(50%);
+    white-space: nowrap;
+  }
+  .application-card-salary dd {
+    margin-top: 0;
+    font-size: 12px;
+    line-height: 1.35;
+  }
+  .application-card-fit {
+    gap: 3px 8px;
+  }
+  .application-card-fit dd {
+    font-size: 12px;
+    line-height: 1.35;
+  }
+  .application-card-fit meter {
+    height: 3px;
+  }
+  .applications-board .application-preparation {
+    margin-top: 6px;
+    padding-top: 2px;
+  }
+  .applications-board .application-prepare-button,
+  .applications-board .application-preparing {
+    min-height: 24px;
+    padding-block: 2px;
+    font-size: 10px;
+  }
+  .applications-board .application-next-action {
+    margin-top: 6px;
+  }
+  .applications-board .application-follow-up {
+    margin-top: 6px;
+  }
 }
 @media (max-width: 700px) {
   .application-prepare-button {

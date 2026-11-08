@@ -1152,7 +1152,7 @@ function Opportunities({
   if (board)
     return (
       <section
-        className="page applications-page"
+        className={`page applications-page${kind === "job" ? " job-applications-page" : ""}`}
         aria-labelledby="tracking-title"
       >
         <header className="page-heading">
