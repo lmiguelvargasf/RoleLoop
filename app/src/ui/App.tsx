@@ -47,6 +47,7 @@ import type {
   RunAction,
 } from "../shared/types";
 import { api, date, downloadFile, safeUrl, write } from "./api";
+import { formatOpportunitySalary as salary } from "../shared/salary";
 import { jobLocationStatus } from "../shared/job-matches";
 import { recommendationForJob } from "../shared/job-recommendations";
 import {
@@ -1679,38 +1680,6 @@ function jobNextAction(o: Opportunity, preferences: Preferences) {
   return "Ready to apply";
 }
 
-function salary(o: Opportunity) {
-  if (o.salaryMin === null && o.salaryMax === null) return "Salary to confirm";
-  const currency = o.salaryCurrency || "Unknown";
-  const amount = (n: number | null) => {
-    if (n === null) return "?";
-    try {
-      return new Intl.NumberFormat("en-US", {
-        style: "currency",
-        currency,
-        maximumFractionDigits: 0,
-        notation: n >= 1000 ? "compact" : "standard",
-      }).format(n);
-    } catch {
-      return n.toLocaleString();
-    }
-  };
-  const range =
-    o.salaryMin === null
-      ? `Up to ${amount(o.salaryMax)}`
-      : o.salaryMax === null
-        ? `${amount(o.salaryMin)}+`
-        : o.salaryMin === o.salaryMax
-          ? amount(o.salaryMin)
-          : `${amount(o.salaryMin)}–${amount(o.salaryMax)}`;
-  const formatted =
-    o.salaryPeriod === "unknown"
-      ? `${range} · period unconfirmed`
-      : `${range} / ${o.salaryPeriod}`;
-  return !currency || /^unknown$/i.test(currency)
-    ? `${formatted} · currency unconfirmed`
-    : formatted;
-}
 function NoticeList({
   title,
   items,

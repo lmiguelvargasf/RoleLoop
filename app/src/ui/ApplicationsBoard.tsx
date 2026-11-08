@@ -10,6 +10,8 @@ import {
   type ApplicationStatus,
 } from "../shared/application-board";
 import { followUpDue } from "../shared/discovery";
+import { requiredQualificationFit } from "../shared/job-recommendations";
+import { formatOpportunitySalary } from "../shared/salary";
 import { write } from "./api";
 import { ApplicationPreparation } from "./ApplicationPreparation";
 import "./ApplicationsBoard.css";
@@ -231,6 +233,7 @@ export function ApplicationsBoard({
                   {cards.map((op) => {
                     const progress = op.application!;
                     const due = followUpDue(op, today);
+                    const fit = requiredQualificationFit(op);
                     return (
                       <article
                         key={op.id}
@@ -264,11 +267,44 @@ export function ApplicationsBoard({
                         >
                           {op.title}
                         </button>
-                        {op.location && op.location !== "Unknown" && (
-                          <p className="application-card-location">
-                            {op.location}
-                          </p>
-                        )}
+                        <dl className="application-card-metrics">
+                          <div className="application-card-salary">
+                            <dt>
+                              Salary
+                              {op.salaryCurrency &&
+                                !/^unknown$/i.test(op.salaryCurrency) && (
+                                  <span>{op.salaryCurrency}</span>
+                                )}
+                            </dt>
+                            <dd>{formatOpportunitySalary(op)}</dd>
+                          </div>
+                          <div className="application-card-fit">
+                            <dt>Required match</dt>
+                            <dd
+                              className={
+                                fit.score === null
+                                  ? "application-card-fit-pending"
+                                  : ""
+                              }
+                            >
+                              {fit.score === null
+                                ? fit.fitLabel
+                                : `${Math.round(fit.score)}%`}
+                            </dd>
+                            {fit.score !== null && (
+                              <dd className="application-card-fit-meter">
+                                <meter
+                                  min={0}
+                                  max={100}
+                                  value={fit.score}
+                                  aria-label="Required qualification match"
+                                >
+                                  {Math.round(fit.score)}%
+                                </meter>
+                              </dd>
+                            )}
+                          </div>
+                        </dl>
                         {column.id === "closed" && (
                           <span
                             className={`application-outcome application-outcome-${progress.status}`}

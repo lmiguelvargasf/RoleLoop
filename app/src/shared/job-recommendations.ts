@@ -116,11 +116,10 @@ export type JobRecommendation = {
   preferredScore: number;
 };
 
-/** Shared by server ordering and the browser. Requires no Node-only imports. */
-export function recommendationForJob(
+/** Display only complete, evidence-based required-qualification scores. */
+export function requiredQualificationFit(
   opportunity: Opportunity,
-  preferences: Preferences,
-): JobRecommendation {
+): Pick<JobRecommendation, "score" | "fitLabel"> {
   const assessment = opportunity.assessment;
   const quality = assessment?.fitEvaluation;
   const required = opportunity.requirements.filter(
@@ -144,6 +143,21 @@ export function recommendationForJob(
           : opportunity.requirementsTruncated
             ? "Incomplete requirements"
             : "Needs AI evaluation";
+  return { score, fitLabel };
+}
+
+/** Shared by server ordering and the browser. Requires no Node-only imports. */
+export function recommendationForJob(
+  opportunity: Opportunity,
+  preferences: Preferences,
+): JobRecommendation {
+  const assessment = opportunity.assessment;
+  const quality = assessment?.fitEvaluation;
+  const required = opportunity.requirements.filter(
+    (requirement) => requirement.essential,
+  );
+  const { score, fitLabel } = requiredQualificationFit(opportunity);
+  const complete = score !== null;
   const result: JobRecommendation = {
     recommendable: false,
     reason:
