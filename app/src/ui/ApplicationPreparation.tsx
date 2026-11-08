@@ -10,6 +10,7 @@ export function ApplicationPreparation({
   busy,
   perform,
   onReviewFit,
+  compact = false,
 }: {
   opportunity: Opportunity;
   drafts: Draft[];
@@ -17,6 +18,7 @@ export function ApplicationPreparation({
   busy: boolean;
   perform: (task: () => Promise<unknown>, success?: string) => Promise<boolean>;
   onReviewFit: () => void;
+  compact?: boolean;
 }) {
   if (applicationColumn(opportunity) !== "to_apply") return null;
   const draft = drafts.find((item) => item.opportunityId === opportunity.id);
@@ -63,7 +65,7 @@ export function ApplicationPreparation({
             <FileText size={14} aria-hidden="true" />
             Review application
           </a>
-          {!excluded && (
+          {!excluded && !compact && (
             <button
               type="button"
               className="icon-button"

@@ -52,12 +52,13 @@ Supabase Studio and Mailpit are shared local developer tools. RoleLoop account p
 
 ## Get started
 
-**Today** is the daily starting point. It brings together active conversations,
-interview preparation, due follow-ups, referral introductions, selected
-applications and five recommended opportunities. Its seven-day counters use your
-local calendar and recorded submission, reply, interview and offer milestones;
-closed and archived records retain their outcomes. Record a human reply in
-Application progress to distinguish it from an automatic acknowledgement.
+**Today** is the daily starting point. It shows up to three next actions when
+attention is needed, up to three selected applications and three recommended
+jobs. Empty tracking sections stay hidden. Each suggestion shows the company,
+role, posting age and stated work type/hours; **Review job** opens its full
+details, eligibility checks and application action. Source links remain visible.
+Application documents can be prepared or reviewed directly from Today;
+regeneration and other management controls remain on the Applications board.
 
 Today prioritizes qualified jobs posted within seven days, then eight to fourteen
 days, then older and undated listings, retaining fit order within each group.

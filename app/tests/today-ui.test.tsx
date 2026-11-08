@@ -36,15 +36,16 @@ const data = (
 describe("Today interface", () => {
   it("offers actionable empty states without suggesting an interview probability or arbitrary target", () => {
     const html = renderToStaticMarkup(<TodayPage {...props} data={data()} />);
-    expect(html).toContain("No follow-ups due.");
-    expect(html).toContain("No milestones recorded this week.");
-    expect(html).toContain("No applications waiting.");
-    expect(html).toContain("Open job opportunities");
+    expect(html).not.toContain("Needs attention");
+    expect(html).not.toContain("Last 7 days");
+    expect(html).not.toContain('id="today-applications-title"');
+    expect(html).toContain("No recommended jobs yet.");
+    expect(html).toContain("Browse jobs");
     expect(html).toContain('href="#jobs"');
     expect(html).not.toContain("%");
   });
 
-  it("shows document progress and a next step directly alongside the selected application", () => {
+  it("keeps document preparation status directly alongside a selected application", () => {
     const job = { ...demoOpportunities(now)[0] };
     job.application = {
       ...applicationProgressFor(job, "saved"),
@@ -65,7 +66,7 @@ describe("Today interface", () => {
     const html = renderToStaticMarkup(
       <TodayPage {...props} data={data([job], runs)} />,
     );
-    expect(html).toContain("Review the most relevant achievements");
+    expect(html).toContain("To apply");
     expect(html).toContain("Preparing application…");
     expect(html).toContain('role="status"');
     expect(html).toContain(job.company);
@@ -94,13 +95,38 @@ describe("Today interface", () => {
     expect(html).toContain(
       'href="https://himalayas.app/companies/example/jobs/engineer"',
     );
-    expect(html).toContain("View on Himalayas");
-    expect(html).toContain("Contract · 10–20 h/week");
+    expect(html).toContain("Himalayas");
+    expect(html).toContain("Contract");
+    expect(html).toContain("10–20 h/week");
     expect(html).not.toContain("Full-time");
-    expect(html).toContain("Posting date unknown · source updated");
+    expect(html).toContain("Posting date unconfirmed");
     expect(html).not.toContain("Posted today");
-    expect(html).toContain(
-      "Recent postings first; older and undated matches remain available.",
+    expect(html).toContain("Review job");
+    expect(html).not.toContain("Your experience supports:");
+  });
+
+  it("reveals a due follow-up while leaving future follow-ups on the board", () => {
+    const [first] = demoOpportunities(now);
+    const due = {
+      ...first,
+      application: {
+        ...applicationProgressFor(first, "applied"),
+        followUpOn: "2026-11-06",
+        nextAction: "Ask about the interview schedule",
+      },
+    };
+    const future = {
+      ...due,
+      id: "future",
+      company: "Future company",
+      application: { ...due.application, followUpOn: "2026-11-20" },
+    };
+    const html = renderToStaticMarkup(
+      <TodayPage {...props} data={data([due, future])} />,
     );
+    expect(html).toContain("Needs attention");
+    expect(html).toContain("Ask about the interview schedule");
+    expect(html).toContain("Overdue");
+    expect(html).not.toContain("Future company");
   });
 });
