@@ -106,11 +106,10 @@ describe("job location details", () => {
         />,
       ),
     );
-    expect($(".job-country-eligibility > span").text()).toBe("Location matches the listing");
-    expect($(".job-location-reason").text()).toContain(
-      "The listing includes Ecuador",
-    );
-    expect($(".job-timezone-summary").text()).toBe("Mainland Ecuador time is included");
+    expect($(".job-hiring-summary").text()).toBe("Open to applicants in Ecuador");
+    expect($(".job-hiring-location > p")).toHaveLength(0);
+    expect($(".job-hiring-details").attr("open")).toBeUndefined();
+    expect($(".job-timezone-summary").text()).toBe("Ecuador time is supported");
     expect($.text()).not.toContain("Galápagos");
     expect($.text()).not.toContain("Country-specific work authorization");
   });
@@ -133,7 +132,7 @@ describe("job location details", () => {
         />,
       ),
     );
-    expect($(".job-country-eligibility > span").text()).toBe("Outside the listed hiring area");
+    expect($(".job-hiring-summary").text()).toBe("Not open to applicants in Ecuador");
     expect($(".job-location-reason").text()).toContain("United States");
     expect($.text()).not.toContain("The country is supported");
   });
@@ -158,26 +157,26 @@ describe("job location details", () => {
         />,
       ),
     );
-    expect($(".job-country-eligibility > span").text()).toBe("Check with the employer");
+    expect($(".job-hiring-summary").text()).toBe("Hiring from Ecuador needs confirmation");
     expect($.text()).not.toContain("The country is supported");
-    expect($(".job-timezone-details").attr("open")).toBeUndefined();
-    expect($(".job-timezone-details .job-location-full").text()).toBe(
+    expect($(".job-hiring-details").attr("open")).toBeUndefined();
+    expect($(".job-hiring-details .job-location-full").text()).toBe(
       "UTC−05:00",
     );
-    expect($(".job-country-eligibility > .job-location-reason").text()).not.toContain("UTC");
+    expect($(".job-hiring-evidence > .job-location-reason").text()).not.toContain("UTC");
   });
 
   it.each([
-    [[-5], "Mainland Ecuador time is included"],
-    [[-6, -5], "Mainland Ecuador time is included"],
-    [[-6], "Mainland Ecuador time is not listed"],
-    [[0, 5.5, 5.75], "Mainland Ecuador time is not listed"],
+    [[-5], "Ecuador time is supported"],
+    [[-6, -5], "Ecuador time is supported"],
+    [[-6], "Confirm the time-zone requirement"],
+    [[0, 5.5, 5.75], "Confirm the time-zone requirement"],
     [
       [-11, -10, -9.5, -9, -8, -7, -6, -5, -4, -3.5, -3, -2, -1, 0, 1, 2, 3, 3.5, 4,
         4.5, 5, 5.5, 5.75, 6, 6.5, 7, 8, 8.75, 9, 9.5, 10, 10.5, 11, 12, 12.75, 13, 14],
       "No time-zone restriction listed",
     ],
-  ])("summarizes source time zones %j using mainland Ecuador", (offsets, expected) => {
+  ])("summarizes source time zones %j without extra visible copy", (offsets, expected) => {
     const workspace = demoWorkspace();
     const job = { ...demoOpportunities()[0], sourceTimezoneRestrictions: offsets };
     job.assessment = assessOpportunity(job, workspace.profile, workspace.preferences);
@@ -185,29 +184,32 @@ describe("job location details", () => {
       <JobHiringLocation opportunity={job} preferences={workspace.preferences} />,
     ));
     expect($(".job-timezone-summary").text()).toBe(expected);
-    expect($(".job-timezone-details summary").text()).toBe("View source time zones");
-    expect($(".job-timezone-details").attr("open")).toBeUndefined();
-    expect($.text()).not.toContain("Galápagos");
-    expect($.text()).toContain("working hours");
+    expect($(".job-hiring-details summary").text()).toBe("Location details");
+    expect($(".job-hiring-details").attr("open")).toBeUndefined();
+    expect($.text()).not.toMatch(/mainland|Galápagos/i);
+    expect($(".job-hiring-location > .job-timezone-requirements")).toHaveLength(0);
+    expect($(".job-hiring-summary").text()).toBe(
+      offsets.includes(-5)
+        ? "Open to applicants in Ecuador"
+        : "Ecuador listed · Check time zone",
+    );
     if (offsets.includes(5.75))
       expect($(".job-location-full").text()).toContain("UTC+05:45");
   });
 
-  it("explains compatible location criteria without promising the employer can hire you", () => {
+  it("shows only one short line when the location is compatible", () => {
     const workspace = demoWorkspace();
     const job = demoOpportunities()[0];
     job.assessment = assessOpportunity(job, workspace.profile, workspace.preferences);
     const $ = load(renderToStaticMarkup(
       <JobHiringLocation opportunity={job} preferences={workspace.preferences} />,
     ));
-    expect($(".job-country-eligibility > small").text()).toBe("Can I apply from Ecuador?");
-    expect($(".job-country-eligibility > span").text()).toBe("Location matches the listing");
-    expect($(".job-location-reason").text()).toContain("The listing includes Ecuador.");
-    expect($(".job-location-reason").text()).toContain("Confirm the hiring arrangement");
+    expect($(".job-hiring-location").text()).toBe("Open to applicants in Ecuador");
+    expect($(".job-hiring-location > small, .job-hiring-location > p")).toHaveLength(0);
     expect($(".job-timezone-requirements")).toHaveLength(0);
   });
 
-  it("does not apply the mainland Ecuador summary to another working country", () => {
+  it("does not apply the Ecuador summary to another working country", () => {
     const workspace = demoWorkspace();
     workspace.preferences.country = "Brazil";
     const job = { ...demoOpportunities()[0], sourceTimezoneRestrictions: [-5] };
@@ -215,7 +217,7 @@ describe("job location details", () => {
     const $ = load(renderToStaticMarkup(
       <JobHiringLocation opportunity={job} preferences={workspace.preferences} />,
     ));
-    expect($(".job-country-eligibility > small").text()).toBe("Can I apply from Brazil?");
+    expect($(".job-hiring-summary").text()).toBe("Brazil listed · Check time zone");
     expect($(".job-timezone-summary").text()).toBe("Confirm that your local time zone is included");
     expect($.text()).not.toContain("Ecuador");
   });
@@ -250,8 +252,8 @@ describe("job location details", () => {
           />,
         ),
       );
-      expect($(".job-country-eligibility > span").text()).toBe(
-        "Check with the employer",
+      expect($(".job-hiring-summary").text()).toBe(
+        "Hiring from Ecuador needs confirmation",
       );
       expect($(".job-location-reason").text()).toContain("not been checked");
     }

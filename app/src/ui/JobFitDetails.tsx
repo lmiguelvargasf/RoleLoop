@@ -38,7 +38,10 @@ export function JobFitDetails({
   if (assessment?.recommendation === "excluded" && blockers.length === 0)
     blockers.push("This job does not meet your saved search criteria.");
   const questions = [...new Set(assessment?.unknowns ?? [])].filter(
-    (question) => !blockers.includes(question),
+    (question) =>
+      !blockers.includes(question) &&
+      // Source time-zone limits are already shown in the location summary.
+      !question.includes("specific UTC offsets"),
   );
 
   function requirementMatch(requirement: Opportunity["requirements"][number]) {
