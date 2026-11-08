@@ -1682,6 +1682,7 @@ function Opportunities({
 }
 
 function jobNextAction(o: Opportunity, preferences: Preferences) {
+  if (o.salaryMin !== null || o.salaryMax !== null) return salary(o);
   if (jobLocationStatus(o, preferences) !== "eligible")
     return "Confirm hiring country";
   if (
