@@ -1167,10 +1167,25 @@ async function discoverHimalayas(
               ? "hour"
               : "unknown",
     };
-    const salary =
-      structuredPay.salaryMin !== null || structuredPay.salaryMax !== null
-        ? structuredPay
-        : (publishedSalary(job.title, description) ?? structuredPay);
+    const textPay =
+      structuredPay.salaryMin === null && structuredPay.salaryMax === null
+        ? publishedSalary(job.title, description)
+        : null;
+    // The API can supply currency and period even when amounts exist only in
+    // the description. Retain that metadata when recovering the stated range.
+    const salary = textPay
+      ? {
+          ...textPay,
+          salaryCurrency:
+            structuredPay.salaryCurrency !== "Unknown"
+              ? structuredPay.salaryCurrency
+              : textPay.salaryCurrency,
+          salaryPeriod:
+            textPay.salaryPeriod !== "unknown"
+              ? textPay.salaryPeriod
+              : structuredPay.salaryPeriod,
+        }
+      : structuredPay;
     return base(source, job.guid, {
       company: job.companyName,
       companyCountry: "Unknown",

@@ -69,6 +69,30 @@ describe("direct Himalayas job discovery", () => {
     expect(op.sourceTimezoneRestrictions).toBeUndefined();
   });
 
+  it.each(["USD", "CAD", null])("retains API currency %s when recovering hourly amounts from the description", async (currency) => {
+    vi.useFakeTimers().setSystemTime(now);
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(response([job("text-pay", {
+      description: "Contract | Remote, worldwide | $100-$200/hour depending on experience and location | 10-20 hrs/week",
+      minSalary: null, maxSalary: null, currency, salaryPeriod: "hourly",
+    })])));
+    const [op] = await discover(source, prefs);
+    expect(op).toMatchObject({
+      salaryMin: 100, salaryMax: 200, salaryCurrency: currency ?? "Unknown", salaryPeriod: "hour",
+    });
+  });
+
+  it("uses an API pay period when the text states only an amount", async () => {
+    vi.useFakeTimers().setSystemTime(now);
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(response([job("text-period", {
+      description: "Salary: $3,000-$4,000.",
+      minSalary: null, maxSalary: null, currency: "USD", salaryPeriod: "monthly",
+    })])));
+    const [op] = await discover(source, prefs);
+    expect(op).toMatchObject({
+      salaryMin: 3000, salaryMax: 4000, salaryCurrency: "USD", salaryPeriod: "month",
+    });
+  });
+
   it.each([["Contractor", "contract"], ["Full Time", "full_time"]] as const)("preserves explicit %s metadata without inventing a qualification", async (employmentType, kind) => {
     vi.useFakeTimers().setSystemTime(now);
     vi.stubGlobal("fetch", vi.fn().mockResolvedValue(response([job("engagement", { employmentType })])));
