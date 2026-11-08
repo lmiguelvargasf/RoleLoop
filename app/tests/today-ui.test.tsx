@@ -37,12 +37,58 @@ describe("Today interface", () => {
   it("offers actionable empty states without suggesting an interview probability or arbitrary target", () => {
     const html = renderToStaticMarkup(<TodayPage {...props} data={data()} />);
     expect(html).not.toContain("Needs attention");
-    expect(html).not.toContain("Last 7 days");
+    expect(html).toContain("Last 7 days");
+    expect(html).toContain("Including today");
+    expect(html.match(/<dd>0<\/dd>/g)).toHaveLength(4);
     expect(html).not.toContain('id="today-applications-title"');
     expect(html).toContain("No recommended jobs yet.");
     expect(html).toContain("Browse jobs");
     expect(html).toContain('href="#jobs"');
     expect(html).not.toContain("%");
+  });
+
+  it("shows recorded weekly milestones above the existing workflow, including archived history", () => {
+    const [first] = demoOpportunities(now);
+    const archived: Opportunity = {
+      ...first,
+      stage: "archived",
+      application: {
+        ...applicationProgressFor(first, "offer"),
+        appliedAt: "2026-11-03T12:00:00Z",
+        repliedAt: "2026-11-04T12:00:00Z",
+        interviewAt: "2026-11-05T12:00:00Z",
+        offerAt: "2026-11-06T12:00:00Z",
+      },
+    };
+    const selected = {
+      ...first,
+      id: "selected",
+      application: applicationProgressFor(first, "saved"),
+    };
+    const old = {
+      ...archived,
+      id: "old",
+      application: {
+        ...archived.application!,
+        appliedAt: "2026-10-20T12:00:00Z",
+        repliedAt: null,
+        interviewAt: null,
+        offerAt: null,
+      },
+    };
+    const html = renderToStaticMarkup(
+      <TodayPage {...props} data={data([archived, selected, old])} />,
+    );
+    for (const label of [
+      "Applications submitted",
+      "Replies &amp; conversations",
+      "Reached interview",
+      "Offers received",
+    ]) {
+      expect(html).toContain(`<dt>${label}</dt><dd>1</dd>`);
+    }
+    expect(html.indexOf("Last 7 days")).toBeLessThan(html.indexOf("To apply"));
+    expect(html).toContain("Recommended jobs");
   });
 
   it("keeps document preparation status directly alongside a selected application", () => {

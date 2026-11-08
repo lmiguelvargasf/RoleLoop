@@ -6,6 +6,7 @@ import {
   localDateKey,
   nextRecommendedJobs,
   postingRecency,
+  recentMilestones,
   selectedApplications,
   todayActions,
   type TodayAction,
@@ -57,6 +58,7 @@ export function TodayPage({
     now,
   );
   const today = localDateKey(now);
+  const metrics = recentMilestones(data.opportunities, now);
 
   return (
     <div className="page today-page">
@@ -72,6 +74,31 @@ export function TodayPage({
           <h1>Today</h1>
         </div>
       </header>
+
+      <section className="today-outcomes" aria-labelledby="today-outcomes-title">
+        <div className="today-outcomes-heading">
+          <h2 id="today-outcomes-title">Last 7 days</h2>
+          <span>Including today</span>
+        </div>
+        <dl className="today-metrics">
+          <div>
+            <dt>Applications submitted</dt>
+            <dd>{metrics.submitted}</dd>
+          </div>
+          <div>
+            <dt>Replies &amp; conversations</dt>
+            <dd>{metrics.replies}</dd>
+          </div>
+          <div>
+            <dt>Reached interview</dt>
+            <dd>{metrics.interviews}</dd>
+          </div>
+          <div>
+            <dt>Offers received</dt>
+            <dd>{metrics.offers}</dd>
+          </div>
+        </dl>
+      </section>
 
       {actions.length > 0 && (
         <section
