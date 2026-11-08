@@ -124,6 +124,7 @@ export const SourceSchema = z.object({
     "seedcamp",
     "jobicy",
     "weworkremotely",
+    "himalayas",
   ]),
   label: z.string(),
   board: z.string(),
@@ -226,6 +227,9 @@ export const OpportunitySchema = z.object({
     .nullable()
     .default(null),
   sourceExpiresAt: z.string().datetime().optional(),
+  sourceAttributionUrl: z.string().url().max(2000).optional(),
+  sourceUpdatedAt: z.string().datetime().optional(),
+  sourceTimezoneRestrictions: z.array(z.number().min(-12).max(14)).optional(),
   firstSeenAt: z.string(),
   updatedAt: z.string(),
   requirements: z.array(RequirementSchema).default([]),
@@ -277,6 +281,24 @@ export const OpportunitySchema = z.object({
       appliedAt: z.string().datetime().nullable().default(null),
       interviewAt: z.string().datetime().nullable().optional(),
       offerAt: z.string().datetime().nullable().optional(),
+      repliedAt: z.string().datetime().nullable().optional(),
+      lastContactAt: z.string().datetime().nullable().optional(),
+      contactName: z.string().max(200).optional(),
+      contactUrl: z
+        .string()
+        .max(2000)
+        .refine(
+          (value) =>
+            !value || (/^https?:\/\//i.test(value) && URL.canParse(value)),
+          "Use an http or https contact link",
+        )
+        .optional(),
+      channel: z
+        .enum(["direct", "referral", "recruiter", "community"])
+        .optional(),
+      referralStatus: z
+        .enum(["none", "to_ask", "requested", "received"])
+        .optional(),
       nextAction: z.string().max(1000).default(""),
       followUpOn: z
         .string()

@@ -92,7 +92,6 @@ describe("published salary text", () => {
       "Annual salary depends on experience.\nBenefits: USD 1,000 monthly reimbursement.",
     ],
     ["Engineer", "Compensation: USD 150,000/year including commission"],
-    ["Engineer", "Salary: $90,000-$120,000 per year"],
     ["Engineer", "Annual revenue: USD 5,000,000.\nTeam budget: USD 200,000."],
   ])(
     "does not turn ambiguous or unrelated amounts into base salary: %s / %s",
@@ -100,6 +99,31 @@ describe("published salary text", () => {
       expect(publishedSalary(title, description)).toBeNull();
     },
   );
+
+  it.each([
+    "Contract | Remote, worldwide | $100-$200/hour depending on experience and location | 10-20 hrs/week",
+    "Rate: $100-$200/hour depending on experience and location",
+  ])("preserves hourly contract pay without inventing its currency: %s", (description) => {
+    expect(publishedSalary("Senior Software Engineer, AI Training", description)).toEqual({
+      salaryMin: 100,
+      salaryMax: 200,
+      salaryCurrency: "Unknown",
+      salaryPeriod: "hour",
+    });
+  });
+
+  it("retains a dollar-denominated annual range with unknown currency", () => {
+    expect(publishedSalary("Engineer", "Salary: $90,000-$120,000 per year")).toEqual({
+      salaryMin: 90000,
+      salaryMax: 120000,
+      salaryCurrency: "Unknown",
+      salaryPeriod: "year",
+    });
+  });
+
+  it("does not interpret a published customer rate as employee pay", () => {
+    expect(publishedSalary("Engineer", "Customer subscription rate: $100/hour.")).toBeNull();
+  });
 
   it("extracts an explicit base component separately from bonus or OTE", () => {
     expect(

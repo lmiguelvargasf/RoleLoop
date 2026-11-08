@@ -6,6 +6,7 @@ export const jobSourceLabels = {
   lever: "Lever",
   jobicy: "Jobicy",
   weworkremotely: "We Work Remotely",
+  himalayas: "Himalayas",
   hackernews: "Hacker News",
   seedcamp: "Seedcamp",
   manual: "Manual entry",

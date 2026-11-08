@@ -54,6 +54,9 @@ export const opportunityFingerprint = (op: Opportunity) =>
     companyCountry: op.companyCountry,
     remoteScope: op.remoteScope,
     location: op.location,
+    ...(op.sourceTimezoneRestrictions?.length
+      ? { sourceTimezoneRestrictions: op.sourceTimezoneRestrictions }
+      : {}),
     salaryMin: op.salaryMin,
     salaryMax: op.salaryMax,
     salaryCurrency: op.salaryCurrency,

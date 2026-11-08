@@ -3,6 +3,7 @@ import {
   applicationColumn,
   applicationProgressFor,
   isTrackedApplication,
+  submittedApplicationProgress,
   type ApplicationStatus,
 } from "../src/shared/application-board.js";
 import { assessOpportunity } from "../src/domain/rules.js";
@@ -12,6 +13,26 @@ import { demoOpportunities, demoWorkspace } from "./fixtures.js";
 const job = () => demoOpportunities()[0];
 
 describe("application board membership and moves", () => {
+  it("suggests a calendar follow-up without replacing contact or referral history", () => {
+    const original = job();
+    original.application = {
+      ...applicationProgressFor(original, "saved"),
+      contactName: "Former colleague",
+      channel: "referral",
+      referralStatus: "received",
+      repliedAt: "2026-10-30T15:00:00Z",
+    };
+    const now = new Date(2026, 10, 1, 12);
+    const submitted = submittedApplicationProgress(original, now);
+    expect(submitted.status).toBe("applied");
+    expect(submitted.followUpOn).toBe("2026-11-08");
+    expect(submitted.appliedAt).toBe(now.toISOString());
+    expect(submitted.contactName).toBe("Former colleague");
+    expect(submitted.referralStatus).toBe("received");
+    expect(submitted.repliedAt).toBe(original.application.repliedAt);
+    original.application = { ...submitted, followUpOn: "2026-11-15", nextAction: "Discuss team fit" };
+    expect(submittedApplicationProgress(original, new Date(2026, 10, 2))).toEqual(original.application);
+  });
   it("keeps discovered jobs off the board until explicitly selected", () => {
     const discovered = job();
     expect(discovered.application).toBeUndefined();

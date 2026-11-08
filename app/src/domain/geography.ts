@@ -4,7 +4,7 @@ type GeographicJob = Pick<
   Opportunity,
   "location" | "description" | "remoteScope"
 > &
-  Partial<Pick<Opportunity, "title">>;
+  Partial<Pick<Opportunity, "title" | "sourceTimezoneRestrictions">>;
 export type GeographyAssessment = {
   status: "eligible" | "review" | "excluded";
   blockers: string[];
@@ -27,6 +27,13 @@ const fold = (value: string) =>
     .replace(/[’‘]/g, "'")
     .trim();
 const countryNames = new Intl.DisplayNames(["en"], { type: "region" });
+// Himalayas' documented unrestricted offset set. A narrower set establishes a
+// location constraint, but a country alone cannot resolve a person's timezone.
+const worldwideTimezoneOffsets = [
+  -11, -10, -9.5, -9, -8, -7, -6, -5, -4, -3.5, -3, -2, -1, 0, 1, 2, 3, 3.5, 4,
+  4.5, 5, 5.5, 5.75, 6, 6.5, 7, 8, 8.75, 9, 9.5, 10, 10.5, 11, 12, 12.75, 13,
+  14,
+];
 const aliases = new Map<string, string>();
 const countryCodes = new Map<string, string>();
 const labels = new Map<string, string>();
@@ -366,11 +373,13 @@ function listAfter(text: string, start: number): CountryList | null {
 
 const negated = (before: string) => {
   const prefix = before.replace(/\(\s*$/, " ");
-  return /\b(?:not|never|no|no longer|cannot|can't|unable to)\s+(?:only\s+)?(?:\w+\s+){0,2}$/i.test(
-    prefix,
-  ) ||
-  /\b(?:no need to|not required to|do not need to|don't need to)\s*$/i.test(
-    prefix,
+  return (
+    /\b(?:not|never|no|no longer|cannot|can't|unable to)\s+(?:only\s+)?(?:\w+\s+){0,2}$/i.test(
+      prefix,
+    ) ||
+    /\b(?:no need to|not required to|do not need to|don't need to)\s*$/i.test(
+      prefix,
+    )
   );
 };
 const incidental = (text: string) =>
@@ -391,16 +400,31 @@ function restrictions(text: string, postingText: string) {
   let ambiguousLists = false;
   let timezone = false;
   // Keep dotted country abbreviations intact before splitting sentences.
-  const cleanProse = (value: string) => value
-    .replace(/\bU\.S\.(?:A\.)?/gi, "US")
-    .replace(/\bU\.K\./gi, "UK");
+  const cleanProse = (value: string) =>
+    value.replace(/\bU\.S\.(?:A\.)?/gi, "US").replace(/\bU\.K\./gi, "UK");
   const clean = cleanProse(text);
   const postingClauses = new Set(
-    cleanProse(postingText).split(/[\n.!?;]+/).map((clause) => clause.trim()),
+    cleanProse(postingText)
+      .split(/[\n.!?;]+/)
+      .map((clause) => clause.trim()),
   );
   for (const raw of clean.split(/[\n.!?;]+/)) {
     const clause = raw.trim();
     if (!clause) continue;
+    // A worldwide feed label is not permission when the employer/client has
+    // an unstated country allowlist. Check before incidental company prose.
+    if (
+      (/\b(?:eligibility|ability to hire)\b.{0,60}\b(?:var(?:y|ies)|depend\w*|subject)\b.{0,60}\b(?:location|countr\w*|regions?)\b/i.test(
+        clause,
+      ) ||
+        /\b(?:some|certain|selected)\s+(?:countries|regions|locations)\b.{0,40}\b(?:not (?:be )?supported|unavailable|ineligible|excluded)\b/i.test(
+          clause,
+        )) &&
+      !/\b(?:benefits?|insurance|pension|bonus|allowance|stipend)\b/i.test(
+        clause,
+      )
+    )
+      unclear = true;
     const ignoreScope = () => {
       if (mentions(clause).some((value) => value.country === "united states"))
         ignoredScopes.add("us");
@@ -489,7 +513,19 @@ function restrictions(text: string, postingText: string) {
       /\b(?:(?:(?:must|need to|have to|are required to)\s+(?:be\s+)?(?:based|located|reside|residing|live|living|work|working|(?:a\s+)?resident)\s+(?:in|from|within|of))|(?:(?:hire|hiring|recruiting|accepting (?:applications|candidates|applicants))\s+(?:only\s+)?(?:(?:candidates?|applicants?|people|residents?)\s+)?(?:(?:based|located|residing)\s+)?(?:in|from))|(?:(?:this\s+)?(?:role|position|job|opportunity)\s+(?:is\s+)?(?:only\s+)?(?:open|available|restricted|limited)\s+(?:only\s+)?(?:to|in|for)\s+(?:(?:candidates?|applicants?|people|residents?)\s+)?(?:(?:based|located|residing)\s+)?(?:(?:in|from|of)\s+)?)|(?:(?:eligible|permitted|allowed|supported|hiring)\s+(?:countries|locations)\s*:)|(?:(?:work|duties|services)\s+must\s+be\s+(?:performed|done|carried out)\s+(?:in|from|within))|(?:(?:this\s+)?(?:role|position|job)\s+(?:is\s+)?(?:based|located)\s+(?:in|within|out of))|(?:(?:candidates?|applicants?|you)\s+(?:may|can|will)\s+(?:work|be based|reside|live)\s+(?:in|from))|(?:(?:work(?:\s+remotely)?|remote)\s+(?:from\s+)?anywhere\s+(?:in|within|across|throughout))|(?:(?:remote|remotely)\s+(?:within|in|from)))\s*/gi;
     for (const match of clause.matchAll(positive)) {
       const before = clause.slice(0, match.index!);
-      const list = listAfter(clause, match.index! + match[0].length);
+      const locationStart = match.index! + match[0].length;
+      const timezoneBeforeCountry = clause
+        .slice(locationStart)
+        .match(
+          /^(?:the\s+)?[A-Z][A-Z0-9+/: -]{0,25}?\s+time\s*zone\s+(?:in|within)\s+(?:the\s+)?/i,
+        );
+      // "Hire candidates based in the ET timezone in the US" restricts both
+      // residence and hours. "Work US hours" alone does not restrict residence.
+      const list = listAfter(
+        clause,
+        locationStart + (timezoneBeforeCountry?.[0].length ?? 0),
+      );
+      if (timezoneBeforeCountry) timezone = true;
       if (negated(before)) {
         if (list)
           for (const country of list.countries) negatedCountries.add(country);
@@ -529,7 +565,9 @@ function restrictions(text: string, postingText: string) {
         }
         if (
           list &&
-          /^\s*\)?\s*(?:or|and)\s+(?:fully\s+)?remote\b/i.test(clause.slice(list.end))
+          /^\s*\)?\s*(?:or|and)\s+(?:fully\s+)?remote\b/i.test(
+            clause.slice(list.end),
+          )
         ) {
           ambiguousLists = true;
           continue;
@@ -638,9 +676,9 @@ function worldwideRemote(clause: string): boolean {
   );
   return Boolean(
     coverage &&
-    !/\b(?:not|never|no|no longer|cannot|can't|unable to)\s+(?:\w+\s+){0,2}$/i.test(
-      clause.slice(0, coverage.index),
-    ),
+      !/\b(?:not|never|no|no longer|cannot|can't|unable to)\s+(?:\w+\s+){0,2}$/i.test(
+        clause.slice(0, coverage.index),
+      ),
   );
 }
 
@@ -699,6 +737,15 @@ export function assessGeography(
   const blockers: string[] = [],
     unknowns: string[] = [];
   const country = normalizeCountry(workingCountry);
+  if (
+    job.sourceTimezoneRestrictions?.length &&
+    !worldwideTimezoneOffsets.every((offset) =>
+      job.sourceTimezoneRestrictions!.includes(offset),
+    )
+  )
+    unknowns.push(
+      "The source restricts candidates to specific UTC offsets. Confirm that your actual work location is included; country alone does not establish timezone eligibility.",
+    );
   if (!country) unknowns.push("Your working country is missing.");
   else if (!labels.has(country))
     unknowns.push(

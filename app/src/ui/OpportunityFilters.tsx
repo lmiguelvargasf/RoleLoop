@@ -8,12 +8,18 @@ export function OpportunityFilters({
   source,
   sourceOptions,
   onSourceChange,
+  engagement = "all",
+  onEngagementChange,
 }: {
   view: OpportunityView;
   onViewChange: (view: OpportunityView) => void;
   source: JobSourceFilter;
   sourceOptions: { value: JobSourceFilter; label: string }[];
   onSourceChange: (source: JobSourceFilter) => void;
+  engagement?: "all" | "full_time" | "flexible" | "unknown";
+  onEngagementChange?: (
+    value: "all" | "full_time" | "flexible" | "unknown",
+  ) => void;
 }) {
   return (
     <div className="job-list-filters">
@@ -29,6 +35,21 @@ export function OpportunityFilters({
           ]}
         />
       </div>
+      {onEngagementChange && (
+        <div className="job-view-select">
+          <SelectField
+            label="Work type"
+            value={engagement}
+            onChange={onEngagementChange}
+            options={[
+              { value: "all", label: "All work types" },
+              { value: "full_time", label: "Full-time employment" },
+              { value: "flexible", label: "Contracts & part-time" },
+              { value: "unknown", label: "Type not stated" },
+            ]}
+          />
+        </div>
+      )}
       <div className="job-view-select">
         <SelectField<JobSourceFilter>
           label="Job source"

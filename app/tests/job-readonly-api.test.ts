@@ -8,6 +8,9 @@ import { buildServer } from "../src/server/index.js";
 const mocks = vi.hoisted(() => ({
   store: {
     get: vi.fn(),
+    saveDerivedOpportunity: vi.fn(
+      async (_original: unknown, value: unknown) => value,
+    ),
     save: vi.fn(async (_table: string, value: unknown) => value),
     getWorkspace: vi.fn(),
     saveStartupWithCorrections: vi.fn(async (value: unknown) => value),
@@ -41,6 +44,9 @@ describe("read-only job facts through the API", () => {
 
   beforeEach(async () => {
     vi.clearAllMocks();
+    mocks.store.saveDerivedOpportunity.mockImplementation(
+      async (_original: unknown, value: unknown) => value,
+    );
     job = {
       ...demoOpportunities()[0],
       stage: "approved",
@@ -137,6 +143,116 @@ describe("read-only job facts through the API", () => {
     expect(job.application?.offerAt).toBeTruthy();
     expect(mocks.analyze).not.toHaveBeenCalled();
     expect(mocks.store.setRuntime).not.toHaveBeenCalled();
+  });
+
+  it("preserves referral and reply history on partial application updates", async () => {
+    job.application = {
+      ...applicationProgressFor(job, "saved"),
+      contactName: "Former colleague",
+      contactUrl: "https://example.com/contact",
+      channel: "referral",
+      referralStatus: "received",
+      repliedAt: "2026-11-06T15:00:00Z",
+      notes: "Introduced to hiring manager",
+      followUpOn: "2026-11-15",
+    };
+    const response = await patch(app, job.id, {
+      application: { status: "applied" },
+    });
+    expect(response.statusCode, response.body).toBe(200);
+    const saved = response.json<Opportunity>();
+    expect(saved.application).toMatchObject({
+      ...job.application,
+      status: "applied",
+      appliedAt: expect.any(String),
+    });
+    job = saved;
+    const clear = await patch(app, job.id, {
+      application: { repliedAt: null, referralStatus: "none" },
+    });
+    expect(clear.statusCode, clear.body).toBe(200);
+    expect(clear.json().application).toMatchObject({
+      status: "applied",
+      repliedAt: null,
+      referralStatus: "none",
+      contactName: "Former colleague",
+    });
+  });
+
+  it("rejects unsafe contact URLs without changing tracking", async () => {
+    const response = await patch(app, job.id, {
+      application: { contactUrl: "javascript:alert(1)" },
+    });
+    expect(response.statusCode).toBe(400);
+    expect(mocks.store.save).not.toHaveBeenCalled();
+  });
+
+  it("preserves a concurrent source closure and omitted contact history while saving progress", async () => {
+    job.application = applicationProgressFor(job, "saved");
+    const refreshed: Opportunity = {
+      ...job,
+      description: "The refreshed employer description",
+      sourceExpiresAt: "2026-11-07T15:00:00Z",
+      sourceUpdatedAt: "2026-11-07T15:00:00Z",
+      updatedAt: new Date(Date.parse(job.updatedAt) + 1).toISOString(),
+      application: {
+        ...job.application,
+        contactName: "Contact from another tab",
+        referralStatus: "received",
+        repliedAt: "2026-11-06T15:00:00Z",
+        notes: "Concurrent recruiter notes",
+      },
+    };
+    mocks.store.saveDerivedOpportunity.mockResolvedValueOnce(refreshed);
+    const response = await patch(app, job.id, {
+      application: {
+        status: "applied",
+        nextAction: "Ask about interview timing",
+      },
+    });
+    expect(response.statusCode, response.body).toBe(200);
+    expect(response.json()).toMatchObject({
+      description: refreshed.description,
+      sourceExpiresAt: refreshed.sourceExpiresAt,
+      sourceUpdatedAt: refreshed.sourceUpdatedAt,
+      application: {
+        ...refreshed.application,
+        status: "applied",
+        appliedAt: expect.any(String),
+        nextAction: "Ask about interview timing",
+      },
+    });
+    expect(mocks.store.saveDerivedOpportunity).toHaveBeenCalledTimes(2);
+    expect(mocks.store.saveDerivedOpportunity.mock.calls[1][0]).toEqual(
+      refreshed,
+    );
+    expect(mocks.store.save).not.toHaveBeenCalled();
+    expect(mocks.recordOpportunityChanges).toHaveBeenCalledTimes(1);
+    expect(mocks.analyze).not.toHaveBeenCalled();
+  });
+
+  it("does not recreate an application whose opportunity was removed while saving", async () => {
+    mocks.store.saveDerivedOpportunity.mockResolvedValueOnce(null);
+    const response = await patch(app, job.id, {
+      application: { status: "applied" },
+    });
+    expect(response.statusCode, response.body).toBe(404);
+    expect(mocks.store.save).not.toHaveBeenCalled();
+    expect(mocks.recordOpportunityChanges).not.toHaveBeenCalled();
+  });
+
+  it("returns a conflict instead of overwriting a continuously changing opportunity", async () => {
+    mocks.store.saveDerivedOpportunity.mockImplementation(async () => ({
+      ...job,
+      notes: "Another update",
+    }));
+    const response = await patch(app, job.id, {
+      application: { status: "applied" },
+    });
+    expect(response.statusCode, response.body).toBe(409);
+    expect(mocks.store.saveDerivedOpportunity).toHaveBeenCalledTimes(5);
+    expect(mocks.store.save).not.toHaveBeenCalled();
+    expect(mocks.recordOpportunityChanges).not.toHaveBeenCalled();
   });
 
   it.each([

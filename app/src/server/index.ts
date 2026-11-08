@@ -439,16 +439,29 @@ export async function buildServer() {
         ...patch,
         updatedAt: new Date().toISOString(),
       });
-      if (patch.application) {
-        const previous = existing.application;
-        const status = patch.application.status;
-        saved.application = {
-          ...patch.application,
+      const applicationUpdate = (current: typeof existing) => {
+        const previous = current.application;
+        const supplied = (req.body as { application: Record<string, unknown> })
+          .application;
+        const changes = Object.fromEntries(
+          Object.keys(supplied)
+            .filter((key) => Object.hasOwn(patch.application!, key))
+            .map((key) => [
+              key,
+              patch.application![key as keyof typeof patch.application],
+            ]),
+        );
+        const next = OpportunitySchema.shape.application
+          .unwrap()
+          .parse({ ...previous, ...changes });
+        const status = next.status;
+        return {
+          ...next,
           appliedAt:
             previous?.appliedAt ??
             (["applied", "interview", "offer"].includes(status)
               ? new Date().toISOString()
-              : patch.application.appliedAt),
+              : next.appliedAt),
           interviewAt:
             previous?.interviewAt ??
             (status === "interview" ? new Date().toISOString() : null),
@@ -456,7 +469,8 @@ export async function buildServer() {
             previous?.offerAt ??
             (status === "offer" ? new Date().toISOString() : null),
         };
-      }
+      };
+      if (patch.application) saved.application = applicationUpdate(existing);
       // Apply only supplied fields to the latest state, including after a
       // concurrent website refresh. Defaults must not clear saved board notes.
       const outreachUpdate = (current: typeof existing) => {
@@ -537,14 +551,49 @@ export async function buildServer() {
           { statusCode: 409 },
         );
       }
-      if (Object.keys(patch).every((key) => key === "application")) {
-        await requestStore(req).save("opportunities", saved);
-        await service.recordOpportunityChanges(
-          requestStore(req),
-          existing,
-          saved,
+      if (
+        patch.application &&
+        Object.keys(patch).every((key) => key === "application")
+      ) {
+        // A worker can refresh a listing or mark its source closed while a
+        // progress form is being saved. Retry only the supplied progress fields
+        // against that current record, preserving source facts and other notes.
+        let current = existing;
+        for (let attempt = 0; attempt < 5; attempt++) {
+          const next = OpportunitySchema.parse({
+            ...current,
+            application: applicationUpdate(current),
+            updatedAt: new Date(
+              Math.max(Date.now(), Date.parse(current.updatedAt) + 1),
+            ).toISOString(),
+          });
+          const result = await requestStore(req).saveDerivedOpportunity(
+            current,
+            next,
+          );
+          if (!result)
+            throw Object.assign(new Error("This job was removed."), {
+              statusCode: 404,
+            });
+          if (
+            isDeepStrictEqual(
+              JSON.parse(JSON.stringify(result)),
+              JSON.parse(JSON.stringify(next)),
+            )
+          ) {
+            await service.recordOpportunityChanges(
+              requestStore(req),
+              current,
+              result,
+            );
+            return result;
+          }
+          current = result;
+        }
+        throw Object.assign(
+          new Error("This job changed while saving. Please try again."),
+          { statusCode: 409 },
         );
-        return saved;
       }
       const {
         stage: _stage,

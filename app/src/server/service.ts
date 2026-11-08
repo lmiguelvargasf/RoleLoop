@@ -52,6 +52,7 @@ import {
   outreachOutcomeLabels,
 } from "../shared/outreach-board.js";
 import { discoverEmployerBoards } from "../domain/employer-discovery.js";
+import { himalayasJobStatus } from "../domain/himalayas.js";
 import {
   researchAndSaveOpportunity,
   STARTUP_RESEARCH_LIMIT,
@@ -872,6 +873,7 @@ export async function processRun(
       );
       const before = imported;
       let found = 0;
+      let statusCheckError = "";
       try {
         let opportunities: Opportunity[];
         const verified = discoveredJobs.get(source.id);
@@ -886,6 +888,129 @@ export async function processRun(
               : "Unknown",
             companyCountrySource: source.countrySource,
           }));
+        } else if (source.provider === "himalayas") {
+          const previousJobs = (await store.listAllOpportunities())
+            .filter(
+              (op) =>
+                op.sourceId === source.id &&
+                op.sourceKey.startsWith("himalayas:"),
+            )
+            .sort((a, b) => a.id.localeCompare(b.id));
+          // Recheck historical expiry as well: employers can renew the same URL.
+          const activeJobs = previousJobs.filter(
+            (op) => op.stage !== "archived",
+          );
+          const checkedStatuses = new Map<
+            string,
+            Awaited<ReturnType<typeof himalayasJobStatus>>
+          >();
+          const closedKeys = new Set(
+            previousJobs
+              .filter(
+                (op) =>
+                  op.sourceExpiresAt &&
+                  Date.parse(op.sourceExpiresAt) <= Date.now(),
+              )
+              .map((op) => op.sourceKey),
+          );
+          const statusCursorKey = `himalayas-status-offset:${source.id}`;
+          const savedStatusOffset = await store.runtime<{ offset: number }>(
+            statusCursorKey,
+          );
+          const statusOffset =
+            Number.isSafeInteger(savedStatusOffset?.offset) &&
+            savedStatusOffset!.offset >= 0
+              ? savedStatusOffset!.offset
+              : 0;
+          // Check a rotating, bounded group of saved jobs; absence from a query
+          // never proves closure. Paused sources never reach this branch.
+          for (
+            let index = 0;
+            index < Math.min(20, activeJobs.length);
+            index++
+          ) {
+            const op = activeJobs[(statusOffset + index) % activeJobs.length];
+            try {
+              const status = await himalayasJobStatus(
+                op.sourceAttributionUrl ??
+                  op.sourceKey.slice("himalayas:".length),
+                {
+                  cache: { get: getGlobalRuntime, set: setGlobalRuntime },
+                  apiKey: settings.himalayasApiKey,
+                },
+              );
+              checkedStatuses.set(op.sourceKey, status);
+              if (status.status === "closed") closedKeys.add(op.sourceKey);
+              else if (status.status === "open")
+                closedKeys.delete(op.sourceKey);
+              if (status.status !== "unknown") {
+                const expiresAt =
+                  status.status === "closed"
+                    ? (status.expiresAt ?? status.checkedAt)
+                    : status.expiresAt;
+                let current = op;
+                for (let attempt = 0; attempt < 3; attempt++) {
+                  if (current.sourceExpiresAt === expiresAt) break;
+                  const facts = { ...current, sourceExpiresAt: expiresAt };
+                  const next = {
+                    ...assessedOpportunity(
+                      facts,
+                      localAssessment(facts, workspace, true),
+                    ),
+                    updatedAt: new Date(
+                      Math.max(Date.now(), Date.parse(current.updatedAt) + 1),
+                    ).toISOString(),
+                  };
+                  const saved = await store.saveDerivedOpportunity(
+                    current,
+                    next,
+                  );
+                  if (!saved || saved.sourceExpiresAt === expiresAt) break;
+                  // A progress edit won the CAS. Retry only the source status,
+                  // retaining the latest application history and job content.
+                  current = saved;
+                  if (attempt === 2)
+                    throw new Error(
+                      "A saved listing changed repeatedly while updating its status. Retry the search.",
+                    );
+                }
+              }
+            } catch (error) {
+              statusCheckError = `Some saved Himalayas listings could not be checked for closure: ${error instanceof Error ? error.message : "Status check failed."}`;
+              break;
+            }
+          }
+          await store.setRuntime(statusCursorKey, {
+            offset: (statusOffset + 20) % Math.max(1, activeJobs.length),
+          });
+          const cursorKey = `himalayas-role-offset:${source.id}`;
+          const savedRoleOffset = await store.runtime<{ offset: number }>(
+            cursorKey,
+          );
+          const roleOffset =
+            Number.isSafeInteger(savedRoleOffset?.offset) &&
+            savedRoleOffset!.offset >= 0
+              ? savedRoleOffset!.offset
+              : 0;
+          opportunities = await discover(source, workspace.preferences, {
+            cache: { get: getGlobalRuntime, set: setGlobalRuntime },
+            apiKey: settings.himalayasApiKey,
+            roleOffset,
+          });
+          await store.setRuntime(cursorKey, {
+            offset:
+              (roleOffset + 3) %
+              Math.max(1, workspace.preferences.roles.length),
+          });
+          opportunities = freshFeedRecords(opportunities, source.id)
+            .filter((op) => !closedKeys.has(op.sourceKey))
+            .map((op) => {
+              const status = checkedStatuses.get(op.sourceKey);
+              // A current detail response outranks the daily cached search feed.
+              return status?.status === "open"
+                ? { ...op, sourceExpiresAt: status.expiresAt }
+                : op;
+            });
         } else if (sourceKind(source) === "job_feed") {
           const feedCacheKey = `${source.provider}-feed-v1`;
           const cached = await getGlobalRuntime<{
@@ -1071,6 +1196,7 @@ export async function processRun(
           (result) => result.status === "rejected",
         );
         if (rejected?.status === "rejected") throw rejected.reason;
+        if (statusCheckError) throw new Error(statusCheckError);
         await recordHealth(source.id, {
           checkedAt: new Date().toISOString(),
           status: "success",

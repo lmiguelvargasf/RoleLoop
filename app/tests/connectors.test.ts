@@ -184,6 +184,32 @@ describe("source normalization", () => {
     expect(remoteScope("Remote worldwide")).toBe("worldwide");
     expect(remoteScope("Remote, US only")).toBe("us");
   });
+
+  it.each([
+    "Must have production Python experience.",
+    "Must-have Python skills and production experience.",
+  ])("preserves unheaded mandatory qualifications: %s", (description) => {
+    expect(extractRequirements(description)).toMatchObject([
+      { text: description, essential: true, hard: true, skills: ["Python"] },
+    ]);
+  });
+
+  it("does not score corporate essential tools or must-buy marketing as qualifications", () => {
+    const req = extractRequirements([
+      "## Who we are",
+      "Designed to look striking, Typeform drives 500 million responses every year—and integrates with essential tools like Slack, Zapier, and Hubspot.",
+      "Moving forward, we will be doubling down on Video Ads, with the goal of becoming an industry leader and a ‘must buy’ for advertisers.",
+      "## Requirements",
+      "Strong Python and software engineering skills.",
+      "At least four years building and deploying AI systems in production.",
+    ].join("\n"));
+    expect(req.map((r) => r.text)).toEqual([
+      "Strong Python and software engineering skills.",
+      "At least four years building and deploying AI systems in production.",
+    ]);
+    expect(extractRequirements("Minimum 3 years of Python experience. Strong communication skills are required.")).toHaveLength(2);
+    expect(extractRequirements("Production Python experience is essential.")).toHaveLength(1);
+  });
 });
 describe("research network boundaries", () => {
   it.each([

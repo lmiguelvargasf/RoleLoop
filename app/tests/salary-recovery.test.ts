@@ -149,14 +149,18 @@ describe("saved salary recovery", () => {
     expect(result.assessment?.fitEvaluation?.method).toBe("semantic");
   });
 
-  it("checks ambiguous and missing salary once without inventing amounts", async () => {
+  it("recovers explicit amounts while keeping ambiguous currency and missing pay unknown", async () => {
     const t = setup();
-    t.job({ description: "Salary: $90,000–$120,000 per year." });
-    t.job({ description: "Salary depends on experience." });
+    const dollars = t.job({ description: "Salary: $90,000–$120,000 per year." });
+    const missing = t.job({ description: "Salary depends on experience." });
     const result = await bootstrap(t.store);
+    expect(result.opportunities.find((op) => op.id === dollars.id)).toMatchObject({
+      salaryMin: 90000, salaryMax: 120000, salaryCurrency: "Unknown", salaryPeriod: "year",
+    });
+    expect(result.opportunities.find((op) => op.id === missing.id)).toMatchObject({
+      salaryMin: null, salaryMax: null,
+    });
     for (const op of result.opportunities) {
-      expect(op.salaryMin).toBeNull();
-      expect(op.salaryMax).toBeNull();
       expect(op.salaryVersion).toBe(SALARY_EXTRACTION_VERSION);
     }
     expect(t.save).toHaveBeenCalledTimes(2);

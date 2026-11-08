@@ -814,7 +814,7 @@ integration(
         notes: "Retain the original prospect",
       });
     });
-    it("rolls back duplicate startup edits and corrections together and enforces RPC ownership", async () => {
+    it("keeps startup facts read-only in the API while enforcing atomic corrections and RPC ownership", async () => {
       const actor = await account("Atomic startup corrections test");
       const requestHeaders = headers(actor, actor.workspaceId);
       const created = [];
@@ -835,18 +835,40 @@ integration(
         created.push(response.json());
       }
       const target = created[1];
-      for (const patch of [
+      const rejectedTitle = await app.inject({
+        method: "PATCH",
+        url: `/api/opportunities/${target.id}`,
+        headers: requestHeaders,
+        payload: { title: "Rejected API title" },
+      });
+      expect(rejectedTitle.statusCode, rejectedTitle.body).toBe(400);
+
+      // The public API edits tracking progress only. Exercise the retained internal
+      // corrections transaction directly, using the workspace owner's client.
+      const { createWorkspaceStore } = await import("../src/server/store.js");
+      const store = createWorkspaceStore({
+        workspaceId: actor.workspaceId,
+        client: actor.client,
+        actorUserId: actor.id,
+      });
+      const original = await store.get("opportunities", target.id);
+      expect(original.title).toBe(target.title);
+      await store.saveStartupWithCorrections(
+        { ...original, title: "Reviewed title" },
         { title: "Reviewed title" },
+      );
+      const rejectedNotes = await app.inject({
+        method: "PATCH",
+        url: `/api/opportunities/${target.id}`,
+        headers: requestHeaders,
+        payload: { notes: "Preserve both corrections" },
+      });
+      expect(rejectedNotes.statusCode, rejectedNotes.body).toBe(400);
+      const reviewed = await store.get("opportunities", target.id);
+      await store.saveStartupWithCorrections(
+        { ...reviewed, notes: "Preserve both corrections" },
         { notes: "Preserve both corrections" },
-      ]) {
-        const edited = await app.inject({
-          method: "PATCH",
-          url: `/api/opportunities/${target.id}`,
-          headers: requestHeaders,
-          payload: patch,
-        });
-        expect(edited.statusCode, edited.body).toBe(200);
-      }
+      );
       const readOpportunity = () =>
         actor.client
           .from("opportunities")
@@ -869,17 +891,27 @@ integration(
         title: "Reviewed title",
         notes: "Preserve both corrections",
       });
-      const duplicate = await app.inject({
+      const duplicatePatch = {
+        companyUrl: "https://www.first.atomic-startup.example.test/",
+        description: "This rejected description must never become a correction",
+      };
+      const rejectedFacts = await app.inject({
         method: "PATCH",
         url: `/api/opportunities/${target.id}`,
         headers: requestHeaders,
-        payload: {
-          companyUrl: "https://www.first.atomic-startup.example.test/",
-          description:
-            "This rejected description must never become a correction",
-        },
+        payload: duplicatePatch,
       });
-      expect(duplicate.statusCode, duplicate.body).toBe(409);
+      expect(rejectedFacts.statusCode, rejectedFacts.body).toBe(400);
+      expect((await readOpportunity()).data).toEqual(before.data);
+      expect((await readCorrections()).data).toEqual(previousCorrections.data);
+      const duplicate = await actor.client.rpc("save_startup_with_corrections", {
+        target_workspace: actor.workspaceId,
+        target_opportunity: target.id,
+        opportunity_payload: { ...before.data!.payload, ...duplicatePatch },
+        correction_patch: duplicatePatch,
+      });
+      expect(duplicate.error?.code).toBe("23505");
+      expect(duplicate.error?.message).toContain("opportunities_startup_identity");
       expect((await readOpportunity()).data).toEqual(before.data);
       expect((await readCorrections()).data).toEqual(previousCorrections.data);
 

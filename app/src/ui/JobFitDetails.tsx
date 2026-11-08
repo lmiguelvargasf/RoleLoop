@@ -158,8 +158,8 @@ export function JobFitDetails({
         <div className="job-fit-required">{visible.map(requirementRow)}</div>
       ) : (
         <p className="job-fit-empty">
-          No required qualifications extracted. Edit the job details to add
-          them.
+          No required qualifications extracted. Review the original job posting
+          before deciding whether to apply.
         </p>
       )}
       {preferred.length > 0 && (

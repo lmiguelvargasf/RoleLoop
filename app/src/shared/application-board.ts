@@ -55,3 +55,20 @@ export function applicationProgressFor(
     status,
   };
 }
+
+/** Records the user's submission and suggests a follow-up in their local calendar. */
+export function submittedApplicationProgress(
+  opportunity: Opportunity,
+  now = new Date(),
+): ApplicationProgress {
+  const next = applicationProgressFor(opportunity, "applied");
+  const followUp = new Date(now);
+  followUp.setDate(followUp.getDate() + 7);
+  const day = `${followUp.getFullYear()}-${String(followUp.getMonth() + 1).padStart(2, "0")}-${String(followUp.getDate()).padStart(2, "0")}`;
+  return {
+    ...next,
+    appliedAt: next.appliedAt ?? now.toISOString(),
+    followUpOn: next.followUpOn || day,
+    nextAction: next.nextAction || "Follow up on application",
+  };
+}

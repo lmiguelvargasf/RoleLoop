@@ -190,6 +190,13 @@ export const sourceLibrary: SourceResearch[] = [
     careersUrl: "https://weworkremotely.com/remote-job-rss-feed",
     checkedAt: "2026-11-07",
   },
+  {
+    source: { id: "recommended-himalayas", provider: "himalayas", label: "Himalayas", board: "", enabled: true },
+    description: "Country-aware remote job search across employers, including careers sites outside supported ATS platforms. Employer headquarters needs checking.",
+    coverage: "Three rotating role queries · two pages each · daily shared cache",
+    careersUrl: "https://himalayas.app/api",
+    checkedAt: "2026-11-07",
+  },
 ];
 export const recommendedSources: Source[] = sourceLibrary.map(({ source }) => ({
   ...source,
@@ -235,7 +242,7 @@ export function sourceKind(
 ): "company_board" | "job_feed" | "startup_feed" {
   return ["hackernews", "seedcamp"].includes(source.provider)
     ? "startup_feed"
-    : ["jobicy", "weworkremotely"].includes(source.provider)
+    : ["jobicy", "weworkremotely", "himalayas"].includes(source.provider)
       ? "job_feed"
       : "company_board";
 }
@@ -258,7 +265,7 @@ export function normalizeSource(source: Source): Source {
     board = parts[0] ?? "";
   }
   if (
-    !["hackernews", "seedcamp", "jobicy", "weworkremotely"].includes(
+    !["hackernews", "seedcamp", "jobicy", "weworkremotely", "himalayas"].includes(
       provider,
     ) &&
     !/^[a-zA-Z0-9][a-zA-Z0-9._-]{0,99}$/.test(board)

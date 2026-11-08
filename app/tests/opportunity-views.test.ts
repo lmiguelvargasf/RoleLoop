@@ -5,6 +5,7 @@ import {
   type OpportunityView,
 } from "../src/shared/opportunity-views.js";
 import type { Opportunity } from "../src/shared/types.js";
+import { applicationColumn } from "../src/shared/application-board.js";
 import { demoOpportunities, demoWorkspace } from "./fixtures.js";
 
 const workspace = demoWorkspace();
@@ -24,6 +25,55 @@ const matches = (opportunity: Opportunity, view: OpportunityView) =>
   opportunityMatchesView(opportunity, preferences, view);
 
 describe("simplified opportunity views", () => {
+  it.each(["himalayas", "weworkremotely"])(
+    "keeps expired %s adverts hidden while preserving archived application history",
+    (provider) => {
+      const expired = job({
+        source: provider,
+        sourceKey: `${provider}:job`,
+        sourceExpiresAt: "2020-01-01T00:00:00.000Z",
+      });
+      for (const view of ["recommended", "all", "archived"] as const) {
+        expect(matches(expired, view)).toBe(false);
+        expect(matches({ ...expired, stage: "archived" }, view)).toBe(false);
+      }
+      for (const status of [
+        "saved",
+        "applied",
+        "interview",
+        "offer",
+        "rejected",
+        "withdrawn",
+      ] as const) {
+        const tracked = {
+          ...expired,
+          application: {
+            status,
+            appliedAt: "2019-12-01T00:00:00.000Z",
+            nextAction: "Follow up",
+            followUpOn: null,
+            notes: "My application history",
+          },
+        };
+        const archived = { ...tracked, stage: "archived" as const };
+        expect(matches(archived, "archived")).toBe(true);
+        for (const view of ["recommended", "all"] as const) {
+          expect(matches(tracked, view)).toBe(false);
+          expect(matches(archived, view)).toBe(false);
+        }
+        expect(matches(tracked, "archived")).toBe(false);
+        expect(applicationColumn(archived)).toBeNull();
+        expect(applicationColumn({ ...archived, stage: "new" })).not.toBeNull();
+        expect(archived.application).toEqual(tracked.application);
+      }
+      expect(
+        matches(
+          { ...expired, sourceExpiresAt: "2099-01-01T00:00:00.000Z" },
+          "all",
+        ),
+      ).toBe(true);
+    },
+  );
   it("preserves hard hiring restrictions in Recommended", () => {
     const eligible = job({ stage: "drafted" });
     const restricted = job({

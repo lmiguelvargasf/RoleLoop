@@ -19,6 +19,45 @@ function assess(description: string, country = "Ecuador", location = "Remote") {
 }
 
 describe("geographic hiring eligibility", () => {
+  it("reviews source timezone restrictions without assuming a timezone from country", () => {
+    const job = {
+      location: "Remote worldwide", description: "We hire globally.",
+      remoteScope: "worldwide" as const, sourceTimezoneRestrictions: [-5],
+    };
+    expect(assessGeography(job, "Ecuador").status).toBe("review");
+    expect(assessGeography(job, "Ecuador").unknowns.join(" ")).toContain("actual work location");
+    expect(assessGeography({ ...job, sourceTimezoneRestrictions: [] }, "Ecuador").status).toBe("eligible");
+    expect(assessGeography({
+      ...job,
+      sourceTimezoneRestrictions: [-11, -10, -9.5, -9, -8, -7, -6, -5, -4, -3.5, -3, -2, -1, 0, 1, 2, 3, 3.5, 4, 4.5, 5, 5.5, 5.75, 6, 6.5, 7, 8, 8.75, 9, 9.5, 10, 10.5, 11, 12, 12.75, 13, 14],
+    }, "Ecuador").status).toBe("eligible");
+  });
+
+  it("honors a country after a required timezone despite an Anywhere feed label", () => {
+    const description =
+      "Typeform is fully remote by design. For this role, we can hire candidates based in the ET timezone in the US.";
+    const result = assess(description, "Ecuador", "Remote — Anywhere in the World");
+    expect(result.status).toBe("excluded");
+    expect(result.blockers.join(" ")).toContain("United States");
+    expect(assess(description, "United States", "Remote worldwide").blockers).toEqual([]);
+    expect(assess("Remote worldwide. Candidates must work US hours.").blockers).toEqual([]);
+  });
+
+  it.each([
+    "Contract | Remote, worldwide. Please note that eligibility may vary depending on your location, as some regions may not be supported by the client.",
+    "Remote worldwide. Some countries may not be supported by the client.",
+  ])("reviews conditional country eligibility: %s", (description) => {
+    const result = assess(description, "Ecuador", "Remote worldwide");
+    expect(result.status).toBe("review");
+    expect(result.blockers).toEqual([]);
+    expect(result.unknowns.join(" ")).toContain("hiring restrictions need confirmation");
+  });
+
+  it("does not confuse location-dependent benefits with hiring eligibility", () => {
+    expect(assess("Remote worldwide. Benefits may vary depending on your location.").status).toBe("eligible");
+    expect(assess("Remote worldwide. Health insurance eligibility may vary depending on your location.").status).toBe("eligible");
+  });
+
   it.each([
     "Full-Stack Engineer, Part-Time AI Code Evaluation - Remote (United States)",
     "Part-time, under 20 hours a week, you choose when; fully remote, United States",

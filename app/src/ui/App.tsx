@@ -17,6 +17,7 @@ import {
   Columns3,
   Check,
   CheckCircle2,
+  CalendarCheck,
   Download,
   ExternalLink,
   FileText,
@@ -104,6 +105,9 @@ import { AutomationPreferences } from "./AutomationPreferences";
 import { ResumePage } from "./ResumePage";
 import { EditorHeader } from "./EditorHeader";
 import { ActivityPage } from "./ActivityPage";
+import { TodayPage } from "./TodayPage";
+import { similarJobKey } from "../shared/today";
+import { jobEngagement } from "../shared/job-engagement";
 import { routeOpportunity, routePage } from "./navigation";
 import { WorkspaceStatus, serverUnavailable } from "./WorkspaceStatus";
 import {
@@ -112,6 +116,7 @@ import {
 } from "../shared/industries";
 
 type Page =
+  | "today"
   | "jobs"
   | "applications"
   | "startups"
@@ -126,6 +131,7 @@ type Perform = (
   success?: string,
 ) => Promise<boolean>;
 const nav = [
+  { id: "today", label: "Today", icon: CalendarCheck },
   { id: "jobs", label: "Job opportunities", icon: Briefcase },
   { id: "applications", label: "Applications", icon: Columns3 },
   { id: "startups", label: "Startup prospects", icon: Rocket },
@@ -284,7 +290,7 @@ export function App({
     [page, setPage] = useState<Page>(() =>
       nav.some((n) => n.id === routePage(location.hash))
         ? (routePage(location.hash) as Page)
-        : "jobs",
+        : "today",
     );
   const [toast, setToast] = useState<{
     message: string;
@@ -382,7 +388,7 @@ export function App({
   return (
     <div className="app-shell">
       <aside className="sidebar">
-        <a href="#jobs" onClick={() => navigate("jobs")} className="brand">
+        <a href="#today" onClick={() => navigate("today")} className="brand">
           <span className="brand-mark" />
           RoleLoop<span className="brand-period">.</span>
         </a>
@@ -477,6 +483,24 @@ export function App({
             </div>
           </div>
         )}
+        {page === "today" && (
+          <TodayPage
+            data={data}
+            busy={busy}
+            perform={perform}
+            onOpenOpportunity={(opportunity) => {
+              const target =
+                opportunity.kind === "startup"
+                  ? isTrackedOutreach(opportunity)
+                    ? "outreach"
+                    : "startups"
+                  : isTrackedApplication(opportunity)
+                    ? "applications"
+                    : "jobs";
+              location.hash = `${target}?opportunity=${encodeURIComponent(opportunity.id)}`;
+            }}
+          />
+        )}
         {(page === "jobs" ||
           page === "startups" ||
           page === "outreach" ||
@@ -545,6 +569,9 @@ function Opportunities({
   navigate: (p: Page) => void;
 }) {
   const [query, setQuery] = useState(""),
+    [engagement, setEngagement] = useState<
+      "all" | "full_time" | "flexible" | "unknown"
+    >("all"),
     [sourceFilter, setSourceFilter] = useState<JobSourceFilter>("all"),
     [startupSource, setStartupSource] = useState("all"),
     [stage, setStage] = useState(() => {
@@ -571,6 +598,7 @@ function Opportunities({
       setSelected(id);
       setQuery("");
       setSourceFilter("all");
+      setEngagement("all");
       setStartupSource("all");
       setVisibleCount(50);
       setStage(
@@ -597,6 +625,10 @@ function Opportunities({
             stage as OpportunityView,
           ) &&
           jobMatchesSource(o, data.sources, sourceFilter) &&
+          (engagement === "all" ||
+            (engagement === "flexible"
+              ? ["contract", "part_time"].includes(jobEngagement(o).kind)
+              : jobEngagement(o).kind === engagement)) &&
           opportunityMatchesQuery(o, query)
         : startupMatchesView(o, stage as StartupView) &&
           startupMatchesSource(o, startupSource) &&
@@ -604,7 +636,8 @@ function Opportunities({
     );
   const hasQuery = Boolean(query.trim());
   const hasStartupFilter = hasQuery || startupSource !== "all";
-  const hasSourceFilter = kind === "job" && sourceFilter !== "all";
+  const hasSourceFilter =
+    kind === "job" && (sourceFilter !== "all" || engagement !== "all");
   const sourceFilterLabel =
     sourceFilter === "all" ? "All sources" : jobSourceLabels[sourceFilter];
   const sourceOptions = jobSourceOptions(all, data.sources);
@@ -618,6 +651,11 @@ function Opportunities({
     });
   const hasActive = all.some((opportunity) => opportunity.stage !== "archived");
   const visibleList = list.slice(0, visibleCount);
+  const similarCounts = new Map<string, number>();
+  for (const opportunity of all.filter((op) => op.stage !== "archived")) {
+    const key = similarJobKey(opportunity);
+    similarCounts.set(key, (similarCounts.get(key) || 0) + 1);
+  }
   const recommendations = new Map(
     kind === "job"
       ? all.map((opportunity) => [
@@ -808,6 +846,16 @@ function Opportunities({
       {kind === "startup" && <StartupCompanyOverview opportunity={chosen} />}
       <div className="detail-grid">
         {kind === "job" && (
+          <div>
+            <small>Work type</small>
+            <span>
+              {[jobEngagement(chosen).label, jobEngagement(chosen).hoursLabel]
+                .filter(Boolean)
+                .join(" · ")}
+            </span>
+          </div>
+        )}
+        {kind === "job" && (
           <div className="job-salary">
             <small>Salary</small>
             <span>{salary(chosen)}</span>
@@ -858,12 +906,27 @@ function Opportunities({
         )}
         {(kind === "job" || chosen.publishedAt) && (
           <div>
-            <small>{kind === "job" ? "Posted" : "Signal date"}</small>
-            <span>{date(chosen.publishedAt)}</span>
+            <small>
+              {kind === "job"
+                ? chosen.publishedAt
+                  ? "Posted"
+                  : chosen.sourceUpdatedAt
+                    ? "Source updated"
+                    : "Posted"
+                : "Signal date"}
+            </small>
+            <span>
+              {date(chosen.publishedAt || chosen.sourceUpdatedAt || null)}
+            </span>
           </div>
         )}
       </div>
       <div className="inspector-links">
+        {chosen.sourceAttributionUrl && (
+          <External url={chosen.sourceAttributionUrl}>
+            Source · Himalayas
+          </External>
+        )}
         <External url={chosen.url}>
           {kind === "job" ? "View job posting" : "View source"}
           {chosen.source === "jobicy" ? " · Jobicy" : ""}
@@ -877,6 +940,13 @@ function Opportunities({
           <External url={chosen.companyUrl}>Company website</External>
         )}
       </div>
+      {chosen.sourceExpiresAt &&
+        Date.parse(chosen.sourceExpiresAt) <= Date.now() && (
+          <p className="notice warning">
+            This source listing has expired. Verify the employer is still hiring
+            before applying.
+          </p>
+        )}
       <div className="action-bar">
         {kind === "job" && !board && chosen.stage !== "archived" && (
           <>
@@ -1136,7 +1206,7 @@ function Opportunities({
     );
   return (
     <section
-      className={`page opportunities-page ${kind === "startup" ? "startup-prospects-page" : ""}`}
+      className={`page opportunities-page ${kind === "startup" ? "startup-prospects-page" : "job-opportunities-page"}`}
       aria-labelledby="opportunities-title"
     >
       <header className="page-heading">
@@ -1189,6 +1259,13 @@ function Opportunities({
               onViewChange={changeView}
               source={sourceFilter}
               sourceOptions={sourceOptions}
+              engagement={engagement}
+              onEngagementChange={(value) => {
+                setEngagement(value);
+                setVisibleCount(stage === "recommended" ? 10 : 50);
+                setChecked(new Set());
+                setSelected(null);
+              }}
               onSourceChange={(source) => {
                 setSourceFilter(source);
                 setVisibleCount(stage === "recommended" ? 10 : 50);
@@ -1245,6 +1322,15 @@ function Opportunities({
           </span>
         </div>
       )}
+      {kind === "job" &&
+        visibleList.some((opportunity) =>
+          opportunity.sourceKey.startsWith("himalayas:"),
+        ) && (
+          <p className="job-source-attribution">
+            Includes listings from{" "}
+            <External url="https://himalayas.app">Himalayas</External>.
+          </p>
+        )}
       {selectedOpportunities.length > 0 && (
         <div className="job-selection-bar" role="status">
           <span>{selectedOpportunities.length} selected</span>
@@ -1356,7 +1442,36 @@ function Opportunities({
                           ]
                             .filter(Boolean)
                             .join(" · ")}
+                      {kind === "job" && (
+                        <>
+                          <span>·</span>
+                          {jobEngagement(o).kind !== "unknown" && (
+                            <>
+                              {jobEngagement(o).label}
+                              <span>·</span>
+                            </>
+                          )}
+                          {jobEngagement(o).hoursLabel && (
+                            <>
+                              {jobEngagement(o).hoursLabel}
+                              <span>·</span>
+                            </>
+                          )}
+                          {o.publishedAt
+                            ? `Posted ${date(o.publishedAt)}`
+                            : o.sourceUpdatedAt
+                              ? `Updated ${date(o.sourceUpdatedAt)}`
+                              : "Posting date unknown"}
+                        </>
+                      )}
                     </span>
+                    {kind === "job" &&
+                      similarCounts.get(similarJobKey(o))! > 1 && (
+                        <span className="job-similar-note">
+                          {similarCounts.get(similarJobKey(o))} similar listings
+                          · compare before applying
+                        </span>
+                      )}
                     {kind === "job" && stage === "recommended" && (
                       <span className="job-fit-explanation">
                         <span>{recommendations.get(o.id)?.reason}</span>
@@ -1369,6 +1484,11 @@ function Opportunities({
                     )}
                   </span>
                   <span className="opportunity-trailing">
+                    {kind === "job" && stage === "recommended" && (
+                      <span className="job-next-action">
+                        {jobNextAction(o, data.preferences)}
+                      </span>
+                    )}
                     {(kind === "job"
                       ? stage !== "recommended"
                       : o.stage === "archived") && (
@@ -1473,7 +1593,7 @@ function Opportunities({
                 hasQuery
                   ? "No jobs match these filters"
                   : hasSourceFilter
-                    ? "No jobs match this source"
+                    ? "No jobs match these filters"
                     : stage === "recommended"
                       ? "No strong recommendations yet"
                       : hasActive
@@ -1484,7 +1604,7 @@ function Opportunities({
                 hasQuery
                   ? "Try another company, title or skill, or clear your filters to see the jobs in this view."
                   : hasSourceFilter
-                    ? `${sourceFilterLabel} has no jobs in this view. Choose another source or change the view.`
+                    ? "No jobs match this source and work type. Clear filters or change the view."
                     : stage === "recommended" && hasActive
                       ? `Recommendations need relevant experience at your ${data.preferences.essentialMatch}% minimum match and no confirmed preference conflict. All saved is ranked by fit, and jobs you are already pursuing stay in Applications.`
                       : "Search for jobs using your preferences. RoleLoop finds openings and evaluates them against your resume."
@@ -1498,6 +1618,7 @@ function Opportunities({
                       setQuery("");
                       setChecked(new Set());
                       setSourceFilter("all");
+                      setEngagement("all");
                       setVisibleCount(stage === "recommended" ? 10 : 50);
                     } else changeView("all");
                   }}
@@ -1543,9 +1664,24 @@ function Opportunities({
   );
 }
 
+function jobNextAction(o: Opportunity, preferences: Preferences) {
+  if (jobLocationStatus(o, preferences) !== "eligible")
+    return "Confirm hiring country";
+  if (
+    o.assessment?.unknowns.some((item) =>
+      /salary|compensation|pay-period/i.test(item),
+    )
+  )
+    return "Confirm compensation";
+  const fit = recommendationForJob(o, preferences);
+  if (o.assessment?.unknowns.length || fit.question || fit.score === null)
+    return "Review remaining checks";
+  return "Ready to apply";
+}
+
 function salary(o: Opportunity) {
   if (o.salaryMin === null && o.salaryMax === null) return "Salary to confirm";
-  const currency = o.salaryCurrency || "USD";
+  const currency = o.salaryCurrency || "Unknown";
   const amount = (n: number | null) => {
     if (n === null) return "?";
     try {
@@ -1556,7 +1692,7 @@ function salary(o: Opportunity) {
         notation: n >= 1000 ? "compact" : "standard",
       }).format(n);
     } catch {
-      return `${currency} ${n.toLocaleString()}`;
+      return n.toLocaleString();
     }
   };
   const range =
@@ -1567,9 +1703,13 @@ function salary(o: Opportunity) {
         : o.salaryMin === o.salaryMax
           ? amount(o.salaryMin)
           : `${amount(o.salaryMin)}–${amount(o.salaryMax)}`;
-  return o.salaryPeriod === "unknown"
-    ? `${range} · period unconfirmed`
-    : `${range} / ${o.salaryPeriod}`;
+  const formatted =
+    o.salaryPeriod === "unknown"
+      ? `${range} · period unconfirmed`
+      : `${range} / ${o.salaryPeriod}`;
+  return !currency || /^unknown$/i.test(currency)
+    ? `${formatted} · currency unconfirmed`
+    : formatted;
 }
 function NoticeList({
   title,
@@ -2029,6 +2169,34 @@ function DraftDetail({
       )}
       <div className="draft-actions">
         <div className="button-row">
+          <button
+            className="button"
+            disabled={busy || editing}
+            onClick={() =>
+              void perform(
+                () =>
+                  navigator.clipboard.writeText(
+                    tab === "answers"
+                      ? draft.answers
+                          .map(
+                            (answer) => `${answer.question}\n${answer.answer}`,
+                          )
+                          .join("\n\n")
+                      : draft[tab],
+                  ),
+                "Copied to clipboard.",
+              )
+            }
+          >
+            Copy{" "}
+            {tab === "answers"
+              ? "answers"
+              : tab === "resume"
+                ? "résumé"
+                : tab === "coverLetter"
+                  ? "cover letter"
+                  : "summary"}
+          </button>
           {draft.kind === "application" && (
             <button
               className="button"
@@ -2056,6 +2224,16 @@ function DraftDetail({
           </button>
         </div>
       </div>
+      {draft.kind === "application" &&
+        opportunity &&
+        opportunity.stage !== "archived" && (
+          <ApplicationProgress
+            key={`${opportunity.id}:${JSON.stringify(opportunity.application)}`}
+            opportunity={opportunity}
+            busy={busy || editing}
+            perform={perform}
+          />
+        )}
       <div className="evidence-count">
         <ShieldCheck size={14} />
         {draft.evidenceIds.length} verified evidence{" "}

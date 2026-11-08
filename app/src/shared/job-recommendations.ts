@@ -6,7 +6,7 @@ import {
 import { matchesTargetRole } from "./discovery.js";
 import type { Opportunity, Preferences } from "./types.js";
 
-export const JOB_RECOMMENDATION_RULES_VERSION = 12;
+export const JOB_RECOMMENDATION_RULES_VERSION = 13;
 
 export function credentialCondition(text: string): {
   kind:
@@ -55,6 +55,7 @@ const geographyCache = new WeakMap<
     description: string;
     remoteScope: Opportunity["remoteScope"];
     title: string;
+    timezones: Opportunity["sourceTimezoneRestrictions"];
     value: GeographyAssessment;
   }
 >();
@@ -85,7 +86,8 @@ function currentGeography(
     cached.location === opportunity.location &&
     cached.description === opportunity.description &&
     cached.remoteScope === opportunity.remoteScope &&
-    cached.title === opportunity.title
+    cached.title === opportunity.title &&
+    cached.timezones === opportunity.sourceTimezoneRestrictions
   )
     return cached.value;
   const value = assessGeography(opportunity, preferences.country);
@@ -95,6 +97,7 @@ function currentGeography(
     description: opportunity.description,
     remoteScope: opportunity.remoteScope,
     title: opportunity.title,
+    timezones: opportunity.sourceTimezoneRestrictions,
     value,
   });
   return value;
@@ -225,16 +228,19 @@ export function recommendationForJob(
         const match = assessment.matches.find(
           (entry) => entry.requirementId === requirement.id,
         );
-        return total + (
-          match?.evidenceIds.length
+        return (
+          total +
+          (match?.evidenceIds.length
             ? match.status === "matched"
               ? 1
               : match.status === "partial"
                 ? 0.5
                 : 0
-            : 0
+            : 0)
         );
-      }, 0) / preferred.length) * 100
+      }, 0) /
+        preferred.length) *
+      100
     : 0;
   const mandatoryGap = required.some((requirement) => {
     const match = assessment.matches.find(
@@ -262,15 +268,16 @@ export function recommendationForJob(
     geography.status === "review"
       ? `Confirm hiring from ${preferences.country || "your working country"}.`
       : undefined;
-  const missingEssential = quality.assessedRequired === required.length
-    ? required.find((requirement) =>
-        assessment.matches.some(
-          (match) =>
-            match.requirementId === requirement.id &&
-            match.status === "missing",
-        ),
-      )
-    : undefined;
+  const missingEssential =
+    quality.assessedRequired === required.length
+      ? required.find((requirement) =>
+          assessment.matches.some(
+            (match) =>
+              match.requirementId === requirement.id &&
+              match.status === "missing",
+          ),
+        )
+      : undefined;
   const experienceQuestion = missingEssential
     ? `Required experience not evidenced: ${missingEssential.text.replace(/[.!]$/, "")}.`
     : undefined;

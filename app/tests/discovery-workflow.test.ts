@@ -257,10 +257,10 @@ describe("practical discovery", () => {
   });
   it("records source provenance across providers without claiming a feed employer is US-based", () => {
     expect(new Set(sourceLibrary.map((r) => r.source.provider))).toEqual(
-      new Set(["greenhouse", "ashby", "lever", "jobicy", "weworkremotely"]),
+      new Set(["greenhouse", "ashby", "lever", "jobicy", "weworkremotely", "himalayas"]),
     );
     for (const entry of sourceLibrary.filter(
-      (r) => !["jobicy", "weworkremotely"].includes(r.source.provider),
+      (r) => !["jobicy", "weworkremotely", "himalayas"].includes(r.source.provider),
     )) {
       expect(entry.source.countrySource).toMatch(/^https:\/\//);
       expect(entry.source.companyCountry).toBe("United States");
