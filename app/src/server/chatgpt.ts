@@ -58,6 +58,8 @@ type Pending = {
   verifier: string;
   clientId: string;
   isNew: boolean;
+  subject?: string;
+  manual: boolean;
   launch: string;
   authUrl: string;
   redirectUri: string;
@@ -280,7 +282,138 @@ function cancel(userId: string) {
     pending.delete(userId);
   }
 }
-export async function startChatGPTLogin(userId: string, profileId?: string) {
+function validCallback(attempt: Pending, url: URL) {
+  const redirect = new URL(attempt.redirectUri);
+  return (
+    url.origin === redirect.origin &&
+    url.pathname === redirect.pathname &&
+    !url.username &&
+    !url.password &&
+    !url.hash &&
+    url.searchParams.getAll("state").length === 1 &&
+    url.searchParams.get("state") === attempt.state &&
+    ["code", "client_id", "error"].every(
+      (key) => url.searchParams.getAll(key).length <= 1,
+    ) &&
+    !(url.searchParams.has("code") && url.searchParams.has("error")) &&
+    !attempt.consumed &&
+    !attempt.cancelled
+  );
+}
+async function finishChatGPTLogin(attempt: Pending, url: URL) {
+  if (!validCallback(attempt, url))
+    throw chatgptError(
+      "This sign-in attempt is invalid or expired. Start sign-in again.",
+      "chatgpt_invalid_callback",
+      400,
+    );
+  // Both callback routes share this one-time claim before any asynchronous work.
+  attempt.consumed = true;
+  const { userId } = attempt;
+  try {
+    if (url.searchParams.has("error"))
+      throw chatgptError("ChatGPT sign-in was cancelled. You can try again.");
+    const clientId = url.searchParams.has("client_id")
+      ? url.searchParams.get("client_id")!
+      : !attempt.isNew
+        ? attempt.clientId
+        : "";
+    if (
+      !clientId ||
+      clientId === "dynamic_agent_client" ||
+      (!attempt.isNew && clientId !== attempt.clientId)
+    )
+      throw chatgptError(
+        "ChatGPT registration could not be verified. Start sign-in again.",
+      );
+    const code = url.searchParams.get("code");
+    if (!code) throw chatgptError("ChatGPT did not return a sign-in code.");
+    // Retain an issued registration even if its short-lived code expires.
+    await locked(userId, async (state) => {
+      if (!state.profiles.some((p) => p.id === attempt.profileId))
+        state.profiles.push({
+          id: attempt.profileId,
+          clientId,
+          label: `ChatGPT account ${state.profiles.length + 1}`,
+        });
+    });
+    const result = await tokenRequest(
+      new URLSearchParams({
+        grant_type: "authorization_code",
+        client_id: clientId,
+        code,
+        code_verifier: attempt.verifier,
+        redirect_uri: attempt.redirectUri,
+        resource,
+      }),
+    );
+    if (!result.id_token)
+      throw chatgptError("ChatGPT did not return a verifiable identity.");
+    const identity = await verifyIdentity(
+      result.id_token,
+      clientId,
+      attempt.nonce,
+      attempt.subject,
+    );
+    if (attempt.cancelled) throw chatgptError("Sign-in was cancelled.");
+    await locked(userId, async (state) => {
+      if (attempt.cancelled) throw chatgptError("Sign-in was cancelled.");
+      const profile = state.profiles.find((p) => p.id === attempt.profileId)!;
+      delete profile.suspended;
+      delete profile.models;
+      Object.assign(profile, identity, {
+        tokens: tokens(result),
+        label: `${identity.email || "ChatGPT account"} · ${profile.id.slice(0, 6)}`,
+      });
+      state.activeId = profile.id;
+      state.mode = "chatgpt";
+    });
+    return {
+      message: result.scope?.split(/\s+/).includes(permission)
+        ? "ChatGPT connected. Return to RoleLoop to select your model."
+        : "Signed in. Return to RoleLoop and enable ChatGPT plan usage to run AI requests.",
+    };
+  } catch (error) {
+    if (!attempt.cancelled)
+      errors.set(
+        userId,
+        error instanceof Error
+          ? error.message
+          : "ChatGPT sign-in failed. Try again.",
+      );
+    throw error;
+  } finally {
+    clearTimeout(attempt.timer);
+    if (pending.get(userId) === attempt) pending.delete(userId);
+    attempt.server.close();
+  }
+}
+export async function completeChatGPTLogin(userId: string, callbackUrl: string) {
+  const attempt = pending.get(userId);
+  if (!attempt?.manual)
+    throw chatgptError(
+      "Start a new ChatGPT sign-in from this browser before completing it.",
+      "chatgpt_no_pending_login",
+      400,
+    );
+  let url: URL;
+  try {
+    if (callbackUrl.length > 8192) throw new Error();
+    url = new URL(callbackUrl);
+  } catch {
+    throw chatgptError(
+      "Paste the complete callback URL from the sign-in window's address bar.",
+      "chatgpt_invalid_callback",
+      400,
+    );
+  }
+  return finishChatGPTLogin(attempt, url);
+}
+export async function startChatGPTLogin(
+  userId: string,
+  profileId?: string,
+  manual = false,
+) {
   const state = await read(userId);
   const existing = profileId
     ? state.profiles.find((p) => p.id === profileId)
@@ -297,6 +430,8 @@ export async function startChatGPTLogin(userId: string, profileId?: string) {
     verifier: random(),
     clientId: existing?.clientId || "dynamic_agent_client",
     isNew: !existing?.clientId,
+    subject: existing?.subject,
+    manual,
     launch: random(),
     consumed: false,
     cancelled: false,
@@ -320,88 +455,20 @@ export async function startChatGPTLogin(userId: string, profileId?: string) {
       res.end();
       return;
     }
-    if (
-      req.method !== "GET" ||
-      url.pathname !== "/auth/callback" ||
-      url.searchParams.get("state") !== attempt.state ||
-      attempt.consumed ||
-      attempt.cancelled
-    ) {
+    if (req.method !== "GET" || !validCallback(attempt, url)) {
       res.writeHead(400);
       res.end("This sign-in attempt is invalid or expired.");
       return;
     }
-    attempt.consumed = true;
-    let message = "ChatGPT connected. Return to RoleLoop to select your model.";
+    let message: string;
     try {
-      if (url.searchParams.has("error"))
-        throw chatgptError("ChatGPT sign-in was cancelled. You can try again.");
-      const clientId =
-        url.searchParams.get("client_id") ||
-        (!attempt.isNew ? attempt.clientId : "");
-      if (
-        !clientId ||
-        clientId === "dynamic_agent_client" ||
-        (!attempt.isNew && clientId !== attempt.clientId)
-      )
-        throw chatgptError(
-          "ChatGPT registration could not be verified. Start sign-in again.",
-        );
-      // Retain an issued registration even if its short-lived code expires.
-      await locked(userId, async (state) => {
-        if (!state.profiles.some((p) => p.id === attempt.profileId))
-          state.profiles.push({
-            id: attempt.profileId,
-            clientId,
-            label: `ChatGPT account ${state.profiles.length + 1}`,
-          });
-      });
-      const code = url.searchParams.get("code");
-      if (!code) throw chatgptError("ChatGPT did not return a sign-in code.");
-      const result = await tokenRequest(
-        new URLSearchParams({
-          grant_type: "authorization_code",
-          client_id: clientId,
-          code,
-          code_verifier: attempt.verifier,
-          redirect_uri: attempt.redirectUri,
-          resource,
-        }),
-      );
-      if (!result.id_token)
-        throw chatgptError("ChatGPT did not return a verifiable identity.");
-      const identity = await verifyIdentity(
-        result.id_token,
-        clientId,
-        attempt.nonce,
-        existing?.subject,
-      );
-      if (attempt.cancelled) throw chatgptError("Sign-in was cancelled.");
-      await locked(userId, async (state) => {
-        if (attempt.cancelled) throw chatgptError("Sign-in was cancelled.");
-        const profile = state.profiles.find((p) => p.id === attempt.profileId)!;
-        delete profile.suspended;
-        delete profile.models;
-        Object.assign(profile, identity, {
-          tokens: tokens(result),
-          label: `${identity.email || "ChatGPT account"} · ${profile.id.slice(0, 6)}`,
-        });
-        state.activeId = profile.id;
-        state.mode = "chatgpt";
-      });
-      if (!result.scope?.split(/\s+/).includes(permission))
-        message =
-          "Signed in. Return to RoleLoop and enable ChatGPT plan usage to run AI requests.";
+      ({ message } = await finishChatGPTLogin(attempt, url));
     } catch (error) {
       message =
         error instanceof Error
           ? error.message
           : "ChatGPT sign-in failed. Try again.";
-      errors.set(userId, message);
       res.statusCode = 400;
-    } finally {
-      clearTimeout(attempt.timer);
-      if (pending.get(userId) === attempt) pending.delete(userId);
     }
     const escaped = message.replace(
       /[&<>"']/g,
@@ -418,7 +485,6 @@ export async function startChatGPTLogin(userId: string, profileId?: string) {
     res.end(
       `<!doctype html><title>RoleLoop · ChatGPT</title><meta name="viewport" content="width=device-width"><style>body{font:17px system-ui;max-width:540px;margin:12vh auto;padding:24px;line-height:1.6;color:#18293b}a{color:#087f8c}</style><h1>RoleLoop</h1><p>${escaped}</p><a href="${settings.appUrl}/#account">Return to RoleLoop</a>`,
     );
-    server.close();
   });
   attempt.server = server;
   await new Promise<void>((resolve, reject) => {
@@ -456,7 +522,10 @@ export async function startChatGPTLogin(userId: string, profileId?: string) {
   attempt.timer.unref();
   pending.set(userId, attempt);
   return {
-    url: `http://127.0.0.1:${port}/auth/start?launch=${attempt.launch}`,
+    url: manual
+      ? attempt.authUrl
+      : `http://127.0.0.1:${port}/auth/start?launch=${attempt.launch}`,
+    ...(manual ? { manual: true } : {}),
   };
 }
 export async function selectChatGPT(

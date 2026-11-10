@@ -8,24 +8,39 @@ export function ChatGPTConnectionPanel() {
   const [connection, setConnection] = useState<ChatGPTConnection>();
   const [busy, setBusy] = useState(false),
     [error, setError] = useState(""),
-    [message, setMessage] = useState("");
+    [message, setMessage] = useState(""),
+    [callbackUrl, setCallbackUrl] = useState("");
+  const remote =
+    typeof window !== "undefined" &&
+    !["127.0.0.1", "localhost", "[::1]", "::1"].includes(
+      window.location.hostname,
+    );
   const alive = useRef(true);
   const loading = useRef(false);
+  const refreshRequested = useRef(false);
   const current = useRef<ChatGPTConnection | undefined>(undefined);
   async function load() {
-    if (loading.current) return;
+    if (loading.current) {
+      refreshRequested.current = true;
+      return;
+    }
     loading.current = true;
     try {
       const next = await api<ChatGPTConnection>("/account/chatgpt");
       if (alive.current) {
         setConnection(next);
         current.current = next;
+        if (!next.pending) setCallbackUrl("");
       }
     } catch (err) {
       if (alive.current && (err as Error).name !== "AbortError")
         setError((err as Error).message);
     } finally {
       loading.current = false;
+      if (refreshRequested.current && alive.current) {
+        refreshRequested.current = false;
+        void load();
+      }
     }
   }
   useEffect(() => {
@@ -57,14 +72,15 @@ export function ChatGPTConnectionPanel() {
     }
   }
   function connect(profileId?: string) {
+    setCallbackUrl("");
     // Open synchronously so the browser can allow this user-initiated window.
     const popup = window.open("about:blank", "_blank");
     if (popup) popup.opener = null;
     void action(async () => {
       try {
-        const result = await write<{ url: string }>(
+        const result = await write<{ url: string; manual?: boolean }>(
           "/account/chatgpt/connect",
-          { profileId },
+          { profileId, manual: remote },
         );
         if (!alive.current) {
           popup?.close();
@@ -147,10 +163,65 @@ export function ChatGPTConnectionPanel() {
           {message}
         </div>
       )}
-      {connection?.pending && (
+      {connection?.pending && !remote && (
         <p className="chatgpt-hint" role="status">
           Finish signing in in the browser window.
         </p>
+      )}
+      {connection?.pending && remote && (
+        <form
+          className="chatgpt-preferences"
+          onSubmit={(event) => {
+            event.preventDefault();
+            void action(async () => {
+              const result = await write<{ message: string }>(
+                "/account/chatgpt/complete",
+                { callbackUrl: callbackUrl.trim() },
+              );
+              if (alive.current) {
+                setCallbackUrl("");
+                setMessage(result.message);
+              }
+            });
+          }}
+        >
+          <p className="chatgpt-hint" id="chatgpt-remote-instructions">
+            Finish signing in with ChatGPT. When the browser reaches a localhost
+            connection-error page, copy its full address from the address bar and
+            paste it below. Keep this address private.
+          </p>
+          <label className="field">
+            <span>Callback URL</span>
+            <input
+              type="url"
+              required
+              maxLength={8192}
+              autoComplete="off"
+              spellCheck={false}
+              aria-describedby="chatgpt-remote-instructions"
+              value={callbackUrl}
+              onChange={(event) => setCallbackUrl(event.target.value)}
+              disabled={busy}
+            />
+          </label>
+          <div className="chatgpt-actions">
+            <button
+              className="button primary"
+              disabled={busy || !callbackUrl.trim()}
+            >
+              {busy && <LoaderCircle className="spin" size={16} />}
+              Finish connection
+            </button>
+            <button
+              type="button"
+              className="text-button"
+              disabled={busy}
+              onClick={() => connect(active?.connected ? active.id : undefined)}
+            >
+              Start again
+            </button>
+          </div>
+        </form>
       )}
       {connection?.mode === "chatgpt" &&
         active?.connected &&

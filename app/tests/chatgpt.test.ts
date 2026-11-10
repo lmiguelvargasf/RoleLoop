@@ -1,4 +1,4 @@
-import { randomUUID } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import { readFile, rm, stat } from "node:fs/promises";
 import { resolve } from "node:path";
 import { generateKeyPair, SignJWT } from "jose";
@@ -13,6 +13,7 @@ vi.mock("jose", async (original) => ({
 import {
   chatgptStatus,
   startChatGPTLogin,
+  completeChatGPTLogin,
   stopChatGPTLogins,
   verifyIdentity,
   listChatGPTModels,
@@ -36,6 +37,7 @@ beforeAll(async () => {
 afterEach(async () => {
   stopChatGPTLogins();
   vi.unstubAllGlobals();
+  vi.useRealTimers();
   settings.openaiKey = originalKey;
   for (const id of ids.splice(0))
     await rm(resolve(appDir, `.local/chatgpt/${id}.json`), { force: true });
@@ -134,6 +136,234 @@ it("uses PKCE, a stable host, and one-time state-bound loopback callbacks", asyn
   expect(again.searchParams.get("ext_agent_host_id")).toBe(
     auth.searchParams.get("ext_agent_host_id"),
   );
+});
+function manualCallback(auth: URL) {
+  const callback = new URL(auth.searchParams.get("redirect_uri")!);
+  callback.searchParams.set("state", auth.searchParams.get("state")!);
+  callback.searchParams.set("client_id", "oaiapp_test");
+  callback.searchParams.set("code", "manual-one-time-code");
+  return callback;
+}
+it("completes manual sign-in with the original loopback redirect and PKCE verifier", async () => {
+  const id = user();
+  const result = await startChatGPTLogin(id, undefined, true);
+  expect(result.manual).toBe(true);
+  const auth = new URL(result.url);
+  expect(auth.origin + auth.pathname).toBe(
+    "https://auth.openai.com/api/accounts/authorize",
+  );
+  const callback = manualCallback(auth);
+  expect(callback.origin).toMatch(/^http:\/\/127\.0\.0\.1:\d+$/);
+  expect(callback.pathname).toBe("/auth/callback");
+  const network = mockNetwork(auth.searchParams.get("nonce")!);
+  expect((await chatgptStatus(id)).pending).toBe(true);
+  await expect(completeChatGPTLogin(id, callback.href)).resolves.toEqual({
+    message: "ChatGPT connected. Return to RoleLoop to select your model.",
+  });
+  const tokenCalls = network.mock.calls.filter(([url]) =>
+    String(url).includes("oauth/token"),
+  );
+  expect(tokenCalls).toHaveLength(1);
+  const exchange = new URLSearchParams(tokenCalls[0][1]?.body as URLSearchParams);
+  expect(exchange.get("redirect_uri")).toBe(
+    auth.searchParams.get("redirect_uri"),
+  );
+  expect(exchange.get("code")).toBe("manual-one-time-code");
+  expect(exchange.get("client_id")).toBe("oaiapp_test");
+  expect(
+    createHash("sha256")
+      .update(exchange.get("code_verifier")!)
+      .digest("base64url"),
+  ).toBe(auth.searchParams.get("code_challenge"));
+  expect(await chatgptStatus(id)).toMatchObject({
+    pending: false,
+    mode: "chatgpt",
+    profiles: [{ connected: true, planEnabled: true }],
+  });
+  await expect(completeChatGPTLogin(id, callback.href)).rejects.toMatchObject({
+    code: "chatgpt_no_pending_login",
+  });
+  await expect(originalFetch(callback)).rejects.toThrow();
+});
+it("rejects untrusted or ambiguous pasted callbacks without consuming the real attempt", async () => {
+  const id = user();
+  const auth = new URL((await startChatGPTLogin(id, undefined, true)).url);
+  const callback = manualCallback(auth);
+  const network = mockNetwork(auth.searchParams.get("nonce")!);
+  const variants: [string, (url: URL) => void][] = [
+    ["foreign host", (url) => (url.hostname = "attacker.example")],
+    ["different port", (url) => (url.port = String(Number(url.port) + 1))],
+    ["different path", (url) => (url.pathname = "/callback")],
+    ["HTTPS substitution", (url) => (url.protocol = "https:")],
+    ["user information", (url) => (url.username = "someone")],
+    ["fragment", (url) => (url.hash = "unexpected")],
+    ["wrong state", (url) => url.searchParams.set("state", "another-attempt")],
+    [
+      "duplicate state",
+      (url) => url.searchParams.append("state", auth.searchParams.get("state")!),
+    ],
+    ["duplicate code", (url) => url.searchParams.append("code", "second-code")],
+    [
+      "duplicate client",
+      (url) => url.searchParams.append("client_id", "oaiapp_test"),
+    ],
+    [
+      "mixed error and code",
+      (url) => url.searchParams.set("error", "access_denied"),
+    ],
+    [
+      "duplicate error",
+      (url) => {
+        url.searchParams.delete("code");
+        url.searchParams.append("error", "access_denied");
+        url.searchParams.append("error", "access_denied");
+      },
+    ],
+  ];
+  for (const [reason, mutate] of variants) {
+    const invalid = new URL(callback);
+    mutate(invalid);
+    await expect(
+      completeChatGPTLogin(id, invalid.href),
+      reason,
+    ).rejects.toMatchObject({ code: "chatgpt_invalid_callback" });
+  }
+  for (const invalid of ["not a URL", "x".repeat(8193)])
+    await expect(completeChatGPTLogin(id, invalid)).rejects.toMatchObject({
+      code: "chatgpt_invalid_callback",
+    });
+  expect(network).not.toHaveBeenCalled();
+  expect((await chatgptStatus(id)).pending).toBe(true);
+  await expect(completeChatGPTLogin(id, callback.href)).resolves.toHaveProperty(
+    "message",
+  );
+});
+it("binds manual completion to its own user and refuses local-only attempts", async () => {
+  const alice = user(),
+    bob = user(),
+    local = user(),
+    unknown = user();
+  const aliceAuth = new URL((await startChatGPTLogin(alice, undefined, true)).url);
+  await startChatGPTLogin(bob, undefined, true);
+  const localAuth = await start(local);
+  const network = mockNetwork(aliceAuth.searchParams.get("nonce")!);
+  await expect(
+    completeChatGPTLogin(bob, manualCallback(aliceAuth).href),
+  ).rejects.toMatchObject({ code: "chatgpt_invalid_callback" });
+  for (const id of [local, unknown])
+    await expect(
+      completeChatGPTLogin(id, manualCallback(localAuth).href),
+    ).rejects.toMatchObject({ code: "chatgpt_no_pending_login" });
+  expect(network).not.toHaveBeenCalled();
+  expect((await chatgptStatus(alice)).pending).toBe(true);
+  expect((await chatgptStatus(bob)).pending).toBe(true);
+  expect((await chatgptStatus(local)).pending).toBe(true);
+});
+it("reuses the registered client when a returning manual callback omits its ID", async () => {
+  const id = user();
+  await connect(id);
+  const profile = (await chatgptStatus(id)).activeId!;
+  const auth = new URL((await startChatGPTLogin(id, profile, true)).url);
+  expect(auth.searchParams.get("client_id")).toBe("oaiapp_test");
+  const network = mockNetwork(auth.searchParams.get("nonce")!);
+  const callback = manualCallback(auth);
+  callback.searchParams.delete("client_id");
+  await completeChatGPTLogin(id, callback.href);
+  const exchange = new URLSearchParams(
+    network.mock.calls[0][1]?.body as URLSearchParams,
+  );
+  expect(exchange.get("client_id")).toBe("oaiapp_test");
+  expect((await chatgptStatus(id)).profiles).toHaveLength(1);
+});
+it("rejects a changed returning client without replacing its saved credentials", async () => {
+  const id = user();
+  await connect(id);
+  const profile = (await chatgptStatus(id)).activeId!;
+  const auth = new URL((await startChatGPTLogin(id, profile, true)).url);
+  const network = mockNetwork(auth.searchParams.get("nonce")!);
+  const callback = manualCallback(auth);
+  callback.searchParams.set("client_id", "oaiapp_someone_else");
+  await expect(completeChatGPTLogin(id, callback.href)).rejects.toThrow(
+    "registration",
+  );
+  expect(network).not.toHaveBeenCalled();
+  expect(await chatgptStatus(id)).toMatchObject({
+    pending: false,
+    activeId: profile,
+    profiles: [{ id: profile, connected: true }],
+  });
+});
+it("does not save credentials when manual completion returns another attempt's nonce", async () => {
+  const id = user();
+  const auth = new URL((await startChatGPTLogin(id, undefined, true)).url);
+  const network = mockNetwork("wrong-attempt-nonce");
+  await expect(
+    completeChatGPTLogin(id, manualCallback(auth).href),
+  ).rejects.toMatchObject({ code: "chatgpt_identity_mismatch" });
+  expect(network).toHaveBeenCalledTimes(1);
+  expect(await chatgptStatus(id)).toMatchObject({
+    pending: false,
+    mode: "api",
+    profiles: [{ connected: false }],
+  });
+  expect(
+    await readFile(resolve(appDir, `.local/chatgpt/${id}.json`), "utf8"),
+  ).not.toMatch(/private-access|private-refresh/);
+});
+it("allows only one concurrent manual completion to exchange the code", async () => {
+  const id = user();
+  const auth = new URL((await startChatGPTLogin(id, undefined, true)).url);
+  const callback = manualCallback(auth);
+  const network = mockNetwork(auth.searchParams.get("nonce")!);
+  const outcomes = await Promise.allSettled([
+    completeChatGPTLogin(id, callback.href),
+    completeChatGPTLogin(id, callback.href),
+  ]);
+  expect(outcomes.map((outcome) => outcome.status).sort()).toEqual([
+    "fulfilled",
+    "rejected",
+  ]);
+  expect(
+    network.mock.calls.filter(([url]) => String(url).includes("oauth/token")),
+  ).toHaveLength(1);
+  expect((await chatgptStatus(id)).pending).toBe(false);
+});
+it("cleans up a declined manual attempt without exchanging or saving credentials", async () => {
+  const id = user();
+  const auth = new URL((await startChatGPTLogin(id, undefined, true)).url);
+  const callback = manualCallback(auth);
+  callback.searchParams.delete("code");
+  callback.searchParams.set("error", "access_denied");
+  const network = mockNetwork(auth.searchParams.get("nonce")!);
+  await expect(completeChatGPTLogin(id, callback.href)).rejects.toThrow(
+    "cancelled",
+  );
+  expect(network).not.toHaveBeenCalled();
+  expect(await chatgptStatus(id)).toMatchObject({
+    pending: false,
+    error: expect.stringContaining("cancelled"),
+    profiles: [],
+  });
+  await expect(originalFetch(callback)).rejects.toThrow();
+});
+it("expires abandoned manual attempts and rejects callbacks from replaced attempts", async () => {
+  const id = user();
+  vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+  const oldAuth = new URL((await startChatGPTLogin(id, undefined, true)).url);
+  const auth = new URL((await startChatGPTLogin(id, undefined, true)).url);
+  const network = mockNetwork(auth.searchParams.get("nonce")!);
+  await expect(
+    completeChatGPTLogin(id, manualCallback(oldAuth).href),
+  ).rejects.toMatchObject({ code: "chatgpt_invalid_callback" });
+  await vi.advanceTimersByTimeAsync(10 * 60 * 1000);
+  expect(await chatgptStatus(id)).toMatchObject({
+    pending: false,
+    error: expect.stringContaining("expired"),
+  });
+  await expect(
+    completeChatGPTLogin(id, manualCallback(auth).href),
+  ).rejects.toMatchObject({ code: "chatgpt_no_pending_login" });
+  expect(network).not.toHaveBeenCalled();
 });
 it("checks signed identity, audience, nonce, and selected-account identity", async () => {
   const token = await signed("oaiapp_test", "nonce");

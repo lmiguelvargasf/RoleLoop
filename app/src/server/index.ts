@@ -156,9 +156,22 @@ export async function buildServer() {
   );
   app.post("/api/account/chatgpt/connect", async (req) => {
     const input = z
-      .object({ profileId: z.string().uuid().optional() })
+      .object({
+        profileId: z.string().uuid().optional(),
+        manual: z.boolean().optional(),
+      })
       .parse(req.body);
-    return chatgpt.startChatGPTLogin(identity(req).user.id, input.profileId);
+    return chatgpt.startChatGPTLogin(
+      identity(req).user.id,
+      input.profileId,
+      input.manual,
+    );
+  });
+  app.post("/api/account/chatgpt/complete", async (req) => {
+    const { callbackUrl } = z
+      .object({ callbackUrl: z.string().trim().min(1).max(8192) })
+      .parse(req.body);
+    return chatgpt.completeChatGPTLogin(identity(req).user.id, callbackUrl);
   });
   app.post("/api/account/chatgpt/select", async (req) => {
     const input = z
