@@ -106,6 +106,20 @@ describe("discovery criteria before saving", () => {
       .toMatchObject({ recommendation: "review", blockers: [] });
   });
 
+  it("saves jobs from any target company country and skips other countries", async () => {
+    const t = setup();
+    t.workspace.preferences.companyCountry = "Netherlands, Germany";
+    vi.mocked(discover).mockResolvedValue(
+      ["Netherlands", "Germany", "Canada"].map((companyCountry) => ({
+        ...t.job, id: companyCountry, sourceKey: companyCountry, companyCountry,
+      })),
+    );
+    await processRun(t.store, t.run, async () => {});
+    expect(t.jobs.map((job) => job.companyCountry)).toEqual(["Netherlands", "Germany"]);
+    expect(assessWithAI).toHaveBeenCalledTimes(2);
+    expect(t.run.summary).toMatchObject({ evaluated: 2, newOpportunities: 2 });
+  });
+
   it("continues refreshing a saved application when its listing becomes excluded", async () => {
     const t = setup();
     const saved: Opportunity = {

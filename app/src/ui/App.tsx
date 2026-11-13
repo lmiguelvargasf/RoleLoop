@@ -1784,9 +1784,13 @@ function PreferencesEditor({
                 onChange={(e) => set("country", e.target.value)}
               />
             </Field>
-            <Field label="Target company country">
+            <Field
+              label="Target company countries"
+              hint="Separate countries with commas. Matches any listed country; leave blank for all countries."
+            >
               <input
                 value={prefs.companyCountry}
+                placeholder="Netherlands, Germany, United States"
                 onChange={(e) => set("companyCountry", e.target.value)}
               />
             </Field>

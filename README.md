@@ -98,6 +98,8 @@ help avoid applying twice while preserving distinct requisition IDs.
 
 Before saving new jobs, discovery skips explicit conflicts with your remote hiring eligibility, employer country, salary policy, posting-date window or application deadline. Missing or uncertain facts remain available for review. Previously saved jobs continue to refresh so application history and corrected source details remain available. Jobs can still move outside your criteria as they age or your preferences change.
 
+**Target company countries** accepts multiple countries separated by commas, such as `Netherlands, Germany, United States`. Jobs and startups can match any listed headquarters country; leave the field blank to include all countries. Existing single-country preferences still work. **Working country** remains separate and determines remote hiring eligibility.
+
 Company boards and feeds are maintained internally. Ashby, Greenhouse and Lever host individual employers’ boards; connecting one board does not search every employer using that platform. The board for Ashby itself contains openings at Ashby, while its customers have separate boards. Job feeds cover multiple employers.
 
 Automatic employer discovery uses the public [Himalayas search API](https://himalayas.app/api) and [company-details tool](https://github.com/Himalayas-App/himalayas-mcp) to identify employers and their websites. Only role and working-country queries are sent; no resume or contact information is sent. The worker follows observed careers links and checks supported boards; it never guesses board identifiers. Company provenance is retained with the internal connection records.

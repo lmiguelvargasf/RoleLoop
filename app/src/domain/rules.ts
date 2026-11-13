@@ -288,15 +288,21 @@ export function assessOpportunity(
   const geography = assessGeography(op, prefs.country);
   blockers.push(...geography.blockers);
   unknowns.push(...geography.unknowns);
-  if (prefs.companyCountry && unknown(op.companyCountry))
+  const companyCountries = prefs.companyCountry
+    .split(/[,;\n]+/)
+    .map((country) => country.trim())
+    .filter(Boolean);
+  if (companyCountries.length && unknown(op.companyCountry))
     unknowns.push("Company headquarters country is not verified.");
   else if (
-    prefs.companyCountry &&
-    normalizeCountry(op.companyCountry) !==
-      normalizeCountry(prefs.companyCountry)
+    companyCountries.length &&
+    !companyCountries.some(
+      (country) =>
+        normalizeCountry(op.companyCountry) === normalizeCountry(country),
+    )
   )
     blockers.push(
-      `Company country (${op.companyCountry}) does not match ${prefs.companyCountry}.`,
+      `Company country (${op.companyCountry}) does not match ${companyCountries.join(" or ")}.`,
     );
   if (op.kind === "job") {
     if (op.sourceExpiresAt && new Date(op.sourceExpiresAt) <= now)
