@@ -7,6 +7,38 @@ const integration =
   process.env.ROLELOOP_INTEGRATION === "1" ? describe : describe.skip;
 
 integration("database-enforced workspace isolation", () => {
+  it("removes only the former default role pair while retaining custom titles and other preferences", () => {
+    const migration = readFileSync(new URL(
+      "../supabase/migrations/20261113000100_resume_target_roles.sql", import.meta.url,
+    ), "utf8").replace(/^begin;\s*$/m, "").replace(/^commit;\s*$/m, "");
+    const output = execFileSync("docker", [
+      "exec", "-i", "supabase_db_roleloop-ts", "psql", "-X", "-q",
+      "-v", "ON_ERROR_STOP=1", "-U", "postgres", "-d", "postgres",
+    ], {
+      encoding: "utf8", timeout: 20000,
+      input: `begin;
+        insert into public.workspace(id, payload) values
+          ('integration-roles-default', '{"preferences":{"roles":["Software Engineer","Full Stack Engineer"],"minimumSalary":123456},"sources":[]}'),
+          ('integration-roles-custom', '{"preferences":{"roles":["Software Engineer","Designer"],"minimumSalary":123456},"sources":[]}'),
+          ('integration-roles-empty', '{"preferences":{"roles":[],"minimumSalary":123456},"sources":[]}');
+        ${migration}
+        do $$ begin
+          if (select payload #> '{preferences}' from public.workspace where id = 'integration-roles-default')
+            is distinct from '{"roles":[],"minimumSalary":123456}'::jsonb
+          then raise exception 'Default roles were not cleared or other preferences changed'; end if;
+          if (select payload #> '{preferences,roles}' from public.workspace where id = 'integration-roles-custom')
+            is distinct from '["Software Engineer","Designer"]'::jsonb
+          then raise exception 'Custom roles changed'; end if;
+          if (select payload #> '{preferences,roles}' from public.workspace where id = 'integration-roles-empty')
+            is distinct from '[]'::jsonb
+          then raise exception 'Empty roles changed'; end if;
+        end $$;
+        rollback;
+        select 'Role default migration passed';`,
+    });
+    expect(output).toContain("Role default migration passed");
+  }, 25000);
+
   it("moves legacy working countries to preferences without replacing a saved preference", () => {
     const migration = readFileSync(
       fileURLToPath(

@@ -45,6 +45,10 @@ const extracted = (lines: { id: number; text: string }[]) => {
     name: "Alex Morgan",
     portfolio: "",
     uncertainties: ["Employment dates were not supplied."],
+    suggestedRoles: [{
+      title: entry === quote ? "Frontend Developer" : "Backend Developer",
+      evidence: [{ startLine: range.startLine, endLine: range.endLine }],
+    }],
     entries: [
       {
         startLine: range.startLine,
@@ -221,6 +225,10 @@ integration("CV upload to application generation", () => {
         headers: alice.headers,
       });
       expect(loaded.json().profile).toEqual(profile);
+      expect(loaded.json().preferences.roles).toEqual(["Frontend Developer"]);
+      expect(profile.cache!.suggestedRoles).toEqual([
+        { title: "Frontend Developer", evidenceIds: [evidence.id] },
+      ]);
       const url = `/api/profile/sources/${profile.source!.id}/${profile.source!.kind}`;
       const own = await app.inject({ url, headers: alice.headers });
       expect(own.rawPayload).toEqual(buffer);
@@ -493,5 +501,40 @@ integration("CV upload to application generation", () => {
     expect((await alice.store.getWorkspace()).profile).toEqual(
       newer.json().profile,
     );
+    expect((await alice.store.getWorkspace()).preferences.roles).toEqual(["Backend Developer"]);
+  }, 30000);
+
+  it("merges CV roles with current preferences without restoring concurrent deletions or duplicating titles", async () => {
+    resetAI();
+    const alice = await actor();
+    const original = (await alice.store.getWorkspace()).preferences;
+    await alice.store.updateWorkspace({ preferences: { ...original, roles: ["Product Designer"] } });
+    let finish!: (value: ReturnType<typeof extracted>) => void;
+    let started!: () => void;
+    const waiting = new Promise<void>((resolve) => { started = resolve; });
+    vi.mocked(structuredAI).mockImplementationOnce(async () => {
+      started();
+      return new Promise((resolve) => { finish = resolve; });
+    });
+    const pending = upload(alice, await word());
+    await waiting;
+    const preferences = { ...original, roles: ["frontend developer", "Technical Writer"], minimumSalary: 123456 };
+    try {
+      const response = await app.inject({
+        method: "PUT", url: "/api/preferences", headers: alice.headers, payload: preferences,
+      });
+      expect(response.statusCode, response.body).toBe(200);
+    } finally {
+      finish(extracted([{ id: 1, text: "Alex Morgan" }, { id: 2, text: quote }]));
+    }
+    const response = await pending;
+    expect(response.statusCode, response.body).toBe(200);
+    expect((await alice.store.getWorkspace()).preferences).toEqual(preferences);
+
+    const replacement = await upload(alice, await word(replacementQuote));
+    expect(replacement.statusCode, replacement.body).toBe(200);
+    expect((await alice.store.getWorkspace()).preferences).toEqual({
+      ...preferences, roles: [...preferences.roles, "Backend Developer"],
+    });
   }, 30000);
 });

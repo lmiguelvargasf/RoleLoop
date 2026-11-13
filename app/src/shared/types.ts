@@ -39,6 +39,10 @@ export const CareerFactsSchema = z.object({
   sections: z.array(CareerSectionSchema).default([]),
 });
 export const CV_EXTRACTOR_VERSION = 2;
+export const ResumeRoleSuggestionSchema = z.object({
+  title: z.string().trim().min(1).max(120),
+  evidenceIds: z.array(z.string()).min(1),
+});
 export const ProfileSchema = z.object({
   // Resolved from the workspace owner's account; never persisted here.
   email: z.string().max(200).default(""),
@@ -59,6 +63,7 @@ export const ProfileSchema = z.object({
       extractorVersion: z.number().int(),
       status: z.enum(["processing", "ready", "failed"]),
       facts: CareerFactsSchema.nullable(),
+      suggestedRoles: z.array(ResumeRoleSuggestionSchema).max(5).optional(),
       warnings: z.array(z.string()),
       error: z.string().nullable(),
       errorCode: z.string().optional(),

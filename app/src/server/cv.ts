@@ -72,6 +72,7 @@ export async function processCV(
       ...cache,
       status: "ready",
       facts: result.facts,
+      suggestedRoles: result.suggestedRoles,
       warnings: [...new Set([...parserWarnings, ...result.warnings])],
       processedAt: new Date().toISOString(),
     };
@@ -87,6 +88,9 @@ export async function processCV(
   const saved = await store.updateWorkspace(
     { profile: { ...processing, cache } },
     processing,
+    cache.status === "ready"
+      ? cache.suggestedRoles?.map((suggestion) => suggestion.title)
+      : undefined,
   );
   await store.event(
     cache.status === "ready"

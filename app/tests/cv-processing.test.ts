@@ -22,6 +22,7 @@ vi.mock("../src/server/resume-import.js", () => ({
 const now = Date.parse("2026-11-06T16:00:00Z");
 const extracted = () => ({
   facts: demoWorkspace().profile.cache!.facts!,
+  suggestedRoles: [],
   warnings: [],
 });
 function storeFor(profile = demoWorkspace().profile) {

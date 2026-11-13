@@ -80,6 +80,44 @@ it("restores wrapped statements and their source passage locally", () => {
   expect(facts.sections[0].evidenceIds).toEqual([facts.evidence[0].id]);
 });
 
+it("suggests roles from validated career evidence, separately from factual job titles", () => {
+  const result = validateIndexedExtraction({
+    ...indexed(),
+    suggestedRoles: [
+      { title: " Backend   Developer ", evidence: [{ startLine: 3, endLine: 4 }] },
+      { title: "backend developer", evidence: [{ startLine: 3, endLine: 4 }] },
+      { title: "Unsupported role", evidence: [{ startLine: 99, endLine: 99 }] },
+    ],
+  }, source);
+  expect(result.suggestedRoles).toEqual([
+    { title: "Backend Developer", evidenceIds: [result.facts.evidence[0].id] },
+  ]);
+  expect(result.facts.evidence[0].role).toBe("Engineer");
+  expect(result.warnings.join(" ")).toContain("no supporting career evidence");
+});
+
+it("supports professions outside software without assuming default roles", () => {
+  const text = "Alex\nDesigner Studio 2022\nDesigned brand identities and print campaigns.";
+  const entry = indexed().entries[0];
+  const result = validateIndexedExtraction({
+    ...indexed(),
+    entries: [{ ...entry, endLine: 3, role: "Designer", statements: [{ startLine: 3, endLine: 3, skills: [] }] }],
+    suggestedRoles: [{ title: "Brand Designer", evidence: [{ startLine: 3, endLine: 3 }] }],
+  }, text);
+  expect(result.suggestedRoles.map((role) => role.title)).toEqual(["Brand Designer"]);
+});
+
+it("does not infer roles from standalone skills, invalid records, or absent suggestions", () => {
+  expect(validateIndexedExtraction(indexed(), source).suggestedRoles).toEqual([]);
+  const entry = indexed().entries[0];
+  const result = validateIndexedExtraction({
+    ...indexed(),
+    entries: [{ ...entry, category: "skills" }],
+    suggestedRoles: [{ title: "Engineer", evidence: [{ startLine: 3, endLine: 4 }] }],
+  }, source);
+  expect(result.suggestedRoles).toEqual([]);
+});
+
 it("preserves distinct original positions for identical text in different records", () => {
   const text =
     "Alex\nEngineer Studio 2022\nBuilt TypeScript services.\nEngineer Studio 2024\nBuilt TypeScript services.";

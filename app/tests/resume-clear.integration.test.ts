@@ -194,7 +194,10 @@ integration("clearing extracted resume information", () => {
     vi.mocked(extractFacts).mockImplementationOnce(async () => {
       entered();
       await pending;
-      return { facts: profile.cache!.facts!, warnings: [] };
+      return {
+        facts: profile.cache!.facts!, warnings: [],
+        suggestedRoles: [{ title: "Backend Developer", evidenceIds: [profile.cache!.facts!.evidence[0].id] }],
+      };
     });
     const processing = processCV(
       alice.store,
@@ -215,6 +218,7 @@ integration("clearing extracted resume information", () => {
       release();
     }
     expect(await processing).toMatchObject({ statusCode: 409 });
+    expect((await alice.store.getWorkspace()).preferences.roles).not.toContain("Backend Developer");
     expect((await alice.store.getWorkspace()).profile).toMatchObject({
       source: profile.source,
       cache: null,

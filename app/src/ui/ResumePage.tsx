@@ -363,6 +363,12 @@ export function ResumePage({ initial: profile, busy, perform }: Props) {
               accuracy.
             </p>
           )}
+          {!!profile.cache?.suggestedRoles?.length && (
+            <p className="resume-ready-note">
+              Suggested search roles: {profile.cache.suggestedRoles.map((role) => role.title).join(", ")}.
+              {" "}Review and edit your target roles in Search preferences.
+            </p>
+          )}
           <ResumeFacts key={profile.cache!.id} facts={facts} />
           <footer className="resume-footer">
             <p>
@@ -435,7 +441,7 @@ export function ResumePage({ initial: profile, busy, perform }: Props) {
                     ? "Your resume is saved, but no usable details were found. Replace it with a document that has selectable text."
                     : source
                       ? "Your original resume is saved. Process it again, or replace it with an updated resume."
-                      : "Upload your resume to organize your experience, skills, and qualifications for job matching."}
+                      : "Upload your resume to organize your experience, skills, and qualifications, and add suitable target roles to your search preferences."}
           </p>
           <div className="button-row">
             {!processing &&
@@ -540,6 +546,7 @@ export function ResumePage({ initial: profile, busy, perform }: Props) {
                   </p>
                   <p>
                     Previous uploads, saved drafts and preferences stay saved.
+                    Suitable target roles from this resume may be added to your search preferences.
                     Existing drafts must be regenerated before approval.
                   </p>
                 </>

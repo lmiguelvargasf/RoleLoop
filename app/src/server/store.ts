@@ -205,6 +205,7 @@ export function createWorkspaceStore({
   async function updateWorkspace(
     patch: Partial<Workspace>,
     expectedProfile?: Profile,
+    suggestedRoles?: string[],
   ): Promise<Workspace> {
     const next = (workspaceWrites.get(workspaceId) || Promise.resolve())
       .catch(() => {})
@@ -230,6 +231,9 @@ export function createWorkspaceStore({
         workspace.profile.email = current.profile.email;
         const { email: _contact, ...storedProfile } = workspace.profile;
         const workspacePatch = {
+          ...(suggestedRoles?.length
+            ? { suggested_roles: suggestedRoles }
+            : {}),
           ...(Object.hasOwn(patch, "profile")
             ? { profile: storedProfile }
             : {}),
@@ -255,7 +259,7 @@ export function createWorkspaceStore({
           if (expectedProfile) throw changed();
           return missing();
         }
-        return Object.hasOwn(patch, "sources")
+        return Object.hasOwn(patch, "sources") || suggestedRoles?.length
           ? await getWorkspace()
           : { ...workspace, sourcesRevision: current.sourcesRevision };
       });

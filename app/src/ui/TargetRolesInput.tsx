@@ -84,7 +84,7 @@ export function TargetRolesInput({
           </ul>
         ) : (
           <p className="role-overview-empty">
-            Add the job titles you want to explore.
+            Add job titles or upload your CV to find suitable roles.
           </p>
         )}
         {roles.length > 6 && (
@@ -317,7 +317,7 @@ function RoleEditor({
               <input
                 ref={addInput}
                 id={`${id}-new`}
-                placeholder="e.g. Software Engineer, AI Agents"
+                placeholder="Enter a job title"
                 autoFocus
                 autoComplete="off"
                 disabled={busy}
