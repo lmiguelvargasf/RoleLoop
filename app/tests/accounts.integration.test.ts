@@ -241,6 +241,7 @@ integration(
         });
         expect(own.statusCode, own.body).toBe(200);
         expect(own.json().opportunities).toEqual([]);
+        expect(own.json().preferences.roles).toEqual([]);
         expect(own.json().profile.source).toBeNull();
         expect(own.json().profile.cache).toBeNull();
         expect(own.json().status.studioUrl).toBe("");

@@ -75,7 +75,7 @@ export function emptyWorkspace(user: User): Workspace {
       cache: null,
     },
     preferences: {
-      roles: ["Software Engineer", "Full Stack Engineer"],
+      roles: [],
       minimumSalary: 90000,
       targetSalary: null,
       salaryPolicy: "overlap",
